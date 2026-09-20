@@ -1,0 +1,139 @@
+# Phase 1 — Infrastructure: Redis + MinIO + Vault
+# Usage: docker-compose up [redis|minio|vault]
+# All ports are localhost-bound; TLS disabled until Phase 5.
+
+services:
+  # ── Redis 7 ──────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: llm-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --save 60 1 --loglevel notice
+    volumes:
+      - redis-data:/data
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks:
+      - llm-network
+    ports:
+      - "6379:6379"
+
+  # ── MinIO ────────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: llm-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    env_file:
+      - .env
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - llm-network
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  # ── MinIO init — creates buckets ─────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: llm-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+        mc mb --ignore-existing local/llm-client-files &&
+        mc mb --ignore-existing local/llm-client-forensic &&
+        echo 'Buckets ready.' &&
+        mc ls local/
+      "
+    networks:
+      - llm-network
+    restart: "no"
+
+  # ── HashiCorp Vault (dev-mode) ───────────────────────────
+  vault:
+    image: hashicorp/vault:latest
+    container_name: llm-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    command: server -dev -dev-root-token-id=root
+    env_file:
+      - .env
+    environment:
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=root
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - llm-network
+    ports:
+      - "8200:8200"
+
+  # ── Vault init — transit engine + key + policy ───────────
+  vault-init:
+    image: hashicorp/vault:latest
+    container_name: llm-vault-init
+    depends_on:
+      vault:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=root
+    entrypoint: >
+      /bin/sh -c "
+        vault secrets enable transit &&
+        vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm &&
+        vault policy write forensic-encryptor - <<'EOF'
+path "transit/encrypt/forensic-aes256-gcm" {
+  capabilities = ["update"]
+}
+path "transit/decrypt/forensic-aes256-gcm" {
+  capabilities = ["update"]
+}
+EOF
+        echo 'Vault transit configured.' &&
+        vault policy read forensic-encryptor
+      "
+    networks:
+      - llm-network
+    restart: "no"
+
+volumes:
+  redis-data:
+  minio-data:
+
+networks:
+  llm-network:
+    driver: bridge
