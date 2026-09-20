@@ -54,3 +54,47 @@ def test_vault_provider_init_requires_running_vault():
     # Without a reachable Vault the constructor must fail fast (ADR-014 D-4 DoD).
     with pytest.raises(ConnectionError):
         VaultTransitKeyProvider("http://127.0.0.1:1", "nope")
+
+
+# ---------------------------------------------------------------------------
+# D-4 DoD: EncryptedPayload schema assertion
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_encrypted_payload_schema():
+    """EncryptedPayload must have ciphertext (bytes), iv (12 bytes), key_id (str), algorithm='AES-256-GCM'."""
+    provider = LocalDevKeyProvider()
+    payload = await provider.encrypt(b"test data")
+    assert isinstance(payload, EncryptedPayload)
+    assert isinstance(payload.ciphertext, bytes)
+    assert len(payload.ciphertext) > 0
+    assert isinstance(payload.iv, bytes)
+    assert len(payload.iv) == 12, f"IV must be 12 bytes for GCM, got {len(payload.iv)}"
+    assert isinstance(payload.key_id, str)
+    assert len(payload.key_id) > 0
+    assert payload.algorithm == "AES-256-GCM"
+
+
+@pytest.mark.asyncio
+async def test_encrypt_deterministic_different_results():
+    """Encrypting the same data twice must yield different ciphertexts (unique IV)."""
+    provider = LocalDevKeyProvider()
+    p1 = await provider.encrypt(b"identical input")
+    p2 = await provider.encrypt(b"identical input")
+    assert p1.ciphertext != p2.ciphertext
+    assert p1.iv != p2.iv
+    # But both must decrypt to the same value.
+    assert await provider.decrypt(p1) == b"identical input"
+    assert await provider.decrypt(p2) == b"identical input"
+
+
+@pytest.mark.asyncio
+async def test_decrypt_with_wrong_key_fails():
+    """Decrypting with a different key must fail (InvalidTag)."""
+    from cryptography.exceptions import InvalidTag
+
+    p1 = LocalDevKeyProvider()
+    p2 = LocalDevKeyProvider()
+    payload = await p1.encrypt(b"secret")
+    with pytest.raises(InvalidTag):
+        await p2.decrypt(payload)

@@ -30,6 +30,9 @@ dependencies = [
     "spacy>=3.7.0",
     "hvac>=2.3.0",
     "cryptography>=42.0.0",
+    "alembic>=1.14.0",
+    "asyncpg>=0.30.0",
+    "sqlalchemy>=2.0.0",
 ]
 
 [project.optional-dependencies]
