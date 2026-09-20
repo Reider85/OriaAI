@@ -24,11 +24,11 @@ services:
     networks:
       - llm-network
     ports:
-      - "6379:6379"
+      - "6380:6379"
 
   # ── MinIO ────────────────────────────────────────────────
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: llm-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -53,7 +53,7 @@ services:
 
   # ── MinIO init — creates buckets ─────────────────────────
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     container_name: llm-minio-init
     depends_on:
       minio:
@@ -111,18 +111,13 @@ services:
     environment:
       - VAULT_ADDR=http://vault:8200
       - VAULT_TOKEN=root
-    entrypoint: >
+    volumes:
+      - ./ops/vault/policies:/policies:ro
+    entrypoint: |
       /bin/sh -c "
-        vault secrets enable transit &&
-        vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm &&
-        vault policy write forensic-encryptor - <<'EOF'
-path "transit/encrypt/forensic-aes256-gcm" {
-  capabilities = ["update"]
-}
-path "transit/decrypt/forensic-aes256-gcm" {
-  capabilities = ["update"]
-}
-EOF
+        vault secrets enable transit 2>/dev/null || echo 'transit already enabled' &&
+        vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96 2>/dev/null || echo 'forensic key already exists' &&
+        vault policy write forensic-encryptor /policies/forensic-encryptor.hcl &&
         echo 'Vault transit configured.' &&
         vault policy read forensic-encryptor
       "

@@ -4,3 +4,18 @@ __pycache__/
 *.iml
 .idea/
 .codebuddy/
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Local runtime data (LocalFileStorage base dir)
+data/
+
+# Virtualenvs
+.venv/
+venv/

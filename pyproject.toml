@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llm-client"
+version = "0.1.0"
+description = "LLM Client — LangGraph agent with RAG, MCP, and multi-provider support"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "OriaAI Team" }]
+
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-anthropic>=0.3.0",
+    "redis>=5.0.0",
+    "aiofiles>=24.0.0",
+    "aiobotocore>=2.15.0",
+    "boto3>=1.35.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "streamlit>=1.40.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.7.0",
+    "mypy>=1.12.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llm_client"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: integration tests (needs docker-compose Redis/MinIO/Vault)",
+    "staging_load: staging load tests (nightly)",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
