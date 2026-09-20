@@ -157,6 +157,70 @@ MinIO Console: http://localhost:9001 (логин/пароль из `.env`).
 
 ---
 
+## Phase 1 — ADR-013 полный (Block C) + ADR-014 (Block D)
+
+### C-5 — UI auto-cancel
+
+JS-фрагмент (`src/llm_client/ui/auto_cancel.py`) для Streamlit: слушает
+`visibilitychange` / `pagehide` / `beforeunload`, шлёт `POST /sessions/{id}/cancel`
+через `navigator.sendBeacon` (fallback `fetch keepalive`) при закрытии вкладки.
+Debounce 5 сек — переключение вкладок на короткое время не шлёт cancel. Ручная
+кнопка "Stop" вызывает `window.stop_llm_session("user_cancelled")`.
+
+```python
+from llm_client.ui import inject_auto_cancel
+inject_auto_cancel()  # в начале Streamlit-скрипта
+```
+
+### C-6 — Cancel → forensic logging
+
+`CancelSubscriber` (Block C) вызывает handler, который пишет:
+- **operational** (маскированный): `{event_type, session_id, user_id: "[MASKED]", reason, timestamp}`;
+- **forensic** (полный trace, зашифрованный): user_id полный + partial answer size,
+  last node, message count, duration_ms.
+
+### D-1 — PIIDetector (Presidio + custom regex)
+
+```bash
+pip install "presidio-analyzer>=2.2.0" "spacy>=3.7.0"
+python -m spacy download en_core_web_md
+```
+
+`src/llm_client/security/pii_detector.py`: детектит PERSON, EMAIL, PHONE, CREDIT_CARD,
+IBAN, IP, US_SSN, URL + внутренние форматы `EMP-\d{6}` и `PRJ-[A-Z]{3}-\d{4}`.
+`PII_DETECTOR_ENABLED=false` — no-op для dev/test.
+
+### D-2/D-3 — Dual-Stream Logging
+
+- **Operational** (`OPERATIONAL_LOG_SINK=stdout|loki|elk`): PII маскируется, batch flush 100 ms / 100 events, retention 30 дней задаётся в sink-е (Loki/ELK).
+- **Forensic** (`FORENSIC_STREAM_ENABLED=true`): full trace шифруется AES-256-GCM через
+  Vault transit и пишется в S3 bucket `llm-client-forensic`, путь
+  `forensic/YYYY/MM/DD/{session_id}/...`, batch flush 500 ms / 50 events. Privilege:
+  Security officer + аудит-комитет, retention 90+ дней (lifecycle policy на bucket).
+
+### D-4 — KMS KeyProvider
+
+`KMS_PROVIDER=vault` (default) или `local` (TEST ONLY). Vault-transit интерфейс
+абстрагирует миграцию на managed KMS в Phase 5.
+
+### D-5 — PII score в messages
+
+`PII_METADATA_ENABLED=true` → при записи сообщения `attach_pii_metadata()` считает
+`pii_score` и `pii_entities` (только {type, start, end}, никогда текст PII).
+Миграция: `migrations/005_add_pii_score_to_messages.sql` (применяется когда появится
+таблица `messages` в persistence-слое). Аналитический запрос — в том же файле.
+
+### D-6 — Local dev without Vault
+
+По умолчанию `ENVIRONMENT=dev` + `FORENSIC_STREAM_ENABLED=false`: forensic выключен,
+Vault не запрашивается, приложение стартует только с Redis и MinIO
+(`docker-compose up redis minio`). PIIDetector и operational logging активны всегда.
+
+Для staging/prod: `FORENSIC_STREAM_ENABLED=true` (обязателен Vault, иначе startup
+fails fast; в `env=prod` значение `false` отклоняется валидацией config).
+
+---
+
 ## Справка
 
 - **AOF-персистентность Redis**: файл `appendonly.aof` создаётся в volume `redis-data` после первого `PUBLISH`.
