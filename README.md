@@ -133,8 +133,12 @@ tests/unit/test_cancel_endpoint.py tests/integration/test_redis_cancel.py`.
 
 ### B-2 — S3CompatibleStorage (мин. расш. ADR-008)
 
-Компоненты: `src/llm_client/storage/` (FileStorage interface, LocalFileStorage fallback,
-S3CompatibleStorage) + переключатель `STORAGE_BACKEND=local|s3` (default `local`).
+Компоненты: `src/llm_client/storage/` (FileStorage interface, S3CompatibleStorage) +
+переключатель `STORAGE_BACKEND=local|s3` (default `local`) — на момент Quick Win.
+
+> После Блока E (расш. ADR-008): `LocalFileStorage` **удалён**, `STORAGE_BACKEND` упразднён.
+> Единственный backend — `S3CompatibleStorage` (MinIO в dev, AWS S3 в prod); MinIO **обязателен**
+> для локальной разработки (`docker-compose up -d`, см. «Сервисы»).
 
 Проверка round-trip в MinIO:
 
@@ -218,6 +222,51 @@ Vault не запрашивается, приложение стартует т�
 
 Для staging/prod: `FORENSIC_STREAM_ENABLED=true` (обязателен Vault, иначе startup
 fails fast; в `env=prod` значение `false` отклоняется валидацией config).
+
+---
+
+## Phase 1 — Block E: Single S3 Storage (расш. ADR-008)
+
+### E-1 — S3CompatibleStorage (production-quality)
+
+`src/llm_client/storage/s3.py`: полная реализация `FileStorage` через aiobotocore:
+
+- `save(file, key, metadata=None)` — multipart upload автоматически для файлов > 5 МБ
+  (8 МБ на часть, abort multipart при ошибке), `Metadata` → S3 object metadata;
+- `get` / `get_stream` / `delete` / `exists` / `list` — полный контракт;
+- Error mapping: `404 → FileNotFoundError`, `403/AccessDenied → PermissionError`,
+  остальные transient-ошибки → экспоненциальный retry (1ms→2ms→4ms), затем `StorageError`;
+- Единый backend для dev (MinIO) / staging / prod (S3) — один `FileStorage` контракт.
+
+### E-2 — LocalFileStorage удалён
+
+`LocalFileStorage` и флаг `STORAGE_BACKEND` **удалены** из кодовой базы. Единственный
+backend — `S3CompatibleStorage` (`create_file_storage()` без аргументов). **MinIO
+обязателен для локальной разработки** (`docker-compose up -d`).
+
+Проверка удаления:
+
+```powershell
+rg "LocalFileStorage|STORAGE_BACKEND" src/
+# → 0 совпадений
+```
+
+### E-3 — InMemoryFileStorage (test-double)
+
+`tests/conftest.py`: thread-safe dict-реализация `FileStorage` для unit-тестов.
+Fixture `file_storage` доступна во всех тестовых модулях.
+
+### E-4 — S3 access logs → forensic stream
+
+`src/llm_client/observability/access_log_ingestor.py`: `AccessLogIngestor` — фоновый
+таск, каждые 5 минут читает Server Access Log из `_access_logs/` prefix, парсит каждую
+строку в событие `s3_access` ({bucket, key, operation, requester, request_id, timestamp,
+bytes_transferred}) и передаёт в `ForensicStreamWriter` (шифруется + пишется в forensic
+bucket). Если requester не в allow-list (`S3_ACCESS_LOG_ALLOWLIST`, default
+`llm-client-service`) — пишется alert в `SECURITY_ALERT_WEBHOOK_URL` (Slack #security).
+
+Тесты: `pytest tests/unit/test_access_log_ingestor.py tests/unit/test_s3_storage.py
+tests/integration/test_minio_storage.py`.
 
 ---
 

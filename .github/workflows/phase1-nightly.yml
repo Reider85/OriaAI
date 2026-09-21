@@ -1,0 +1,141 @@
+name: Phase 1 Nightly
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 02:00 UTC
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.12'
+  REDIS_URL: redis://127.0.0.1:6380/0
+  S3_ENDPOINT: http://127.0.0.1:9000
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  VAULT_ADDR: http://127.0.0.1:8200
+
+jobs:
+  # F-1 pytest variant: full staging-load profile (1000 samples as per DoD).
+  cancel-latency-full:
+    runs-on: ubuntu-latest
+    env:
+      RUN_STAGING_LOAD: '1'
+      CANCEL_LATENCY_SAMPLES: '1000'
+      CANCEL_SESSIONS_CONCURRENT: '50'
+      CANCEL_SESSION_START_RPS: '10'
+      CANCEL_SESSION_DELAY_S: '5'
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6380:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install package + dev deps
+        run: pip install -e '.[dev]'
+      - name: F-1 cancel latency (full staging load, 1000 samples)
+        run: pytest -s tests/staging_load/test_cancel_latency.py
+
+  # F-1 k6 variant against real staging web-server (workflow_dispatch manual
+  # trigger works even when the secret is absent; scheduled runs skip if unset).
+  cancel-latency-k6:
+    if: ${{ secrets.STAGING_BASE_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: grafana/setup-k6-action@v1
+      - name: k6 cancel latency against staging
+        run: k6 run tests/staging_load/k6_cancel_latency.js
+        env:
+          BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+
+  # F-2 PII leak audit — integration-level run against staging-like infra.
+  pii-leak-audit:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6380:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ['9000:9000']
+        command: server /data
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      vault:
+        image: hashicorp/vault:latest
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: root-token
+          VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+        ports: ['8200:8200']
+        command: server -dev
+        options: >-
+          --health-cmd "wget -qO- http://localhost:8200/v1/sys/health || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install package + dev deps
+        run: pip install -e '.[dev]'
+      - name: Download spaCy model for PII audit (F-2)
+        run: python -m spacy download en_core_web_md
+      - name: F-2 PII leak audit (unit-level against infra)
+        run: pytest tests/unit/test_pii_leak_audit.py -s
+
+  # F-3 MinIO/S3 parity across all three environments (dev, staging, prod matrix).
+  minio-parity-full:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [minio_dev, minio_staging, s3_prod]
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6380:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ['9000:9000']
+        command: server /data
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install package + dev deps
+        run: pip install -e '.[dev]'
+      - name: F-3 FileStorage parity (${{ matrix.target }})
+        run: pytest tests/integration/test_filestorage_parity.py -s
+        env:
+          FILESTORAGE_BACKEND: ${{ matrix.target }}
+          S3_STAGING_ENDPOINT: ${{ secrets.S3_STAGING_ENDPOINT }}
+          S3_STAGING_ACCESS_KEY: ${{ secrets.S3_STAGING_ACCESS_KEY }}
+          S3_STAGING_SECRET_KEY: ${{ secrets.S3_STAGING_SECRET_KEY }}
+          S3_PROD_ENDPOINT: ${{ secrets.S3_PROD_ENDPOINT }}
+          S3_PROD_ACCESS_KEY: ${{ secrets.S3_PROD_ACCESS_KEY }}
+          S3_PROD_SECRET_KEY: ${{ secrets.S3_PROD_SECRET_KEY }}

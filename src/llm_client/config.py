@@ -6,7 +6,6 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     environment: str = "dev"
-    storage_backend: str = "local"
     forensic_stream_enabled: bool = False
     pii_detector_enabled: bool = True
     pii_detector_spacy_model: str = "en_core_web_md"

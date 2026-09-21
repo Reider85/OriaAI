@@ -3,6 +3,7 @@
 POST /sessions/{session_id}/cancel — validates session, publishes cancel via Redis,
 returns 202 immediately (fire-and-forget actual cancellation).
 """
+
 import logging
 
 from fastapi import APIRouter, HTTPException
@@ -11,8 +12,6 @@ from pydantic import BaseModel, Field
 from .publisher import CancelPublisher
 
 logger = logging.getLogger(__name__)
-
-router = APIRouter(prefix="/sessions")
 
 VALID_REASONS = {"user_cancelled", "tab_closed", "hidden", "timeout", "system_error"}
 
@@ -62,9 +61,14 @@ def build_cancel_router(
     publisher: CancelPublisher,
     state: SessionState | None = None,
 ) -> APIRouter:
-    """Create the cancel router wired to the given publisher and session state."""
+    """Create the cancel router wired to the given publisher and session state.
+
+    A fresh ``APIRouter`` is created per call so that multiple app instances in
+    one process never share route closures bound to another instance's state.
+    """
 
     state = state or _state
+    router = APIRouter(prefix="/sessions")
 
     @router.post("/{session_id}/cancel", response_model=CancelResponse, status_code=202)
     async def cancel_session(session_id: str, body: CancelRequest) -> CancelResponse:
@@ -77,9 +81,7 @@ def build_cancel_router(
 
         await publisher.publish(session_id, body.reason, body.user_id)
         state.mark_cancelled(session_id)
-        logger.info(
-            "Cancel request received for session %s, reason=%s", session_id, body.reason
-        )
+        logger.info("Cancel request received for session %s, reason=%s", session_id, body.reason)
         return CancelResponse(status="cancel_queued", session_id=session_id)
 
     return router

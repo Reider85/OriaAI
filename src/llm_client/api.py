@@ -61,7 +61,7 @@ def create_app(redis_url: str | None = None, _settings: Settings | None = None) 
         forensic_writer = build_forensic_writer(
             settings,
             kms_provider,
-            create_file_storage(backend="s3"),
+            create_file_storage(),
         )
     else:
         logger.warning("Forensic stream disabled — dev mode")

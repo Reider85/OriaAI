@@ -1,5 +1,6 @@
 """Dual-stream observability (ADR-014): KMS providers, operational & forensic writers."""
 
+from .access_log_ingestor import ACCESS_LOG_PREFIX, AccessLogIngestor
 from .forensic_writer import ForensicStreamWriter, ForensicWriteError, build_forensic_writer
 from .kms_provider import (
                            EncryptedPayload,
@@ -15,6 +16,8 @@ from .operational_writer import (
 )
 
 __all__ = [
+    "ACCESS_LOG_PREFIX",
+    "AccessLogIngestor",
     "EncryptedPayload",
     "ForensicStreamWriter",
     "ForensicWriteError",

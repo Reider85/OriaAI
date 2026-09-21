@@ -6,7 +6,7 @@ from typing import BinaryIO
 class FileStorage(ABC):
     """Port for file storage operations.
 
-    Implementations: LocalFileStorage (fallback), S3CompatibleStorage (MinIO/S3).
+    Implementation: S3CompatibleStorage (MinIO in dev, AWS S3 in prod).
     """
 
     @abstractmethod
