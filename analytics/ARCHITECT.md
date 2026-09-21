@@ -2,8 +2,9 @@
 
 | Атрибут | Значение |
 |---|---|
-| Версия документа | 1.0.0 |
-| Дата | 2026-09-19 |
+| Версия документа | 1.1.0 |
+| Дата | 2026-09-21 |
+| Changelog | 1.1.0 (2026-09-21): Phase 1 завершена — добавлены ADR-013 и ADR-014; расширен ADR-008 (LocalFileStorage упразднён); C-4/C-11/C-15 помечены [RESOLVED]; Q-2 закрыт, Q-4 закрыт частично |
 | Статус | Draft → Review → Approved |
 | Аудитория | Solution-архитектор / Tech-лид |
 | Технологический стек | Python 3.11, LangGraph 0.2+, LangChain 0.3+, Streamlit 1.40+ |
@@ -277,6 +278,16 @@ flowchart TB
         PG[(PostgreSQL)]
         RD[(Redis)]
         FS[(File Storage)]
+        MINIO[(MinIO / S3)]
+        VLT[(Vault / KMS)]
+    end
+
+    subgraph CTRL[Control Plane & Observability (Phase 1)]
+        CE[CancelEndpoint<br/>POST /sessions/{id}/cancel]
+        CPS[CancelPublisher<br/>Redis pub/sub]
+        CSS[CancelSubscriber<br/>CancellationToken]
+        OW[OperationalStreamWriter<br/>PII-masked → stdout/Loki]
+        FW[ForensicStreamWriter<br/>AES-256-GCM → forensic S3]
     end
 
     CHAT -->|async stream| GRAPH
@@ -303,6 +314,14 @@ flowchart TB
     NODES --> RD
     HIST --> SA
     DL --> FS
+    CE --> CPS
+    CPS --> RD
+    CSS --> RD
+    CSS --> GRAPH
+    CSS --> OW
+    CSS --> FW
+    FW --> VLT
+    FW --> MINIO
 
     classDef ui fill:#dbeafe,stroke:#1e40af,color:#000
     classDef orch fill:#dcfce7,stroke:#166534,color:#000
@@ -311,6 +330,7 @@ flowchart TB
     classDef rag fill:#f3e8ff,stroke:#6b21a8,color:#000
     classDef mcp fill:#ffedd5,stroke:#9a3412,color:#000
     classDef pers fill:#e0e7ff,stroke:#3730a3,color:#000
+    classDef ctrl fill:#fef9c3,stroke:#854d0e,color:#000
 
     class CHAT,HIST,DL ui
     class GRAPH,NODES,CHECK,STATE orch
@@ -318,7 +338,8 @@ flowchart TB
     class TS,TR,TM,TF,TC tools
     class LOAD,CHUNK,EMB,VS1,VS2,VS3,RET rag
     class CLIENT,REG,TRANS1,TRANS2 mcp
-    class SA,PG,RD,FS pers
+    class SA,PG,RD,FS,MINIO,VLT pers
+    class CE,CPS,CSS,OW,FW ctrl
 ```
 
 ### 5.2 Описание ключевых компонентов
@@ -781,6 +802,35 @@ sequenceDiagram
 - (+) Простой local dev, ready для S3 в prod.
 - (-) Дополнительная абстракция, нужно тестировать обе имплементации.
 
+**Phase 1 Update (расш. ADR-008, 2026-09-21)**: `LocalFileStorage` упразднён, остаётся только `S3CompatibleStorage`. Единый контракт `FileStorage` для dev (MinIO) / staging / prod (S3); миграция прозрачна для caller-кода. См. ROADMAP.md §5.5, TRIZ-ANALYSIS.md §7.5, MVP-PROMPTS.md Блок E.
+
+### ADR-013: SSE + HTTP Cancel Endpoint
+
+**Status**: Approved (2026-09-21)
+**Context**: ADR-007 зафиксировал SSE для streaming LLM-ответов (one-way, без интерактивных прерываний). ROADMAP.md §5.3 требует cancel за <100 мс в 99% случаев и возврат partial answer. Противоречие C-4 (SSE one-way vs interactivity).
+**Decision**: Dual-channel архитектура: data-plane остаётся SSE без изменений (ADR-007 не нарушается); control-plane — HTTP POST `/sessions/{id}/cancel` + Redis pub/sub канал `session:{id}:cancel` для уведомления агента. На стороне агента — `CancellationToken`, проверяемый между node-ами графа; при cancel-сигнале граф прерывает upstream LLM-вызов и возвращает partial answer. UI-клиент детектирует обрыв SSE-соединения (visibilitychange / beforeunload) и автоматически шлёт cancel через `navigator.sendBeacon`.
+**Consequences**:
+- (+) Cancel работает мгновенно (Redis pub/sub latency <5 мс).
+- (+) Авто-cancel при закрытии вкладки — UX improvement.
+- (+) ADR-007 (SSE для данных) остаётся без изменений.
+- (-) Redis pub/sub — новая dependency для control-plane.
+- (-) Граф обязан проверять `CancellationToken` между node-ами.
+**References**: ROADMAP.md §5.3, TRIZ-ANALYSIS.md §5.4 + §11, MVP-PROMPTS.md Блок C.
+
+### ADR-014: Dual-Stream Logging (Encrypted + Masked)
+
+**Status**: Approved (2026-09-21)
+**Context**: §9.4 Security требует PII masking, §9.6 Observability требует full trace retention 90+ дней. ROADMAP.md §5.4 требует PII leaks = 0 (automated audit) и forensic retention 90+ дней. Противоречие C-11 (PII masking vs observability).
+**Decision**: `DualStreamLogger` с двумя потоками: (1) **operational** — маскированный (Presidio + custom regex через `PIIDetector`), stdout/Loki/ELK, retention 30 дней, доступ команды для debugging; (2) **forensic** — зашифрованный AES-256-GCM через Vault/KMS (`KMSKeyProvider`), отдельный S3 bucket, retention 90+ дней, доступ через отдельный RBAC (security officer + аудит-комитет). PII detection score сохраняется в `messages` как metadata (`pii_score`, `pii_entities`). В dev forensic отключён (`FORENSIC_STREAM_ENABLED=false`, без Vault); в staging/prod обязателен (в prod `false` отклоняется валидацией).
+**Consequences**:
+- (+) Compliance удовлетворён (PII отсутствует в operational логах).
+- (+) Воспроизводимость сохранена (forensic stream, encrypted full trace).
+- (+) Аналитика по sensitive data (через PII score).
+- (-) Двойная стоимость хранения логов.
+- (-) Сложность доступа к forensic (отдельный RBAC, аудит).
+- (-) Ключи шифрования в KMS/Vault — ещё одна зависимость.
+**References**: ROADMAP.md §5.4, TRIZ-ANALYSIS.md §7.1 + §11, MVP-PROMPTS.md Блок D.
+
 ---
 
 ## 8. Trade-offs
@@ -792,8 +842,9 @@ sequenceDiagram
 | Triple vector store | Гибкость, no lock-in | 3 адаптера | Покрыть contract tests |
 | MCP client-only | Меньше complexity | Не экспонируем свои tools | Phase 6: MCP server mode |
 | PostgreSQL-only | Проще ops | Vertical scale limit | Read replicas + pgvector scaling |
-| SSE streaming | Простота, proxy-friendly | One-way | HTTP endpoint для cancel |
-| File storage abstraction | Swappable backends | Двойная имплементация | Test both в CI |
+| ~~SSE streaming (C-4)~~ | Простота, proxy-friendly | One-way | ~~HTTP endpoint для cancel~~ **[RESOLVED by ADR-013 in Phase 1]** — control-plane: POST /cancel + Redis pub/sub; data-plane: SSE без изменений |
+| ~~PII masking vs observability (C-11)~~ | Compliance, GDPR/SOC2 | Полный trace недоступен | **[RESOLVED by ADR-014 in Phase 1]** — DualStreamLogger: operational (masked) + forensic (AES-256-GCM encrypted) |
+| ~~File storage abstraction (C-15)~~ | Swappable backends | Двойная имплементация | ~~Test both в CI~~ **[RESOLVED by расш. ADR-008 in Phase 1]** — LocalFileStorage удалён, единственный S3CompatibleStorage (MinIO/S3) |
 
 ---
 
@@ -1036,9 +1087,9 @@ RATE_LIMIT_PER_MIN=60
 | ID | Вопрос / Риск | Вероятность | Влияние | Митигация |
 |---|---|---|---|---|
 | Q-1 | Будет ли Ollama поддерживаться в Phase 4? | Medium | High | Spike в Phase 3, fallback на локальные модели через LiteLLM |
-| Q-2 | LangSmith pricing для большого объема трейсов | High | Medium | Sampling (только 10% трейсов) + self-hosted Langfuse |
+| Q-2 | LangSmith pricing для большого объема трейсов | High | Medium | **[CLOSED: ADR-014 DualStreamLogger — собственный observability, не зависит от LangSmith]** |
 | Q-3 | MCP-серверы с stdio в docker-compose — complexity | High | Medium | Использовать SSE transport где возможно, отдельный sidecar контейнер |
-| Q-4 | Streamlit + LangGraph async — совместимость | Medium | High | Spike в Phase 1, fallback на FastAPI backend + Streamlit как pure frontend |
+| Q-4 | Streamlit + LangGraph async — совместимость | Medium | High | **[PARTIALLY CLOSED: ADR-013 — cancel через Redis pub/sub, не Streamlit native; полное закрытие в Phase 5 через ADR-018]** |
 | Q-5 | Стоимость LLM при high RAG context (>50k tokens) | High | High | Implement context compression (LangChain `LLMChainExtractor`), map-reduce для длинных документов |
 
 ---
