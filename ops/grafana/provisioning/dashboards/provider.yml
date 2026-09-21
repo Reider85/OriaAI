@@ -1,0 +1,15 @@
+# Grafana dashboard provisioning — auto-loads every dashboard JSON from the
+# mounted /var/lib/grafana/dashboards directory on startup.
+apiVersion: 1
+
+providers:
+  - name: Phase1
+    orgId: 1
+    folder: Architecture
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

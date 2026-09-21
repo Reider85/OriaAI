@@ -1,0 +1,23 @@
+# Prometheus config for the Phase 1 ideality dashboard (G-2 / ROADMAP §18.2).
+#
+# Scrapes the `idealidad-exporter` service (scripts/collect_idealidad_metrics.py)
+# which recomputes LOC / ADR / capability / dependency counts on every scrape.
+# The retained window is long enough to render the 6-month trend required by the
+# G-2 Definition of Done.
+
+global:
+  scrape_interval: 1m
+  evaluation_interval: 1m
+
+scrape_configs:
+  - job_name: "idealidad"
+    scrape_interval: 1h
+    static_configs:
+      - targets: ["idealidad-exporter:9101"]
+        labels:
+          service: "llm-client"
+          component: "architecture-idealidad"
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

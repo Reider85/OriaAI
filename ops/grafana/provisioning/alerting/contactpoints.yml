@@ -1,0 +1,20 @@
+# Grafana contact points — architecture alerts to Slack (G-2 / ROADMAP §18.2).
+#
+# The webhook is injected from the environment (see SLACK_WEBHOOK_URL in
+# .env.example). When it is unset Grafana falls back to the placeholder and the
+# alert still fires visually inside Grafana.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: architecture-slack
+    receivers:
+      - uid: architecture-slack
+        type: slack
+        disableResolveMessage: false
+        settings:
+          url: ${SLACK_WEBHOOK_URL}
+          title: '{{ .CommonLabels.alertname }}'
+          text: |-
+            {{ range .Alerts }}{{ .Annotations.summary }}
+            {{ end }}

@@ -45,6 +45,8 @@ jobs:
         run: mypy src/llm_client
       - name: Unit tests + PII leak audit (F-2)
         run: pytest tests/unit --maxfail=1
+      - name: G-2 Ideality metrics collect (verify no crash)
+        run: python scripts/collect_idealidad_metrics.py --once > /dev/null
 
   # Block A infra (Redis/MinIO/Vault) + F-3 parity on dev MinIO.
   integration-dev:

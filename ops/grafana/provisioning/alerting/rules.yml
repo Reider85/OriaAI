@@ -1,0 +1,116 @@
+# Grafana unified alerting rules for the architecture ideality metric (G-2).
+#
+# Rule 1: idealidad_ratio < 1.0 sustained over a 14-day window (trend down).
+# Rule 2: dependency_count grew by more than 2 within 7 days (over-engineering).
+#
+# Both rules carry the `team: architecture` label, which the notification policy
+# routes to the Slack contact point.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: architecture-idealidad
+    folder: Architecture
+    interval: 1m
+    rules:
+      - uid: architecture-idealidad-trend-down
+        title: Architecture idealidad trend down
+        condition: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Architecture idealidad trend down: ratio {{ $values.A.Value }} < 1.0
+            over the last 14 days. Review recent ADR approvals.
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1209600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: min(llm_client_idealidad_ratio)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: min
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+      - uid: architecture-dependency-spike
+        title: Architecture dependency spike
+        condition: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Dependency count grew by {{ $values.A.Value }} in the last 7 days
+            (> 2). Review for potential over-engineering.
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 604800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: max(delta(llm_client_dependency_count[7d]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 2
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: max
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold

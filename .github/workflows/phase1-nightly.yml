@@ -139,3 +139,29 @@ jobs:
           S3_PROD_ENDPOINT: ${{ secrets.S3_PROD_ENDPOINT }}
           S3_PROD_ACCESS_KEY: ${{ secrets.S3_PROD_ACCESS_KEY }}
           S3_PROD_SECRET_KEY: ${{ secrets.S3_PROD_SECRET_KEY }}
+
+  # G-2 Ideality metric collection + Phase 1 control-point assertion.
+  idealidad-metric:
+    runs-on: ubuntu-latest
+    env:
+      IDEALIDAD_PHASE: Phase 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install package + dev deps
+        run: pip install -e '.[dev]'
+      - name: G-2 Collect ideality metrics (--once)
+        run: python scripts/collect_idealidad_metrics.py --once
+      - name: G-2 Verify Phase 1 control point (ratio >= 2.0)
+        run: |
+          RATIO=$(python -c "
+          import sys; sys.path.insert(0,'src')
+          from llm_client.observability.idealidad import phase_metric
+          m = phase_metric('Phase 1')
+          print(m.ratio)
+          ")
+          echo "Phase 1 idealidad ratio = $RATIO"
+          python -c "assert float('$RATIO') >= 2.0, f'Phase 1 ratio {float($RATIO)} < 2.0 — ADR review required'"

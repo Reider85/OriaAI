@@ -1,5 +1,5 @@
-# Phase 1 — Infrastructure: Redis + MinIO + Vault
-# Usage: docker-compose up [redis|minio|vault]
+# Phase 1 — Infrastructure: Redis + MinIO + Vault + Prometheus + Grafana
+# Usage: docker-compose up [redis|minio|vault|prometheus|grafana|idealidad-exporter]
 # All ports are localhost-bound; TLS disabled until Phase 5.
 
 services:
@@ -125,9 +125,82 @@ services:
       - llm-network
     restart: "no"
 
+  # ── Prometheus (ideality metric, G-2) ────────────────────
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: llm-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=220d"
+      - "--web.enable-lifecycle"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - llm-network
+    ports:
+      - "9090:9090"
+
+  # ── Grafana (dashboards + alerting, G-2) ─────────────────
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: llm-grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ALERTING_ENABLED=true
+      - GF_UNIFIED_ALERTING_ENABLED=true
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/placeholder}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - llm-network
+    ports:
+      - "3000:3000"
+
+  # ── Ideality exporter (ROADMAP §18.2, G-2) ───────────────
+  idealidad-exporter:
+    image: python:3.12-slim
+    container_name: llm-idealidad-exporter
+    restart: unless-stopped
+    working_dir: /repo
+    volumes:
+      - ./:/repo:ro
+    command: >
+      sh -c "pip install --quiet prometheus-client &&
+             python scripts/collect_idealidad_metrics.py --port 9101"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9101/metrics"]
+      interval: 1h
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - llm-network
+    ports:
+      - "9101:9101"
+
 volumes:
   redis-data:
   minio-data:
+  prometheus-data:
 
 networks:
   llm-network:

@@ -1,0 +1,16 @@
+# Grafana notification policy — route architecture alerts to the Slack contact
+# point. Grouped by alert name, repeated at most once a day.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: architecture-slack
+    group_by:
+      - alertname
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 24h
+    routes:
+      - receiver: architecture-slack
+        object_matchers:
+          - ['team', '=', 'architecture']
