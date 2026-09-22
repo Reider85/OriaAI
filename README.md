@@ -27,8 +27,14 @@ docker-compose up -d
 pip install -e ".[dev]"
 
 # 4. Прогнать тесты (unit + integration против реальных Redis/MinIO)
+# pytest установлен в .venv — сначала активировать окружение:
+.\.venv\Scripts\Activate.ps1
 pytest tests -v
 ```
+
+> Если `pytest` не распознаётся (`CommandNotFoundException`) — окружение не активировано.
+> Без активации: `.\.venv\Scripts\pytest.exe tests -v` или `.\.venv\Scripts\python.exe -m pytest tests -v`.
+> Если `Activate.ps1` блокируется политикой выполнения: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
 ---
 
@@ -306,3 +312,4 @@ tests/integration/test_minio_storage.py`.
 | Redis не отвечает `PONG` | `docker-compose logs redis` — проверить нет ли warnings о maxmemory |
 | Порт 6379 занят | Наш Redis смонтирован на `6380:6379`, `REDIS_URL` в `.env` обновлён |
 | MinIO Console 403 | Проверить `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` в `.env` |
+| `pytest` не распознаётся в PowerShell | Активировать окружение: `.\.venv\Scripts\Activate.ps1`, либо запускать `.\.venv\Scripts\python.exe -m pytest tests -v` |
