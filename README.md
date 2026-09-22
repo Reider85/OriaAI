@@ -75,16 +75,31 @@ Console доступна: [http://localhost:9001](http://localhost:9001)
 
 ### Round-trip upload/download
 
+> `docker-compose exec minio mc cp C:\...` **не работает**: `mc` выполняется внутри
+> контейнера, где нет Windows-путей. Сначала файл копируется в контейнер через
+> `docker cp`, а alias `local` внутри контейнера MinIO нужно настроить с root-кредами
+> (иначе `AccessDenied`).
+
 ```powershell
-# Upload файла
-docker-compose exec minio mc cp C:\temp\test.txt local/llm-client-files/test.txt
+# 1. Скопировать файл с хоста в контейнер
+$cid = docker-compose ps -q minio
+docker cp "C:\temp\test.txt" "$cid`:/tmp/test.txt"
 
-# Download файла
-docker-compose exec minio mc cp local/llm-client-files/test.txt C:\temp\downloaded.txt
+# 2. Настроить alias local с root-кредами (разово)
+docker-compose exec minio mc alias set local http://localhost:9000 minioadmin minioadmin
 
-# Удаление
+# 3. Upload файла
+docker-compose exec minio mc cp /tmp/test.txt local/llm-client-files/test.txt
+
+# 4. Download файла (внутри контейнера → копируем наружу)
+docker-compose exec minio mc cp local/llm-client-files/test.txt /tmp/downloaded.txt
+docker cp "$cid`:/tmp/downloaded.txt" "C:\temp\downloaded.txt"
+
+# 5. Удаление
 docker-compose exec minio mc rm local/llm-client-files/test.txt
 ```
+
+> Креды для шага 2 — `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` из `.env`, например `minioadmin`/`minioadmin`.
 
 ---
 
