@@ -2,13 +2,14 @@
 
 | Атрибут | Значение |
 |---|---|
-| Версия документа | 1.0.0 |
-| Дата | 2026-09-20 |
+| Версия документа | 1.1.0 |
+| Дата | 2026-09-23 |
+| Changelog | 1.1.0 (2026-09-23): `UIClient` abstraction вынесена из Phase 5 (внутри ADR-018) в Phase 1 (новый §5.7) — применение принципа ТРИЗ #16 (частичное/избыточное действие, см. §3.4). В Phase 1 добавлены UI-0..UI-3 (scaffold + base UI + UIClient + Streamlit fragments, суммарно +6.5 чел-дн); Phase 1 суммарно: 8 → 14.5 чел-дн. Phase 5 ADR-018 сужен до `SessionStore` + `RedisSessionStore` (без `UIClient` — уже в Phase 1). §15.2 метрика идеальности Phase 1 пересчитана. Источники патча: `BACKLOG.md` v1.0.0, `UI-PROMPTS.md` v1.0.0. |
 | Статус | Draft → Review → Approved |
 | Аудитория | Tech-лид + команда разработки LLM Client |
-| Связанные документы | `ARCHITECT.md` v1.0.0, `TRIZ-ANALYSIS.md` v1.0.0 |
+| Связанные документы | `ARCHITECT.md` v1.1.0, `TRIZ-ANALYSIS.md` v1.0.0, `BACKLOG.md` v1.0.0, `UI-PROMPTS.md` v1.0.0 |
 | Период планирования | 14–16 недель при команде из 2 разработчиков |
-| Суммарная оценка | ~110 чел-дн на 12 новых ADR + 3 расширения существующих ADR |
+| Суммарная оценка | ~121.5 чел-дн (v1.0.0: ~110; +6.5 на UI-0..UI-3 Phase 1, +6 на UI-5 Phase 5, остальное UI-7 уже учтено в Phase 6) на 12 новых ADR + 3 расширения существующих ADR + UI-0..UI-5 (Phase 1, Phase 5) |
 | Принцип планирования | Фазирование по этапам зрелости MVP → Alpha → Beta → Local LLM → Scale → Interoperability |
 | Привязка к ТРИЗ | Каждая фаза резолвит явный набор противоречий из `TRIZ-ANALYSIS.md` § 10 |
 
@@ -168,7 +169,7 @@ LLM Client преследует пять бизнес-целей, зафикси
 
 Конкретные применения:
 
-- `UIClient` abstraction: interface полный, имплементация — только StreamlitClient. Когда появится ChainlitClient (Phase 5+) — добавляется имплементация, interface не меняется.
+- `UIClient` abstraction: interface полный (4 метода — `render_message`, `render_artifact`, `stream_token`, `handle_user_input`), имплементация — только `StreamlitClient` (**Phase 1**, см. §5.7 и `UI-PROMPTS.md` Блок U2). Когда появится `ChainlitClient` (Phase 5, UI-5 из `BACKLOG.md` §3.3) — добавляется имплементация, interface не меняется. Когда появится `FastAPIClient` (Phase 5+, UI-6) — то же самое. До патча v1.1.0 `UIClient` неявно относился к Phase 5 (внутри ADR-018); патч выносит его в Phase 1 как применение принципа #16 — иначе весь UI-код Phase 1–4 пишется под Streamlit-specific API, и Phase 5 становится переписыванием, а не добавлением имплементации.
 - `MCPTransport`: interface полный, имплементация — только StdioTransport + SSETransport. WebSocket добавляется при появлении прод-сценария.
 - `VectorStoreRegistry`: registry полный, имплементации — Chroma, Qdrant, pgvector. Четвёртая имплементация (Weaviate?) добавляется по требованию.
 - `ToolCallingAdapter`: adapter полный, режимы — native + react. Hybrid mode добавляется при появлении модели, где native unstable.
@@ -182,20 +183,20 @@ LLM Client преследует пять бизнес-целей, зафикси
 
 | Фаза | ADR в фазе | Суммарная сложность | Срок (чел-дн) | Главный эффект | Зависимости |
 |---|---|---|---|---|---|
-| **Phase 1 — MVP** | ADR-013, ADR-014, (расш. ADR-008) | Low + Medium + Low | **8** | UX: cancel работает; Compliance: PII+trace; Dev-prod parity | Redis, KMS/Vault, MinIO |
+| **Phase 1 — MVP** | ADR-013, ADR-014, (расш. ADR-008), **UI-0..UI-3 (new в v1.1.0)** | Low + Medium + Low + Low×3 | **14.5** (было 8 в v1.0.0; +6.5 на UI-0..UI-3) | UX: cancel работает, UI scaffold + base elements + UIClient abstraction; Compliance: PII+trace; Dev-prod parity; Подготовка к Phase 5 (UIClient готов, Phase 5 = добавление ChainlitClient без переписывания) | Redis, KMS/Vault, MinIO |
 | **Phase 2 — Alpha** | ADR-010, ADR-017, ADR-020 | Medium × 3 | **14** | Latency ↓ 50–200 мс; RAG precision ↑ 20–30%; Recall ↑ для точных терминов | Redis, bge-reranker, PostgreSQL tsvector |
 | **Phase 3 — Beta** | ADR-011, ADR-015, ADR-016, ADR-004 ускорить | High × 4 | **31** | LLM cost ↓ 60–80%; Cost predictability; Model portability; Переход в надсистему | Redis, Observability stack, — |
 | **Phase 4 — Local LLM** | ADR-009, ADR-012, (расш. ADR-001) | Medium × 2 + Low | **13** | VectorStore extensibility; Dev-prod parity MCP; Determinism | —, —, Embeddings model |
-| **Phase 5 — Scale** | ADR-018, ADR-019, (расш. ADR-008), (новый) ABAC+RBAC | Medium + High + Medium + High | **25** | Multi-instance; Security; Latency ↓ file ops; Granular access | Redis, Vault+signing, Worker, Auth provider |
-| **Phase 6 — Interoperability** | MCP Server mode (full), Embed mode | High + Medium | **18** | LLM Client как MCP-сервер; Встраивание в IDE/Confluence | ADR-004, — |
-| **ИТОГО** | 12 новых ADR + 3 расширения | — | **~110 чел-дн** | +4 capability, −2 упразднённых (LocalFileStorage, fallback_chain) | — |
+| **Phase 5 — Scale** | ADR-018 (сужен: только SessionStore), ADR-019, (расш. ADR-008), (новый) ABAC+RBAC, **UI-5 (ChainlitClient, new в v1.1.0)** | Medium + High + Medium + High + High | **31** (v1.0.0: 25; +6 на UI-5 — становится явным) | Multi-instance; Security; Latency ↓ file ops; Granular access; **UI: ChainlitClient как вторая имплементация UIClient** | Redis, Vault+signing, Worker, Auth provider |
+| **Phase 6 — Interoperability** | MCP Server mode (full), Embed mode (UI-7) | High + Medium | **18** | LLM Client как MCP-сервер; Встраивание в IDE/Confluence; UI: embed mode использует UIClient interface | ADR-004, — |
+| **ИТОГО** | 12 новых ADR + 3 расширения + UI-0..UI-3 (Phase 1, new в v1.1.0) + UI-5 (Phase 5, new в v1.1.0) | — | **~121.5 чел-дн** (v1.0.0: ~110; +6.5 на UI-0..UI-3 Phase 1, +6 на UI-5 Phase 5, остальное UI-7 уже учтено в Phase 6; -1 за счёт округления) | +5 capabilities (cancel, dual-logging, dev-prod parity, UI scaffold + UIClient abstraction), −2 упразднённых (LocalFileStorage, fallback_chain) | — |
 
 **Распределение по приоритету противоречий** (из 15 противоречий в `TRIZ-ANALYSIS.md` § 10):
 
-- 8 High-приоритетных противоречий (C-1, C-2, C-4, C-6, C-7, C-8, C-11, C-12) — резолвятся в Phase 1 (2 шт), Phase 2 (1 шт), Phase 3 (3 шт), Phase 5 (2 шт).
+- 8 High-приоритетных противоречий (C-1, C-2, C-4, C-6, C-7, C-8, C-11, C-12) — резолвятся в Phase 1 (2 шт полностью + C-1 частично через `UIClient`/`Streamlit fragments` в v1.1.0), Phase 2 (1 шт), Phase 3 (3 шт), Phase 5 (2 шт + C-1 полностью через `SessionStore`/`ChainlitClient`).
 - 7 Medium-приоритетных противоречий (C-3, C-5, C-9, C-10, C-13, C-14, C-15) — резолвятся в Phase 1 (1 шт), Phase 4 (3 шт), Phase 5 (2 шт), Phase 6 (1 шт).
 
-Все 8 High-приоритетных противоречий резолвятся до конца Phase 5 — это формальный критерий готовности к Production.
+Все 8 High-приоритетных противоречий резолвятся до конца Phase 5 — это формальный критерий готовности к Production. В v1.1.0 C-1 начинает резолвиться раньше (Phase 1 — частично, через `UIClient` abstraction и `Streamlit fragments`), что приближает финальную резолюцию в Phase 5.
 
 ---
 
@@ -205,11 +206,14 @@ LLM Client преследует пять бизнес-целей, зафикси
 
 Phase 1 завершает MVP-стадию, устраняя три наиболее критичных компромисса, оставшихся после первоначального MVP (`ARCHITECT.md` § 8 Trade-offs): (а) невозможность отменить запущенный LLM-вызов, (б) отсутствие PII-маскирования в логах, (в) расхождение dev- и prod-окружений из-за локального file storage. Каждое из этих противоречий не блокирует работу MVP в single-instance, но блокирует переход к Alpha: без cancel-кнопки UX остаётся неприемлемым для длинных LLM-вызовов; без PII-маскирования логи нельзя отдавать в общий observability stack; без dev-prod parity каждое расхождение окружений — отдельный класс багов.
 
+В v1.1.0 к Phase 1 добавлена четвёртая цель — **UI-составляющая**: формализация scaffold Streamlit-приложения (UI-0, ранее подразумевавшегося как данное, см. `BACKLOG.md` §2.1 Пробел A), базовые UI-элементы — sidebar истории, кнопки скачивания артефактов, индикатор статуса, бейдж PII (UI-1, ранее не формализованные, см. Пробел B), `UIClient` abstraction с одной имплементацией `StreamlitClient` (UI-2, ранее отложенной в Phase 5, см. Пробел C), и `@st.fragment` для изоляции chat/sidebar re-runs (UI-3, рекомендация из `TRIZ-ANALYSIS.md` §4.3). Без UI-составляющей промпт `C-5` из `MVP-PROMPTS.md` (UI watcher для auto-cancel) не имеет точки интеграции — некуда инжектить JS-фрагмент.
+
 Контрольные цели фазы:
 
-1. **UX cancel**: пользователь может отменить запущенный LLM-вызов в течение 100 мс. UI автоматически отменяет сессию при закрытии вкладки.
-2. **Compliance PII + trace**: в operational логах отсутствуют PII (детектированные через Presidio); forensic stream хранит полный trace 90 дней с шифрованием AES-256-GCM.
-3. **Dev-prod parity**: одно и то же S3-совместимое хранилище (MinIO в dev, S3 в prod) используется для всех файловых артефактов. LocalFileStorage упразднён.
+1. **UX cancel**: пользователь может отменить запущенный LLM-вызов в течение 100 мс. UI автоматически отменяет сессию при закрытии вкладки. **UI-часть**: в Streamlit UI есть кнопка Stop, индикатор streaming/cancelled/error (UI-1).
+2. **Compliance PII + trace**: в operational логах отсутствуют PII (детектированные через Presidio); forensic stream хранит полный trace 90 дней с шифрованием AES-256-GCM. **UI-часть**: PII score отображается бейджем для каждого user message (UI-1).
+3. **Dev-prod parity**: одно и то же S3-совместимое хранилище (MinIO в dev, S3 в prod) используется для всех файловых артефактов. LocalFileStorage упразднён. **UI-часть**: кнопки скачивания артефактов работают с 4 форматами (md/txt/pdf/docx) через `UIClient.render_artifact` (UI-1).
+4. **UI-составляющая (new в v1.1.0)**: `UIClient` ABC существует с 4 методами; `StreamlitClient` — единственная имплементация; весь UI-код ходит через interface, не через Streamlit-specific API. `@st.fragment` применяется к chat area и sidebar. Latency-бенчмарк (U3-3) показывает прирост FPS стриминга ≥30% после fragments. Критерий готовности к Phase 5: добавление `ChainlitClient` не требует переписывания UI-кода — только новой имплементации interface.
 
 ### 5.2 Состав работ
 
@@ -218,7 +222,8 @@ Phase 1 завершает MVP-стадию, устраняя три наибо�
 | 5.2.1 | Реализация SSE+HTTP cancel endpoint + Redis pub/sub | ADR-013 | Low | 2 | Redis |
 | 5.2.2 | Реализация DualStreamLogger (operational + forensic) | ADR-014 | Medium | 4 | KMS/Vault |
 | 5.2.3 | Миграция LocalFileStorage → S3 (MinIO в dev) | (расш. ADR-008) | Low | 2 | MinIO |
-| — | **Итого Phase 1** | — | — | **8** | — |
+| 5.2.4 | **UI-составляющая (new в v1.1.0)**: UI-0 scaffold Streamlit + UI-1 base elements (sidebar/downloads/status/PII badge) + UI-2 `UIClient` ABC + `StreamlitClient` + UI-3 `@st.fragment` для chat/sidebar | (не ADR; формализация Phase 0 + применение ADR-002 + подготовка к ADR-018) | Low + Low + Medium + Low | **6.5** | ADR-001, ADR-002, ADR-007, расш. ADR-008, ADR-013, ADR-014 |
+| — | **Итого Phase 1** | — | — | **14.5** (v1.0.0: 8; +6.5 на UI) | — |
 
 ### 5.3 ADR-013: SSE + HTTP Cancel Endpoint
 
@@ -282,10 +287,39 @@ Phase 1 считается завершённой при одновременн�
 1. **ADR-013 Approved**: cancel latency <100 мс в 99% случаев на staging-нагрузке.
 2. **ADR-014 Approved**: PII leaks = 0 (automated audit); forensic stream retention 90 дней обеспечен.
 3. **(расш. ADR-008) Approved**: `LocalFileStorage` удалён; dev/staging/prod используют S3-only.
-4. **Метрика идеальности не упала**: `Δф=+2 capabilities (cancel, dual-logging), Δсложности=+1 dependency (KMS/Vault) → Δф/Δсложности = 2 ≥ 1`.
-5. **Документация обновлена**: `ARCHITECT.md` § 7 ADR обновлён (ADR-013, ADR-014 добавлены; ADR-008 расширен); § 8 Trade-offs обновлён (C-4, C-11, C-15 помечены как resolved).
+4. **UI-составляющая Approved (new в v1.1.0)**: см. `BACKLOG.md` §5.1. UI-0 (scaffold) + UI-1 (sidebar/downloads/status/PII badge) + UI-2 (`UIClient` ABC + `StreamlitClient`, весь UI-код ходит через interface — `grep -r "st\.chat_message\|st\.chat_input\|st\.write_stream" src/llm_client/ui/ | grep -v streamlit_client.py | wc -l` = 0) + UI-3 (`@st.fragment` для chat и sidebar, latency-бенчмарк U3-3 показывает прирост FPS ≥30%).
+5. **Метрика идеальности не упала**: `Δф=+4 capabilities (cancel, dual-logging, dev-prod parity, UI scaffold + UIClient abstraction), Δсложности=+2 dependencies (KMS/Vault, UIClient abstraction) → Δф/Δсложности = 2 ≥ 1` (см. §15.2, обновлено в v1.1.0). Заметка: в v1.0.0 расчёт был `Δф=+2, Δсложности=+1, ratio=2`. В v1.1.0 добавлены 2 capabilities (UI scaffold + UIClient) и 1 абстракция (UIClient interface) — суммарно по фазе: `+4 caps / +2 deps = 2`, та же оценка, не нарушает порог.
+6. **Документация обновлена**: `ARCHITECT.md` § 7 ADR обновлён (ADR-013, ADR-014 добавлены; ADR-008 расширен; ADR-002 уточнён — UI-0 формализует scaffold); § 8 Trade-offs обновлён (C-4, C-11, C-15 помечены как resolved; C-1 — частично resolved через UI-2/UI-3, полная — в Phase 5 через ADR-018). `BACKLOG.md` v1.0.0 и `UI-PROMPTS.md` v1.0.0 в реестре связанных документов.
 
-При невыполнении любого из п.1–3 — фаза продлевается на 1 sprint; при невыполнении п.4 — ADR пересматривается.
+При невыполнении любого из п.1–4 — фаза продлевается на 1 sprint; при невыполнении п.5 — ADR/UI-элемент пересматривается (см. `BACKLOG.md` §6.2 — UI-3 может быть откатан, если бенчмарк не показывает прироста); при невыполнении п.6 — документационный долг, блокирует старт Phase 2.
+
+### 5.7 UI-составляющая Phase 1 (new в v1.1.0)
+
+**Резолвит**: противоречие C-1 (частично — interface aspect; полная резолюция — Phase 5 через ADR-018 `SessionStore`); частично C-4 (UI-часть ADR-013 — кнопка Stop, индикатор статуса).
+**Принципы ТРИЗ**: 16 (частичное/избыточное действие — применён к `UIClient`), 1 (дробление — `@st.fragment` разделяет static shell и dynamic content), 17 (переход в другое измерение — UI-код изолирован от Streamlit-specific API через `UIClient`).
+**Связанные G**: G-5 (UX MVP — UI-0/UI-1 дают полный chat UX), G-1 (multi-instance prep — UI-2 готовит Phase 5 без переписывания).
+
+**Суть**: в v1.0.0 `ROADMAP.md` `UIClient` abstraction неявно относилась к Phase 5 (упомянута в §3.4 как применение принципа #16, но без явной фазы; в §9.3 ADR-018 описана как часть ADR-018 «`UIClient` abstraction позволяет переключать UI backend»). Это означало, что весь UI-код Phase 1–4 пишется под Streamlit-specific API (`st.chat_message`, `st.chat_input`, `st.write_stream`), и миграция в Phase 5 становится переписыванием, а не добавлением имплементации — прямое нарушение принципа #16. Патч v1.1.0 выносит `UIClient` в Phase 1 как самостоятельную UI-составляющую (не ADR — формализация + применение ADR-002).
+
+Состав UI-составляющей (см. `BACKLOG.md` §3.3 и `UI-PROMPTS.md` §1–§4):
+
+- **UI-0** (1.5 чел-дн): формализация «Phase 0» — scaffold Streamlit-приложения (`app.py`, `chat.py`, `session.py`, `render.py`), который в v1.0.0 подразумевался как данное (см. `MVP-PROMPTS.md` §1, A-1: «существующий docker-compose уже содержит PostgreSQL и Streamlit-сервис»). Без UI-0 промпт `C-5` (UI watcher) не имеет точки интеграции.
+- **UI-1** (1.5 чел-дн): базовые UI-элементы, заявленные в `ARCHITECT.md` §4.1 (строка 172: «Чат UI, история сессий, кнопки скачивания»), но не реализованные промптами Phase 1–3: sidebar истории, кнопки скачивания артефактов (4 формата), индикатор статуса (streaming/cancelled/error), бейдж PII score.
+- **UI-2** (2.5 чел-дн): `UIClient` ABC с 4 методами (`render_message`, `render_artifact`, `stream_token`, `handle_user_input`) + единственная имплементация `StreamlitClient`. Весь последующий UI-код пишет против interface. В Phase 5 добавится `ChainlitClient` (UI-5 из `BACKLOG.md`), в Phase 5+ — `FastAPIClient` (UI-6). Interface не меняется — применяется принцип #16.
+- **UI-3** (1.0 чел-дн): `@st.fragment` для chat area и sidebar (Streamlit 1.40+). Снимает узкое место из C-1 (`TRIZ-ANALYSIS.md` §4.3, строка 240: «Streamlit re-runs конфликтует с низколатентным streaming»). Latency-бенчмарк (U3-3) — критерий готовности: прирост FPS ≥30% — иначе откат.
+
+**Эффект**:
+
+- (+) Phase 5 ADR-018 (External Session Store) сужен до `SessionStore` + `RedisSessionStore` — `UIClient` уже в Phase 1, не дублируется.
+- (+) Phase 5 добавление `ChainlitClient` (UI-5) — добавление новой имплементации interface, а не переписывание UI-кода.
+- (+) `@st.fragment` снимает локальное узкое место C-1 — Phase 5 multi-instance начинает с лучшей позиции.
+- (+) UI-часть ADR-013 (cancel button, индикатор статуса) формализована — `C-5` (UI watcher) теперь имеет точку интеграции.
+- (-) Phase 1 увеличивается с 8 до 14.5 чел-дн (+82%). Без увеличения команды — критический путь Phase 1 удлиняется на 6.5 чел-дн (см. §11).
+- (-) `UIClient` abstraction в Phase 1 — +1 абстракция, +1 кривая обучения. Контр-мера — `BACKLOG.md` §6.1: метрика идеальности считается по Phase 1 целиком, не по отдельным UI-N.
+
+**Критерий готовности**: см. §5.6 п.4. Если UI-3 (fragments) не показывает прироста в бенчмарке U3-3 — UI-3 откатывается, `@st.fragment` удаляется, метрика идеальности пересчитывается без UI-3 (Δф=+3 caps, Δсложности=+2 deps → 1.5 ≥ 1 — порог соблюдён).
+
+**Supersedes**: часть ADR-018 (Phase 5) — `UIClient` abstraction перенесена в Phase 1. ADR-018 в Phase 5 сужен до `SessionStore` + `RedisSessionStore` (см. §9.3).
 
 ---
 
@@ -584,31 +618,34 @@ Phase 5 переводит LLM Client в состояние Production-ready с 
 
 | # | Работа | ADR | Сложность | Срок (чел-дн) | Зависимости |
 |---|---|---|---|---|---|
-| 9.2.1 | Реализация `SessionStore` abstraction + `RedisSessionStore` + sync с Streamlit `session_state` | ADR-018 | Medium | 4 | Redis |
+| 9.2.1 | Реализация `SessionStore` abstraction + `RedisSessionStore` + sync с Streamlit `session_state` (без `UIClient` — он в Phase 1) | ADR-018 (сужен в v1.1.0) | Medium | 4 | Redis, UI-2 (Phase 1) |
 | 9.2.2 | Реализация `MCPManifest` (YAML, ed25519 signed) + allow-list из Vault + anomaly detection | ADR-019 | High | 8 | Vault, signing infra |
 | 9.2.3 | Разделение fast/slow paths для файловых операций + Playwright PDF worker | (расш. ADR-008) | Medium | 5 | Worker |
 | 9.2.4 | Реализация гибридной ABAC+RBAC модели + auto-approval для безопасных операций | (новый ADR) | High | 8 | Auth provider |
-| — | **Итого Phase 5** | — | — | **25** | — |
+| 9.2.5 | **UI-5 `ChainlitClient` (new в v1.1.0)** — вторая имплементация `UIClient` interface (из Phase 1), использует `SessionStore` (9.2.1) | (применение ADR-002 миграции + UI-2) | High | 6 | UI-2 (Phase 1), 9.2.1 |
+| — | **Итого Phase 5** | — | — | **31** (v1.0.0: 25; +6 на UI-5 — становится явным) | — |
 
-### 9.3 ADR-018: External Session Store for Streamlit
+### 9.3 ADR-018: External Session Store for Streamlit (сужен в v1.1.0)
 
-**Резолвит**: противоречие C-1 (Streamlit vs horizontal scale).
+**Резолвит**: противоречие C-1 (Streamlit vs horizontal scale) — runtime aspect (session state). Interface aspect (`UIClient` abstraction) резолвится в Phase 1 (см. §5.7).
 **Принципы ТРИЗ**: 1 (дробление), 15 (динамичность), 17 (другое измерение), 35 (изменение физических свойств).
 **Связанные G**: G-1 (multi-instance scale).
 
-**Суть**: ADR-002 фиксирует Streamlit для MVP, признаёт проблему multi-instance (sticky session). Решение — ввести `SessionStore` abstraction с реализацией `RedisSessionStore`: (1) `SessionStore` interface: `get_session(id)`, `save_session(id, state)`, `list_sessions(user_id)`; (2) `RedisSessionStore` — primary, TTL=24h, JSON serialization; (3) `LocalSessionStore` — для unit-тестов; (4) Streamlit `session_state` синхронизируется с `SessionStore` через callback; (5) `UIClient` abstraction (см. противоречие C-1) позволяет переключать UI backend без потери session state.
+**Суть**: ADR-002 фиксирует Streamlit для MVP, признаёт проблему multi-instance (sticky session). Решение — ввести `SessionStore` abstraction с реализацией `RedisSessionStore`: (1) `SessionStore` interface: `get_session(id)`, `save_session(id, state)`, `list_sessions(user_id)`; (2) `RedisSessionStore` — primary, TTL=24h, JSON serialization; (3) `LocalSessionStore` — для unit-тестов; (4) Streamlit `session_state` синхронизируется с `SessionStore` через callback.
 
-**Supersedes**: часть ADR-002 (Streamlit native session_state) — заменяется на Redis-backed session store.
+**v1.1.0 сужение**: в v1.0.0 в §9.3 упоминалось «(5) `UIClient` abstraction (см. противоречие C-1) позволяет переключать UI backend без потери session state». В v1.1.0 `UIClient` вынесен в Phase 1 (см. §5.7). ADR-018 фокусируется на runtime aspect (session state persistence) и предполагает, что `UIClient` interface уже существует (из Phase 1). Добавление `ChainlitClient` (UI-5 из `BACKLOG.md`) в Phase 5 — добавление новой имплементации `UIClient`, использующей тот же `SessionStore` — interface `UIClient` не меняется.
+
+**Supersedes**: часть ADR-002 (Streamlit native `session_state`) — заменяется на Redis-backed session store. **Не затрагивает** `UIClient` (уже в Phase 1).
 
 **Эффект**:
 
 - (+) Multi-instance без sticky session.
 - (+) Session survives Streamlit restart.
-- (+) Путь к Chainlit/FastAPI без переписывания session logic.
+- (+) Путь к Chainlit/FastAPI без переписывания session logic (через `UIClient` из Phase 1).
 - (-) Redis становится mandatory dependency.
-- (-) Сериализация session_state в JSON — потенциальные проблемы с custom types.
+- (-) Сериализация `session_state` в JSON — потенциальные проблемы с custom types.
 
-**Критерий готовности**: 2 инстанса LLM Client за load balancer обрабатывают сессию пользователя без потери состояния при переключении; session восстанавливается при restart Streamlit в течение <1 сек.
+**Критерий готовности**: 2 инстанса LLM Client за load balancer обрабатывают сессию пользователя без потери состояния при переключении; session восстанавливается при restart Streamlit в течение <1 сек. **Дополнительно в v1.1.0**: `ChainlitClient` (UI-5) реализован как вторая имплементация `UIClient` interface, использует тот же `SessionStore` — UI-код из Phase 1 работает без изменений.
 
 ### 9.4 ADR-019: MCP Server Signed Manifests
 
@@ -668,12 +705,13 @@ Phase 5 переводит LLM Client в состояние Production-ready с 
 
 ### 9.7 Критерии выхода из фазы
 
-1. **ADR-018 Approved**: 2 инстанса обрабатывают сессию без sticky; session survives restart.
-2. **ADR-019 Approved**: 5 MCP-серверов с подписанными манифестами; destructive ops подтверждаются.
-3. **(расш. ADR-008) Approved**: preview <200 мс; full file <30 сек.
-4. **(новый) ABAC+RBAC Approved**: 100% destructive ops покрыты; auto-approval 95%+; false deny <5%.
-5. **Метрика идеальности**: `Δф=+4 capabilities (multi-instance, MCP security, async rendering, granular access), Δсложности=+4 dependencies (Redis SessionStore, Vault, Worker, Auth provider) → Δф/Δсложности = 1 ≥ 1` (граничный; при невыполнении pilots — пересмотр).
-6. **Документация обновлена**: `ARCHITECT.md` § 7 ADR обновлён; § 8 Trade-offs обновлён (C-1, C-10, C-12, C-13 помечены как resolved). **Все 8 High-приоритетных противоречий закрыты — формальный Production-ready**.
+1. **ADR-018 Approved (сужен в v1.1.0)**: 2 инстанса обрабатывают сессию без sticky; session survives restart. `UIClient` interface (из Phase 1) не модифицируется.
+2. **UI-5 Approved (new в v1.1.0)**: `ChainlitClient` — вторая имплементация `UIClient` interface; UI-код из Phase 1 (scaffold, base elements, fragments) работает без изменений; `SessionStore` используется обеими имплементациями (`StreamlitClient`, `ChainlitClient`).
+3. **ADR-019 Approved**: 5 MCP-серверов с подписанными манифестами; destructive ops подтверждаются.
+4. **(расш. ADR-008) Approved**: preview <200 мс; full file <30 сек.
+5. **(новый) ABAC+RBAC Approved**: 100% destructive ops покрыты; auto-approval 95%+; false deny <5%.
+6. **Метрика идеальности (v1.1.0)**: `Δф=+5 capabilities (multi-instance, MCP security, async rendering, granular access, ChainlitClient), Δсложности=+4 dependencies (Redis SessionStore, Vault, Worker, Auth provider) → Δф/Δсложности = 1.25 ≥ 1` (улучшение vs v1.0.0: было 4/4=1.0, стало 5/4=1.25 за счёт явной UI-5).
+7. **Документация обновлена**: `ARCHITECT.md` § 7 ADR обновлён (ADR-018 сужен, UI-5 упомянут как применение `UIClient`); § 8 Trade-offs обновлён (C-1, C-10, C-12, C-13 помечены как resolved). **Все 8 High-приоритетных противоречий закрыты — формальный Production-ready**.
 
 ---
 
@@ -935,11 +973,12 @@ Embed mode (Phase 6) ──→ (использует UIClient, но не тре�
 
 | После фазы | Минимальное значение Δф/Δсложности | Эффект при нарушении |
 |---|---|---|
-| Phase 1 | ≥ 2.0 (2 new capabilities / 1 new dependency) | ADR-014 пересматривается (KMS — потенциально избыточен) |
+| Phase 1 (v1.1.0) | ≥ 2.0 (4 new capabilities — cancel, dual-logging, dev-prod parity, UI scaffold + UIClient — / 2 new deps — KMS/Vault + UIClient abstraction) → ratio = 2.0. Если UI-3 откатывается: 3 caps / 2 deps = 1.5 < 2.0 → ADR-014 или UI-2 пересматривается | ADR-014 пересматривается (KMS — потенциально избыточен) ИЛИ UI-2 (`UIClient` abstraction) откатывается до Phase 5 (возврат к v1.0.0 модели) |
+| Phase 1 (v1.0.0 — для сравнения) | ≥ 2.0 (2 new capabilities / 1 new dependency) | ADR-014 пересматривается (KMS — потенциально избыточен) |
 | Phase 2 | ≥ 1.5 (3 new capabilities / 2 new dependencies) | Рефакторинг на упрощение reranker (отказ от pluggable registry) |
 | Phase 3 | ≥ 1.5 (4 new capabilities / 2 net new abstractions — `fallback_chain` упразднён) | Упрощение `LLMRouter` (отказ от privacy policy) |
 | Phase 4 | ≥ 1.0 (3 new capabilities / 3 new abstractions — граничный случай) | ADR пересматривается целиком |
-| Phase 5 | ≥ 1.0 (4 new capabilities / 4 new dependencies — граничный) | Отказ от ABAC, retention RBAC |
+| Phase 5 | ≥ 1.0 (v1.0.0: 4 caps / 4 deps; v1.1.0: 5 caps / 4 deps → 1.25, граничный) | Отказ от ABAC, retention RBAC; если v1.1.0 — отказ от UI-5 (`ChainlitClient`) и возврат к single-backend (Streamlit-only) |
 | Phase 6 | ≥ 5.0 (2 new capabilities / 0 new abstractions — использование существующих) | — (должен выполняться) |
 
 Если метрика падает — архитектурный комитет пересматривает план: либо ADR упрощается, либо фаза продлевается, либо план модифицируется (новые ADR могут быть отложены до следующего ТРИЗ-анализа).
@@ -1034,7 +1073,7 @@ Embed mode (Phase 6) ──→ (использует UIClient, но не тре�
 |---|---|---|---|
 | Q-1 | Ollama integration (локальные LLM) | ADR-016 (Tool Capability Adapter) + ADR-015 (LLMRouter с Ollama как cheap-tier) | Phase 3 (preview) → Phase 4 (full) |
 | Q-2 | LangSmith pricing (observability cost) | ADR-014 (DualStreamLogger — собственный observability, не зависящий от LangSmith) | Phase 1 |
-| Q-3 | Streamlit + async (I/O concurrency) | ADR-013 (cancel через Redis pub/sub, не Streamlit native) + ADR-018 (session в Redis, не в Streamlit) | Phase 1 + Phase 5 |
+| Q-3 | Streamlit + async (I/O concurrency) | ADR-013 (cancel через Redis pub/sub, не Streamlit native) + ADR-018 (session в Redis, не в Streamlit) + UI-2/UI-3 (`UIClient` abstraction и `@st.fragment` — из v1.1.0, частичная резолюция C-1 в Phase 1) | Phase 1 (UI-2/UI-3 — частично) + Phase 1 (ADR-013) + Phase 5 (ADR-018 — полностью) |
 | Q-4 | MCP-серверы с stdio в docker-compose | ADR-012 (MCP Transport Auto-Negotiation) | Phase 4 |
 | Q-5 | Стоимость LLM при >50k токенов контекста | ADR-011 (Semantic Cache) + ADR-015 (Cost-aware Router) + ADR-017 (Reranker, снижение noise) + ADR-020 (Hybrid RAG, точность > объём) | Phase 2 (частично) → Phase 3 (полностью) |
 
