@@ -14,7 +14,7 @@ import sys
 import httpx
 import streamlit as st  # type: ignore[import-untyped]
 
-from llm_client.ui import chat, render, session
+from llm_client.ui import chat, render, session, sidebar
 from llm_client.ui.auto_cancel import inject_auto_cancel
 
 APP_PORT_ENV = "APP_PORT"
@@ -26,6 +26,15 @@ st.title("LLM Client")
 inject_auto_cancel()
 
 session_id = session.init_state()
+
+selected = sidebar.render_sidebar()
+if selected is None:
+    session.new_session()
+    st.rerun()
+elif selected != session_id:
+    session.switch_session(selected)
+    st.rerun()
+
 render.render_history(session.get_messages())
 
 prompt = st.chat_input("Type your message...")

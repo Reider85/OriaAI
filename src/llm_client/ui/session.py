@@ -14,6 +14,7 @@ from typing import Any
 
 MESSAGES_KEY = "messages"
 CURRENT_SESSION_KEY = "current_session_id"
+SESSIONS_REGISTRY_KEY = "sessions_registry"
 
 _message_store: dict[str, list[dict[str, Any]]] = {}
 
@@ -67,13 +68,35 @@ def init_state() -> str:
     elif url_sid and url_sid != state[CURRENT_SESSION_KEY]:
         state[CURRENT_SESSION_KEY] = url_sid
         _load_messages_into_state(url_sid, state)
-    return str(state[CURRENT_SESSION_KEY])
+    session_id = str(state[CURRENT_SESSION_KEY])
+    _register_session_id(session_id, state)
+    return session_id
 
 
 def current_session_id() -> str:
     """Return the active session id from session_state."""
     state = _session_state()
     return str(state.get(CURRENT_SESSION_KEY, generate_session_id()))
+
+
+def switch_session(session_id: str) -> None:
+    """Make ``session_id`` the active session and load its history into state."""
+    state = _session_state()
+    state[CURRENT_SESSION_KEY] = session_id
+    _load_messages_into_state(session_id, state)
+    _register_session_id(session_id, state)
+    _set_url_session_id(session_id)
+
+
+def new_session() -> str:
+    """Start a fresh session: new UUID4, empty chat, registered in the list."""
+    session_id = generate_session_id()
+    state = _session_state()
+    state[CURRENT_SESSION_KEY] = session_id
+    state[MESSAGES_KEY] = []
+    _register_session_id(session_id, state)
+    _set_url_session_id(session_id)
+    return session_id
 
 
 def add_message(
@@ -86,6 +109,7 @@ def add_message(
         state[MESSAGES_KEY] = []
     state[MESSAGES_KEY].append(message)
     _message_store.setdefault(session_id, []).append(message)
+    _register_message(session_id, message, state)
     return message
 
 
@@ -100,9 +124,87 @@ def clear() -> None:
     _session_state()[MESSAGES_KEY] = []
 
 
+def get_sessions_list() -> list[dict[str, Any]]:
+    """Return session metadata for the sidebar, most recent activity first.
+
+    Each item is a dict with keys ``session_id``, ``first_prompt`` (first user
+    message, truncated), ``created_at``, ``last_activity``. The source is the
+    in-memory sessions registry in ``st.session_state``; it is backfilled from
+    the process-local message store so a fresh tab keeps the process view.
+    """
+    state = _session_state()
+    registry = _ensure_registry(state)
+    for sid, messages in _message_store.items():
+        if sid not in registry:
+            _backfill_registry_entry(sid, messages, registry)
+    sessions = []
+    for sid, entry in registry.items():
+        sessions.append(
+            {
+                "session_id": sid,
+                "first_prompt": (entry.get("first_prompt") or ""),
+                "created_at": (entry.get("created_at") or ""),
+                "last_activity": (entry.get("last_activity") or ""),
+            }
+        )
+    sessions.sort(key=lambda item: item["last_activity"], reverse=True)
+    return sessions
+
+
 def _load_messages_into_state(session_id: str, state: Any) -> None:
     history = _message_store.get(session_id)
     state[MESSAGES_KEY] = list(history) if history else []
+
+
+def _ensure_registry(state: Any) -> dict[str, dict[str, Any]]:
+    if SESSIONS_REGISTRY_KEY not in state:
+        state[SESSIONS_REGISTRY_KEY] = {}
+    return state[SESSIONS_REGISTRY_KEY]
+
+
+def _register_session_id(session_id: str, state: Any) -> None:
+    """Ensure ``session_id`` is present in the in-memory sessions registry."""
+    registry = _ensure_registry(state)
+    registry.setdefault(
+        session_id, {"first_prompt": None, "created_at": _now_iso(), "last_activity": _now_iso()}
+    )
+
+
+def _register_message(session_id: str, message: dict[str, Any], state: Any) -> None:
+    """Update the registry entry for ``session_id`` with message metadata."""
+    registry = _ensure_registry(state)
+    entry = registry.setdefault(
+        session_id, {"first_prompt": None, "created_at": _now_iso(), "last_activity": _now_iso()}
+    )
+    if entry.get("first_prompt") is None and message["role"] == "user" and message["content"]:
+        entry["first_prompt"] = message["content"]
+    if message.get("timestamp"):
+        entry["last_activity"] = message["timestamp"]
+
+
+def _backfill_registry_entry(
+    session_id: str, messages: list[dict[str, Any]], registry: dict[str, dict[str, Any]]
+) -> None:
+    entry: dict[str, Any] = {
+        "first_prompt": None,
+        "created_at": _now_iso(),
+        "last_activity": _now_iso(),
+    }
+    for message in messages:
+        if entry["first_prompt"] is None and message["role"] == "user" and message["content"]:
+            entry["first_prompt"] = message["content"]
+        if message.get("timestamp"):
+            entry["last_activity"] = message["timestamp"]
+    registry.setdefault(session_id, entry)
+
+
+def _set_url_session_id(session_id: str) -> None:
+    """Keep ``?session_id=...`` in the URL in sync with the active session."""
+    try:
+        import streamlit as st  # type: ignore[import-untyped]
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("streamlit is required for the chat UI") from exc
+    st.query_params["session_id"] = session_id
 
 
 def _now_iso() -> str:
