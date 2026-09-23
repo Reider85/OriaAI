@@ -10,6 +10,9 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
+import traceback
+from collections.abc import Iterator
 
 import httpx
 import streamlit as st
@@ -20,6 +23,26 @@ from llm_client.ui.auto_cancel import inject_auto_cancel
 APP_PORT_ENV = "APP_PORT"
 APP_PORT_DEFAULT = "8501"
 PENDING_ARTIFACTS_KEY = "pending_artifacts"
+STREAM_TIMEOUT_ENV = "STREAM_TIMEOUT_SECONDS"
+STREAM_TIMEOUT_DEFAULT = 60.0
+
+
+def _stream_timeout() -> float:
+    """Return the end-to-end streaming timeout from the environment (60 s)."""
+    return float(os.getenv(STREAM_TIMEOUT_ENV, STREAM_TIMEOUT_DEFAULT))
+
+
+def _stream_with_timeout(session_id: str) -> Iterator[str]:
+    """Yield stream tokens but fail with a timeout badge if nothing arrives for
+    ``STREAM_TIMEOUT_SECONDS`` (anti-pattern: spinner hanging forever)."""
+    deadline = time.monotonic() + _stream_timeout()
+    for token in chat.stream_tokens(session_id):
+        if time.monotonic() > deadline:
+            raise chat.ChatStreamError(
+                "Timeout (no response)", status="error", detail="Timeout (no response)"
+            )
+        yield token
+
 
 st.set_page_config(page_title="LLM Client", layout="wide")
 st.title("LLM Client")
@@ -56,11 +79,22 @@ if prompt:
             st.error(f"Agent service unavailable ({chat.agent_service_url()}): {exc}")
         else:
             chat.clear_pending_artifacts()
+            status_ph = st.empty()
+            token_area = st.empty()
+            answer = ""
             try:
-                answer = "".join(st.write_stream(chat.stream_tokens(session_id)))
+                with status_ph.container():
+                    render.render_status_badge("streaming")
+                for token in _stream_with_timeout(session_id):
+                    answer += token
+                    token_area.markdown(answer)
             except chat.ChatStreamError as exc:
-                st.error(str(exc))
-                answer = ""
+                status_ph.empty()
+                render.render_status_badge(
+                    exc.status, exc.detail, traceback_text=traceback.format_exc()
+                )
+            else:
+                status_ph.empty()
             if answer:
                 session.add_message(session_id, "assistant", answer)
             artifacts = chat.get_pending_artifacts()

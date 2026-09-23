@@ -13,10 +13,13 @@ for ``done``, ``cancelled``, ``error``, ``artifact_ready`` and ``metadata``.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator, Sequence
 from typing import Any, NamedTuple
 
 import httpx
+
+_logger = logging.getLogger(__name__)
 
 AGENT_SERVICE_URL_ENV = "AGENT_SERVICE_URL"
 AGENT_SERVICE_URL_DEFAULT = "http://localhost:8000"
@@ -27,6 +30,7 @@ _REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0)
 TOKEN_EVENTS = ("token", "message")
 TERMINAL_EVENTS = ("cancelled", "error")
 ARTIFACT_EVENTS = ("artifact_ready",)
+METADATA_EVENTS = ("metadata",)
 
 _pending_artifacts: list[dict[str, Any]] = []
 
@@ -40,7 +44,24 @@ class SSEEvent(NamedTuple):
 
 
 class ChatStreamError(RuntimeError):
-    """Raised when the SSE stream cannot be opened or read."""
+    """Raised when the SSE stream cannot be opened, fails mid-stream, or a
+    terminal ``cancelled``/``error`` event arrives.
+
+    ``status`` is ``"transport"`` (connection/HTTP failure), ``"cancelled"`` or
+    ``"error"``; ``detail`` carries the structured payload (cancel ``reason``,
+    error ``message``) when the server provided one.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: str = "transport",
+        detail: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.detail = detail
 
 
 def agent_service_url() -> str:
@@ -85,14 +106,33 @@ def stream_tokens(session_id: str) -> Iterator[str]:
                         yield token
                 elif event.event in ARTIFACT_EVENTS:
                     _record_artifact(event.data)
+                elif event.event in METADATA_EVENTS:
+                    _logger.debug("metadata event: %r", event.data)
                 elif event.event == "done":
                     return
                 elif event.event in TERMINAL_EVENTS:
                     raise ChatStreamError(
-                        f"stream closed with event={event.event}, payload={event.data!r}"
+                        f"stream closed with event={event.event}, payload={event.data!r}",
+                        status=event.event,
+                        detail=_terminal_event_detail(event.data),
                     )
+                else:
+                    _logger.debug("ignoring unrecognised SSE event: %r", event.event)
     except httpx.TransportError as exc:
         raise ChatStreamError(f"stream to agent-service failed: {exc}") from exc
+
+
+def _terminal_event_detail(data: Any) -> str | None:
+    """Extract a human-readable detail from a ``cancelled``/``error`` payload."""
+    if isinstance(data, dict):
+        for key in ("reason", "message", "error"):
+            value = data.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return None if not data else str(data)
+    if isinstance(data, str) and data:
+        return data
+    return None
 
 
 def get_pending_artifacts() -> list[dict[str, Any]]:

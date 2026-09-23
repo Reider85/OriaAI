@@ -108,6 +108,41 @@ def render_error(message: str) -> None:
     st.error(message)
 
 
+def render_status_badge(
+    status: str,
+    detail: str | None = None,
+    traceback_text: str | None = None,
+) -> None:
+    """Render the LLM-call status indicator (UI-1, ADR-007/ADR-013).
+
+    ``status`` is one of:
+
+    * ``streaming`` — ``st.status`` spinner ``"Generating response..."``;
+    * ``cancelled`` — red ``st.error`` ``"Cancelled: <detail>"`` (detail is the
+      ``reason`` from the ADR-013 cancel event);
+    * ``error`` — yellow ``st.warning`` ``"Error: <detail>"``; when
+      ``traceback_text`` is given it goes into an expander, never inline.
+
+    Uses ``st.status``/``st.empty`` only — never ``st.spinner`` (blocks re-run).
+    The ``streaming`` badge is cleared by the caller via its placeholder.
+    """
+    import streamlit as st
+
+    if status == "streaming":
+        st.status("Generating response...", expanded=False)
+        return
+    if status == "cancelled":
+        st.error("Cancelled" if detail is None else f"Cancelled: {detail}")
+        return
+    if status == "error":
+        st.warning("Error" if detail is None else f"Error: {detail}")
+        if traceback_text:
+            with st.expander("Details"):
+                st.code(traceback_text, language="python")
+        return
+    st.warning(f"Unknown status: {status}")
+
+
 __all__ = [
     "FAST_ARTIFACT_FORMATS",
     "fetch_artifact_content",
@@ -116,4 +151,5 @@ __all__ = [
     "render_error",
     "render_history",
     "render_message",
+    "render_status_badge",
 ]

@@ -29,10 +29,28 @@ class _FakeStreamlit:
         self.download_button = _FakeDownloadButton()
         self.warnings = []
         self.buttons = []
+        self.errors = []
+        self.status_calls = []
+        self.expander_calls = []
+        self.code_calls = []
         self._button_clicked = False
 
     def warning(self, text):
         self.warnings.append(text)
+
+    def error(self, text):
+        self.errors.append(text)
+
+    def status(self, label, expanded=None):
+        self.status_calls.append({"label": label, "expanded": expanded})
+        return _FakeStatus()
+
+    def expander(self, label):
+        self.expander_calls.append(label)
+        return _FakeExpander()
+
+    def code(self, text, language=None):
+        self.code_calls.append({"text": text, "language": language})
 
     def button(self, label):
         self.buttons.append(label)
@@ -40,6 +58,22 @@ class _FakeStreamlit:
 
     def rerun(self):
         raise _FakeRerun()
+
+
+class _FakeStatus:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        return False
+
+
+class _FakeExpander:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        return False
 
 
 class _FakeRerun(Exception):
@@ -172,3 +206,48 @@ def test_render_artifact_buttons_retry_reruns(fake_streamlit, monkeypatch):
     with pytest.raises(_FakeRerun):
         render.render_artifact_buttons([artifact])
     assert fake_streamlit.buttons == ["Retry report.pdf"]
+
+
+def test_render_status_badge_streaming_uses_status(fake_streamlit):
+    render.render_status_badge("streaming")
+    assert fake_streamlit.status_calls == [
+        {"label": "Generating response...", "expanded": False}
+    ]
+    assert fake_streamlit.errors == []
+    assert fake_streamlit.warnings == []
+
+
+def test_render_status_badge_cancelled_with_detail(fake_streamlit):
+    render.render_status_badge("cancelled", "user_cancelled")
+    assert fake_streamlit.errors == ["Cancelled: user_cancelled"]
+    assert fake_streamlit.warnings == []
+
+
+def test_render_status_badge_cancelled_without_detail(fake_streamlit):
+    render.render_status_badge("cancelled")
+    assert fake_streamlit.errors == ["Cancelled"]
+
+
+def test_render_status_badge_error_with_traceback(fake_streamlit):
+    render.render_status_badge("error", "LLM provider failed", "traceback\nline")
+    assert fake_streamlit.warnings == ["Error: LLM provider failed"]
+    assert fake_streamlit.expander_calls == ["Details"]
+    assert fake_streamlit.code_calls == [
+        {"text": "traceback\nline", "language": "python"}
+    ]
+
+
+def test_render_status_badge_error_without_traceback(fake_streamlit):
+    render.render_status_badge("error", "boom")
+    assert fake_streamlit.warnings == ["Error: boom"]
+    assert fake_streamlit.expander_calls == []
+
+
+def test_render_status_badge_error_without_detail(fake_streamlit):
+    render.render_status_badge("error")
+    assert fake_streamlit.warnings == ["Error"]
+
+
+def test_render_status_badge_unknown_status_warns(fake_streamlit):
+    render.render_status_badge("nope")
+    assert fake_streamlit.warnings == ["Unknown status: nope"]

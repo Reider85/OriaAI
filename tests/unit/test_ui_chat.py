@@ -169,6 +169,61 @@ def test_stream_tokens_raises_on_cancelled_event(monkeypatch):
         list(chat.stream_tokens("sid-1"))
 
 
+def test_stream_tokens_cancelled_carries_status_and_reason(monkeypatch):
+    lines = ["data: partial", "", "event: cancelled", 'data: {"reason": "user_cancelled"}', ""]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    with pytest.raises(chat.ChatStreamError) as excinfo:
+        list(chat.stream_tokens("sid-1"))
+    assert excinfo.value.status == "cancelled"
+    assert excinfo.value.detail == "user_cancelled"
+
+
+def test_stream_tokens_error_carries_status_and_message(monkeypatch):
+    lines = ["event: error", 'data: {"message": "LLM provider failed"}', ""]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    with pytest.raises(chat.ChatStreamError) as excinfo:
+        list(chat.stream_tokens("sid-1"))
+    assert excinfo.value.status == "error"
+    assert excinfo.value.detail == "LLM provider failed"
+
+
+def test_stream_tokens_cancelled_without_reason_detail_is_none(monkeypatch):
+    lines = ["event: cancelled", "data: {}", ""]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    with pytest.raises(chat.ChatStreamError) as excinfo:
+        list(chat.stream_tokens("sid-1"))
+    assert excinfo.value.status == "cancelled"
+    assert excinfo.value.detail is None
+
+
+def test_stream_tokens_ignores_unrecognised_events(monkeypatch):
+    lines = [
+        "data: hi",
+        "",
+        "event: unknown_thing",
+        "data: {}",
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    assert list(chat.stream_tokens("sid-1")) == ["hi"]
+
+
+def test_stream_tokens_ignores_metadata_event(monkeypatch):
+    lines = [
+        "event: metadata",
+        'data: {"message_id": "m1", "pii_score": 0.1}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    assert list(chat.stream_tokens("sid-1")) == []
+
+
 def test_agent_service_url_default():
     assert chat.agent_service_url() == "http://localhost:8000"
 
