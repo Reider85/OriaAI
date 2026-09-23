@@ -224,6 +224,93 @@ def test_stream_tokens_ignores_metadata_event(monkeypatch):
     assert list(chat.stream_tokens("sid-1")) == []
 
 
+def test_stream_tokens_buffers_metadata_event(monkeypatch):
+    lines = [
+        "event: metadata",
+        'data: {"message_id": "m1", "pii_score": 0.9, "pii_entities": ["US_SSN"]}',
+        "",
+        "data: Hello",
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_metadata()
+    assert list(chat.stream_tokens("sid-1")) == ["Hello"]
+    metadata = chat.get_pending_metadata()
+    assert len(metadata) == 1
+    assert metadata[0]["message_id"] == "m1"
+    assert metadata[0]["pii_score"] == 0.9
+    assert metadata[0]["pii_entities"] == ["US_SSN"]
+
+
+def test_stream_tokens_ignores_metadata_without_message_id(monkeypatch):
+    lines = [
+        "event: metadata",
+        'data: {"pii_score": 0.5}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_metadata()
+    assert list(chat.stream_tokens("sid-1")) == []
+    assert chat.get_pending_metadata() == []
+
+
+def test_stream_tokens_metadata_calls_callback(monkeypatch):
+    lines = [
+        "event: metadata",
+        'data: {"message_id": "m1", "pii_score": 0.2}',
+        "",
+        "data: hi",
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    seen = []
+    list(chat.stream_tokens("sid-1", on_metadata=seen.append))
+    assert seen == [{"message_id": "m1", "pii_score": 0.2}]
+
+
+def test_get_pending_metadata_returns_copy(monkeypatch):
+    lines = [
+        "event: metadata",
+        'data: {"message_id": "m1", "pii_score": 0.1}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_metadata()
+    list(chat.stream_tokens("sid-1"))
+    metadata = chat.get_pending_metadata()
+    metadata[0]["pii_score"] = 0.99
+    assert chat.get_pending_metadata()[0]["pii_score"] == 0.1
+
+
+def test_clear_pending_metadata_resets_buffer(monkeypatch):
+    lines = [
+        "event: metadata",
+        'data: {"message_id": "m1", "pii_score": 0.1}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_metadata()
+    list(chat.stream_tokens("sid-1"))
+    assert len(chat.get_pending_metadata()) == 1
+    chat.clear_pending_metadata()
+    assert chat.get_pending_metadata() == []
+
+
 def test_agent_service_url_default():
     assert chat.agent_service_url() == "http://localhost:8000"
 

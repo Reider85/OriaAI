@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any, NamedTuple
 
 import httpx
@@ -33,6 +33,7 @@ ARTIFACT_EVENTS = ("artifact_ready",)
 METADATA_EVENTS = ("metadata",)
 
 _pending_artifacts: list[dict[str, Any]] = []
+_pending_metadata: list[dict[str, Any]] = []
 
 
 class SSEEvent(NamedTuple):
@@ -81,7 +82,9 @@ def send_message(session_id: str, message: str) -> httpx.Response:
     return httpx.post(url, json={"message": message}, timeout=_REQUEST_TIMEOUT)
 
 
-def stream_tokens(session_id: str) -> Iterator[str]:
+def stream_tokens(
+    session_id: str, on_metadata: Callable[[Any], None] | None = None
+) -> Iterator[str]:
     """Yield assistant tokens from ``GET /sessions/{session_id}/stream``.
 
     The stream terminates normally on a ``done`` event. ``artifact_ready``
@@ -89,6 +92,10 @@ def stream_tokens(session_id: str) -> Iterator[str]:
     ``get_pending_artifacts``) and do not interrupt token streaming. Raises
     ``ChatStreamError`` if the connection fails, the endpoint errors, or the
     server sends a terminal ``cancelled``/``error`` event.
+
+    ``metadata`` events (PII score from ADR-014) are captured into the
+    pending-metadata buffer and, when ``on_metadata`` is given, also forwarded
+    to the callback so the UI can update a message's badge with low latency.
     """
     url = f"{agent_service_url()}/sessions/{session_id}/stream"
     try:
@@ -107,7 +114,9 @@ def stream_tokens(session_id: str) -> Iterator[str]:
                 elif event.event in ARTIFACT_EVENTS:
                     _record_artifact(event.data)
                 elif event.event in METADATA_EVENTS:
-                    _logger.debug("metadata event: %r", event.data)
+                    _record_metadata(event.data)
+                    if on_metadata is not None:
+                        on_metadata(event.data)
                 elif event.event == "done":
                     return
                 elif event.event in TERMINAL_EVENTS:
@@ -148,6 +157,21 @@ def clear_pending_artifacts() -> None:
 def _record_artifact(data: Any) -> None:
     if isinstance(data, dict) and data.get("artifact_id"):
         _pending_artifacts.append(dict(data))
+
+
+def get_pending_metadata() -> list[dict[str, Any]]:
+    """Return a copy of the metadata event payloads seen in the last stream."""
+    return [dict(item) for item in _pending_metadata]
+
+
+def clear_pending_metadata() -> None:
+    """Drop all captured metadata event payloads."""
+    _pending_metadata.clear()
+
+
+def _record_metadata(data: Any) -> None:
+    if isinstance(data, dict) and data.get("message_id"):
+        _pending_metadata.append(dict(data))
 
 
 def iter_sse_events(lines: Iterator[str]) -> Iterator[SSEEvent]:
@@ -206,7 +230,9 @@ __all__ = [
     "SSEEvent",
     "agent_service_url",
     "clear_pending_artifacts",
+    "clear_pending_metadata",
     "get_pending_artifacts",
+    "get_pending_metadata",
     "iter_sse_events",
     "send_message",
     "stream_tokens",
