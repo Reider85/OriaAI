@@ -41,6 +41,16 @@ class UIClient(ABC):
         """
 
     @abstractmethod
+    def render_user_message(self, content: str) -> Any:
+        """Render a user message bubble and return a PII badge placeholder.
+
+        The returned placeholder receives the live PII badge as soon as the
+        backend reports a ``metadata`` event for this message (ADR-014).
+        Callers update that placeholder while the assistant stream is running;
+        the badge is otherwise baked into later ``render_message`` calls.
+        """
+
+    @abstractmethod
     def render_artifact(self, artifact: ArtifactRef) -> None:
         """Render a download button for a generated artifact."""
 

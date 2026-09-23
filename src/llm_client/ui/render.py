@@ -1,10 +1,11 @@
 """Rendering helpers for the Streamlit chat UI (UI-0, ADR-002/ADR-007).
 
 Artifact download buttons (UI-1, ADR-008): ``render_artifact_buttons`` renders
-one ``st.download_button`` per ``artifact_ready`` event. Fast formats (md/txt)
-fetch their content synchronously via ``GET /artifacts/{id}``; slow formats
+one download button per ``artifact_ready`` event. Fast formats (md/txt) fetch
+their content synchronously via ``GET /artifacts/{id}``; slow formats
 (pdf/docx/odt/xls/xlsx) render a disabled placeholder while the backend is
-still generating (503) with a retry path.
+still generating (503) with a retry path. These helpers are the Streamlit
+implementation that ``StreamlitClient`` delegates to (prompt 8).
 
 PII score badge (UI-1, ADR-014): ``render_pii_badge`` renders a compact,
 color-coded badge next to a user message using the ``pii_score`` /
@@ -90,14 +91,14 @@ def _render_artifact_button(artifact: dict[str, Any]) -> None:
         st.warning(f"Artifact not found ({filename})")
         return
     if status_code == 200 and content is not None:
-        st.download_button(label, data=content, file_name=filename, mime=mime)
+        st.download_button(label, data=content, file_name=filename, mime=mime)  # Streamlit-specific, not in UIClient interface.
         return
 
     # Slow path (pdf/docx/odt/xls/xlsx): still generating, non-blocking.
     if status_code == 503:
         st.warning("Still generating")
     disabled_label = f"{label} (Generating...)"
-    st.download_button(disabled_label, data=b"", file_name=None, mime=mime, disabled=True)
+    st.download_button(disabled_label, data=b"", file_name=None, mime=mime, disabled=True)  # Streamlit-specific, not in UIClient interface.
     if st.button(f"Retry {filename}"):
         st.rerun()
 
@@ -105,15 +106,16 @@ def _render_artifact_button(artifact: dict[str, Any]) -> None:
 def render_message(
     role: str, content: str, metadata: dict[str, Any] | None = None
 ) -> None:
-    """Render a single chat message with ``st.chat_message`` + ``st.markdown``.
+    """Render a single chat message as a Streamlit bubbles + markdown block.
 
     When ``metadata`` carries a ``pii_score`` and ``role`` is ``"user"``, a
     compact PII badge is rendered after the content (ADR-014). PII badges are
-    never rendered for assistant messages.
+    never rendered for assistant messages. Called by ``StreamlitClient``
+    (behavior is backend-specific, outside the ``UIClient`` interface).
     """
     import streamlit as st
 
-    with st.chat_message(role):
+    with st.chat_message(role):  # Streamlit-specific, not in UIClient interface.
         st.markdown(content)
         if role == "user" and metadata:
             pii_score = metadata.get("pii_score")

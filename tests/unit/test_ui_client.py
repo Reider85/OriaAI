@@ -17,6 +17,9 @@ class TestUIClientABC:
             def render_message(self, role, content, metadata=None):
                 pass
 
+            def render_user_message(self, content):
+                return None
+
             def render_artifact(self, artifact):
                 pass
 

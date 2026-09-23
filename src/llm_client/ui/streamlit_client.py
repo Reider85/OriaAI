@@ -52,6 +52,39 @@ class StreamlitClient(UIClient):
 
         _render_message(role, content, metadata)
 
+    def render_user_message(self, content: str) -> Any:
+        """Render a user message bubble and return the PII badge placeholder.
+
+        The content renders inside ``st.chat_message("user")``; an
+        ``st.empty()`` placeholder (returned to the caller) shows the live PII
+        badge as soon as the backend emits the ``metadata`` event (ADR-014).
+        """
+        import streamlit as st
+
+        with st.chat_message("user"):
+            st.markdown(content)
+            return st.empty()
+
+    def update_pii_badge(
+        self,
+        slot: Any,
+        pii_score: float,
+        pii_entities: list[str],
+        message_id: str | None = None,
+    ) -> None:
+        """Render the live PII badge for a user message into ``slot``.
+
+        ``slot`` is the placeholder returned by ``render_user_message``; it is
+        updated as soon as the backend emits the ``metadata`` event so the
+        badge appears in <1 s (ADR-014, prompt 5 DoD). Streamlit-specific hook
+        (``st.empty`` + ``st.markdown``) with no analogue in other backends —
+        intentionally outside the ``UIClient`` interface, like sidebar/status.
+        """
+        from llm_client.ui.render import render_pii_badge as _render_pii_badge
+
+        with slot.container():
+            _render_pii_badge(pii_score, pii_entities, message_id=message_id)
+
     # -- render_artifact --------------------------------------------------
 
     def render_artifact(self, artifact: ArtifactRef) -> None:
