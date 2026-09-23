@@ -41,6 +41,10 @@ class _FakeStreamlit:
         self.sidebar = sidebar_box
         self.session_state = {}
 
+    @staticmethod
+    def fragment(func):
+        return func
+
     def subheader(self, text):
         self.sidebar.subheader(text)
 

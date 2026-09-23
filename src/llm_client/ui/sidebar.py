@@ -22,7 +22,11 @@ def _session_label(item: dict[str, Any]) -> str:
 
 
 def render_sidebar() -> str | None:
-    """Render the sessions sidebar.
+    """Render the sessions sidebar inside ``@st.fragment`` (prompt 10).
+
+    The fragment isolates re-runs so that chat streaming tokens do not cause
+    the sidebar to re-render -- only explicit sidebar interactions (button
+    clicks, selectbox changes) trigger a sidebar refresh.
 
     Returns the currently selected ``session_id`` (default: the active one), or
     ``None`` when the "New session" button was pressed. Nothing is mutated here;
@@ -32,31 +36,35 @@ def render_sidebar() -> str | None:
 
     from llm_client.ui import session
 
-    sessions = session.get_sessions_list()
-    current = session.current_session_id()
+    @st.fragment
+    def _sidebar_fragment() -> str | None:
+        sessions = session.get_sessions_list()
+        current = session.current_session_id()
 
-    with st.sidebar:
-        st.subheader("Sessions")
-        if st.button("New session", use_container_width=True):
-            return None
-        if not sessions:
-            st.caption("No sessions yet")
-            return None
-        options = [item["session_id"] for item in sessions]
-        default_index = next(
-            (i for i, item in enumerate(sessions) if item["session_id"] == current),
-            0,
-        )
-        selected = st.selectbox(
-            "Select session",
-            options=options,
-            index=default_index,
-            format_func=lambda sid: _session_label(
-                next((item for item in sessions if item["session_id"] == sid), {})
-            ),
-        )
-        st.caption(f"{len(sessions)} session{'s' if len(sessions) != 1 else ''}")
-    return selected
+        with st.sidebar:
+            st.subheader("Sessions")
+            if st.button("New session", use_container_width=True):
+                return None
+            if not sessions:
+                st.caption("No sessions yet")
+                return None
+            options = [item["session_id"] for item in sessions]
+            default_index = next(
+                (i for i, item in enumerate(sessions) if item["session_id"] == current),
+                0,
+            )
+            selected = st.selectbox(
+                "Select session",
+                options=options,
+                index=default_index,
+                format_func=lambda sid: _session_label(
+                    next((item for item in sessions if item["session_id"] == sid), {})
+                ),
+            )
+            st.caption(f"{len(sessions)} session{'s' if len(sessions) != 1 else ''}")
+        return selected
+
+    return _sidebar_fragment()
 
 
 __all__ = ["render_sidebar"]
