@@ -26,6 +26,9 @@ _REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=5.0)
 
 TOKEN_EVENTS = ("token", "message")
 TERMINAL_EVENTS = ("cancelled", "error")
+ARTIFACT_EVENTS = ("artifact_ready",)
+
+_pending_artifacts: list[dict[str, Any]] = []
 
 
 class SSEEvent(NamedTuple):
@@ -60,7 +63,9 @@ def send_message(session_id: str, message: str) -> httpx.Response:
 def stream_tokens(session_id: str) -> Iterator[str]:
     """Yield assistant tokens from ``GET /sessions/{session_id}/stream``.
 
-    The stream terminates normally on a ``done`` event. Raises
+    The stream terminates normally on a ``done`` event. ``artifact_ready``
+    events are captured into the pending-artifacts buffer (see
+    ``get_pending_artifacts``) and do not interrupt token streaming. Raises
     ``ChatStreamError`` if the connection fails, the endpoint errors, or the
     server sends a terminal ``cancelled``/``error`` event.
     """
@@ -78,6 +83,8 @@ def stream_tokens(session_id: str) -> Iterator[str]:
                     token = _token_payload(event.data)
                     if token:
                         yield token
+                elif event.event in ARTIFACT_EVENTS:
+                    _record_artifact(event.data)
                 elif event.event == "done":
                     return
                 elif event.event in TERMINAL_EVENTS:
@@ -86,6 +93,21 @@ def stream_tokens(session_id: str) -> Iterator[str]:
                     )
     except httpx.TransportError as exc:
         raise ChatStreamError(f"stream to agent-service failed: {exc}") from exc
+
+
+def get_pending_artifacts() -> list[dict[str, Any]]:
+    """Return a copy of the artifact_ready payloads seen in the last stream."""
+    return [dict(item) for item in _pending_artifacts]
+
+
+def clear_pending_artifacts() -> None:
+    """Drop all captured artifact_ready payloads."""
+    _pending_artifacts.clear()
+
+
+def _record_artifact(data: Any) -> None:
+    if isinstance(data, dict) and data.get("artifact_id"):
+        _pending_artifacts.append(dict(data))
 
 
 def iter_sse_events(lines: Iterator[str]) -> Iterator[SSEEvent]:
@@ -143,6 +165,8 @@ __all__ = [
     "ChatStreamError",
     "SSEEvent",
     "agent_service_url",
+    "clear_pending_artifacts",
+    "get_pending_artifacts",
     "iter_sse_events",
     "send_message",
     "stream_tokens",

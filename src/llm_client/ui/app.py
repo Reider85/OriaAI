@@ -12,13 +12,14 @@ import subprocess
 import sys
 
 import httpx
-import streamlit as st  # type: ignore[import-untyped]
+import streamlit as st
 
 from llm_client.ui import chat, render, session, sidebar
 from llm_client.ui.auto_cancel import inject_auto_cancel
 
 APP_PORT_ENV = "APP_PORT"
 APP_PORT_DEFAULT = "8501"
+PENDING_ARTIFACTS_KEY = "pending_artifacts"
 
 st.set_page_config(page_title="LLM Client", layout="wide")
 st.title("LLM Client")
@@ -30,12 +31,17 @@ session_id = session.init_state()
 selected = sidebar.render_sidebar()
 if selected is None:
     session.new_session()
+    st.session_state[PENDING_ARTIFACTS_KEY] = []
     st.rerun()
 elif selected != session_id:
     session.switch_session(selected)
+    st.session_state[PENDING_ARTIFACTS_KEY] = []
     st.rerun()
 
 render.render_history(session.get_messages())
+
+for artifact in st.session_state.get(PENDING_ARTIFACTS_KEY, []):
+    render.render_artifact_buttons([artifact])
 
 prompt = st.chat_input("Type your message...")
 if prompt:
@@ -49,6 +55,7 @@ if prompt:
         except httpx.HTTPError as exc:  # backend down -> st.error, no crash (UI-0 DoD)
             st.error(f"Agent service unavailable ({chat.agent_service_url()}): {exc}")
         else:
+            chat.clear_pending_artifacts()
             try:
                 answer = "".join(st.write_stream(chat.stream_tokens(session_id)))
             except chat.ChatStreamError as exc:
@@ -56,6 +63,10 @@ if prompt:
                 answer = ""
             if answer:
                 session.add_message(session_id, "assistant", answer)
+            artifacts = chat.get_pending_artifacts()
+            if artifacts:
+                st.session_state[PENDING_ARTIFACTS_KEY] = artifacts
+                render.render_artifact_buttons(artifacts)
 
 
 def app_port() -> int:

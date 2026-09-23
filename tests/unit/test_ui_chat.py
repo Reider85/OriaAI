@@ -83,6 +83,75 @@ def test_stream_tokens_yields_tokens_until_done(monkeypatch):
     assert list(chat.stream_tokens("sid-1")) == ["Hello", " world"]
 
 
+def test_stream_tokens_captures_artifact_ready(monkeypatch):
+    lines = [
+        "data: Hello",
+        "",
+        "event: artifact_ready",
+        'data: {"artifact_id": "a1", "format": "md", "filename": "notes.md", "s3_key": "k"}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_artifacts()
+    assert list(chat.stream_tokens("sid-1")) == ["Hello"]
+    artifacts = chat.get_pending_artifacts()
+    assert len(artifacts) == 1
+    assert artifacts[0]["artifact_id"] == "a1"
+    assert artifacts[0]["format"] == "md"
+
+
+def test_get_pending_artifacts_returns_copy(monkeypatch):
+    lines = [
+        "event: artifact_ready",
+        'data: {"artifact_id": "a1", "format": "txt", "filename": "f.txt", "s3_key": "k"}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_artifacts()
+    list(chat.stream_tokens("sid-1"))
+    artifacts = chat.get_pending_artifacts()
+    artifacts[0]["artifact_id"] = "mutated"
+    assert chat.get_pending_artifacts()[0]["artifact_id"] == "a1"
+
+
+def test_clear_pending_artifacts_resets_buffer(monkeypatch):
+    lines = [
+        "event: artifact_ready",
+        'data: {"artifact_id": "a1", "format": "txt", "filename": "f.txt", "s3_key": "k"}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_artifacts()
+    list(chat.stream_tokens("sid-1"))
+    assert len(chat.get_pending_artifacts()) == 1
+    chat.clear_pending_artifacts()
+    assert chat.get_pending_artifacts() == []
+
+
+def test_stream_tokens_ignores_invalid_artifact_payload(monkeypatch):
+    lines = [
+        "event: artifact_ready",
+        "data: not-json",
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_artifacts()
+    assert list(chat.stream_tokens("sid-1")) == []
+    assert chat.get_pending_artifacts() == []
+
+
 def test_stream_tokens_raises_on_transport_error(monkeypatch):
     monkeypatch.setattr(
         chat.httpx,
