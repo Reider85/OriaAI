@@ -14,7 +14,8 @@ per request; the factory ``get_ui_client()`` is the intended entry point.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Literal, cast
 
 from llm_client.types import ArtifactRef, MessageRole
 from llm_client.ui.client import UIClient
@@ -23,6 +24,9 @@ _STATE_PREFIX = "streamlit_client_"
 _TOKEN_BUFFER_KEY = _STATE_PREFIX + "token_buffer"
 _PLACEHOLDER_KEY = _STATE_PREFIX + "placeholder"
 _CHAT_INPUT_KEY = _STATE_PREFIX + "chat_input_"
+_STREAMING_DONE_KEY = _STATE_PREFIX + "streaming_done"
+_ANSWER_KEY = _STATE_PREFIX + "answer"
+_STREAMING_PLACEHOLDER_KEY = _STATE_PREFIX + "streaming_placeholder"
 
 
 def _session_state() -> dict[str, Any]:
@@ -30,6 +34,27 @@ def _session_state() -> dict[str, Any]:
     import streamlit as st
 
     return st.session_state  # type: ignore[return-value]
+
+
+ArtifactFormat = Literal["md", "txt", "pdf", "docx", "odt", "xls", "xlsx"]
+_ARTIFACT_FORMATS: tuple[str, ...] = ("md", "txt", "pdf", "docx", "odt", "xls", "xlsx")
+
+
+def _artifact_format(raw: Any) -> ArtifactFormat:
+    """Validate an ``artifact_ready`` format against supported outputs (ADR-008)."""
+    fmt = str(raw or "md").lower()
+    if fmt not in _ARTIFACT_FORMATS:
+        fmt = "md"
+    return cast(ArtifactFormat, fmt)
+
+
+def _artifact_ref(artifact: dict[str, Any]) -> ArtifactRef:
+    """Build an ``ArtifactRef`` from an ``artifact_ready`` SSE payload."""
+    return ArtifactRef(
+        artifact_id=str(artifact.get("artifact_id") or ""),
+        format=_artifact_format(artifact.get("format")),
+        filename=str(artifact.get("filename") or ""),
+    )
 
 
 class StreamlitClient(UIClient):
@@ -84,6 +109,149 @@ class StreamlitClient(UIClient):
 
         with slot.container():
             _render_pii_badge(pii_score, pii_entities, message_id=message_id)
+
+    # -- render_chat_fragment ---------------------------------------------
+
+    def render_chat_fragment(self, session_id: str) -> None:
+        """Render chat history inside ``@st.fragment`` (prompt 9).
+
+        The fragment isolates re-runs so sidebar interactions do not cause the
+        chat area to flicker. History is read from ``session_state[session_id]``
+        and rendered via ``render_message`` (which includes PII badges for user
+        messages).
+        """
+        import streamlit as st
+
+        @st.fragment
+        def _chat_history() -> None:
+            messages = st.session_state.get(session_id, {}).get("messages", [])
+            for msg in messages:
+                self.render_message(
+                    str(msg.get("role", "user")),
+                    str(msg.get("content", "")),
+                    msg.get("metadata"),
+                )
+
+        _chat_history()
+
+    # -- render_streaming_fragment ----------------------------------------
+
+    def render_streaming_fragment(
+        self,
+        session_id: str,
+        prompt: str,
+        user_message: dict[str, Any],
+        pii_badge_area: Any,
+        on_pii_metadata: Callable[[Any], None] | None = None,
+    ) -> None:
+        """Handle the full streaming lifecycle inside ``@st.fragment`` (prompt 9).
+
+        The fragment owns: POST to agent-service, SSE token loop, status badge,
+        PII badge updates, answer storage, and artifact rendering.  Because it
+        is a fragment, sidebar clicks do not interrupt an active stream — the
+        fragment re-executes on page rerun but its internal state (stored in
+        ``session_state``) tells it whether streaming is already complete.
+
+        ``on_pii_metadata`` is an optional callback for live PII badge updates
+        during streaming (ADR-014).  It receives the raw ``metadata`` event
+        payload dict.
+        """
+        import traceback
+
+        import httpx
+        import streamlit as st
+
+        from llm_client.ui import chat, render
+
+        @st.fragment
+        def _streaming() -> None:
+            st_state = st.session_state
+
+            if st_state.get(_STREAMING_DONE_KEY):
+                placeholder = st_state.get(_STREAMING_PLACEHOLDER_KEY)
+                answer = st_state.get(_ANSWER_KEY, "")
+                if placeholder is not None and answer:
+                    placeholder.markdown(answer)
+                return
+
+            st_state[_STREAMING_DONE_KEY] = False
+            st_state[_ANSWER_KEY] = ""
+
+            status_ph = st.empty()
+            answer = ""
+
+            try:
+                response = chat.send_message(session_id, prompt)
+                response.raise_for_status()
+            except httpx.HTTPError as exc:
+                render.render_error(
+                    f"Agent service unavailable ({chat.agent_service_url()}): {exc}"
+                )
+                st_state[_STREAMING_DONE_KEY] = True
+                return
+
+            chat.clear_pending_artifacts()
+            chat.clear_pending_metadata()
+
+            streaming_ph = st.empty()
+            st_state[_STREAMING_PLACEHOLDER_KEY] = streaming_ph
+
+            def _on_metadata(data: Any) -> None:
+                if not isinstance(data, dict):
+                    return
+                pii_score = data.get("pii_score")
+                if pii_score is None:
+                    return
+                user_message["metadata"] = {
+                    "message_id": data.get("message_id"),
+                    "pii_score": float(pii_score),
+                    "pii_entities": data.get("pii_entities", []),
+                }
+                self.update_pii_badge(
+                    pii_badge_area,
+                    float(pii_score),
+                    list(data.get("pii_entities", [])),
+                    message_id=str(data.get("message_id") or ""),
+                )
+
+            try:
+                with status_ph.container():
+                    render.render_status_badge("streaming")
+
+                for token in chat.stream_tokens(
+                    session_id,
+                    on_metadata=on_pii_metadata if on_pii_metadata is not None else _on_metadata,
+                ):
+                    answer += token
+                    streaming_ph.markdown(answer)
+
+            except chat.ChatStreamError as exc:
+                status_ph.empty()
+                render.render_status_badge(
+                    exc.status, exc.detail, traceback_text=traceback.format_exc()
+                )
+            else:
+                status_ph.empty()
+
+            st_state[_STREAMING_DONE_KEY] = True
+            st_state[_ANSWER_KEY] = answer
+
+            if answer:
+                from llm_client.ui import session as _session
+
+                _session.add_message(session_id, "assistant", answer)
+
+            artifacts = chat.get_pending_artifacts()
+            if artifacts:
+                pending_key = "pending_artifacts"
+                st_state[pending_key] = artifacts
+                for artifact in artifacts:
+                    self.render_artifact(_artifact_ref(artifact))
+
+            for key in (_TOKEN_BUFFER_KEY, _PLACEHOLDER_KEY):
+                st_state.pop(key, None)
+
+        _streaming()
 
     # -- render_artifact --------------------------------------------------
 
@@ -154,9 +322,12 @@ class StreamlitClient(UIClient):
 
 
 __all__ = [
-    "StreamlitClient",
+    "_ANSWER_KEY",
     "_CHAT_INPUT_KEY",
     "_PLACEHOLDER_KEY",
     "_STATE_PREFIX",
+    "_STREAMING_DONE_KEY",
+    "_STREAMING_PLACEHOLDER_KEY",
     "_TOKEN_BUFFER_KEY",
+    "StreamlitClient",
 ]
