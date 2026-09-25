@@ -2,9 +2,9 @@
 
 | Атрибут | Значение |
 |---|---|
-| Версия документа | 1.1.0 |
-| Дата | 2026-09-21 |
-| Changelog | 1.1.0 (2026-09-21): Phase 1 завершена — добавлены ADR-013 и ADR-014; расширен ADR-008 (LocalFileStorage упразднён); C-4/C-11/C-15 помечены [RESOLVED]; Q-2 закрыт, Q-4 закрыт частично |
+| Версия документа | 1.2.0 |
+| Дата | 2026-09-26 |
+| Changelog | 1.2.0 (2026-09-26): §5.1 (строка 357) уточнена — in-process опция (Streamlit native callbacks) помечена как «не используется; AG-0 (из `BACKLOG.md` v1.1.0) фиксирует FastAPI + SSE как единственную MVP-реализацию». §5.2.2 (Orchestration), §5.2.3 (LLM Provider), §5.2.4 (Tool Layer) дополнены ссылками на AG-1..AG-4 (формализация agent-service в Phase 1, см. `AG-PROMPTS.md` v1.0.0). § 8 Trade-offs обновлён (C-2, C-5 — частично resolved через AG-1/AG-3). \| 1.1.0 (2026-09-21): Phase 1 завершена — добавлены ADR-013 и ADR-014; расширен ADR-008 (LocalFileStorage упразднён); C-4/C-11/C-15 помечены [RESOLVED]; Q-2 закрыт, Q-4 закрыт частично \|
 | Статус | Draft → Review → Approved |
 | Аудитория | Solution-архитектор / Tech-лид |
 | Технологический стек | Python 3.11, LangGraph 0.2+, LangChain 0.3+, Streamlit 1.40+ |
@@ -355,6 +355,8 @@ flowchart TB
 | `auth_gate` | `ui/components/auth.py` | Basic auth (MVP) -> OAuth2/OIDC (prod) |
 
 UI общается с `agent_service` через **Streamlit native callbacks** (MVP, in-process) или через **FastAPI + SSE** (Alpha+ для multi-instance).
+
+> **Phase 1 Update (v1.2.0, 2026-09-26)**: in-process опция (Streamlit native callbacks) **не используется**. AG-0 из `BACKLOG.md` v1.1.0 (см. `AG-PROMPTS.md` v1.0.0 §1) фиксирует **FastAPI + SSE как единственную MVP-реализацию** `agent-service`, запускаемую как отдельный процесс (`python -m llm_client.agent` или `uvicorn llm_client.agent.service:app`) на `AGENT_SERVICE_PORT` (default 8000). UI (`src/llm_client/ui/chat.py`) общается с `agent-service` через HTTP/SSE по контракту `AGENT_SERVICE_URL` (default `http://localhost:8000`). Это применяет принцип ТРИЗ #19 (переход в другое измерение) и подготавливает Phase 5 multi-instance (UI-4/UI-5 из `BACKLOG.md` v1.1.0): добавление второго инстанса `agent-service` за load balancer не требует переписывания UI-кода — контракт `AGENT_SERVICE_URL` не меняется. Подробное обоснование — `BACKLOG.md` v1.1.0 §2.3–§2.4 (Пробелы D–G) и §6.4 (риск «AG-0 расходится с ARCHITECT.md §5.1 in-process vs separate process»).
 
 #### 5.2.2 Orchestration Layer (LangGraph)
 

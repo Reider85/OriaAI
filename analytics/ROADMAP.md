@@ -2,14 +2,14 @@
 
 | Атрибут | Значение |
 |---|---|
-| Версия документа | 1.1.0 |
-| Дата | 2026-09-23 |
-| Changelog | 1.1.0 (2026-09-23): `UIClient` abstraction вынесена из Phase 5 (внутри ADR-018) в Phase 1 (новый §5.7) — применение принципа ТРИЗ #16 (частичное/избыточное действие, см. §3.4). В Phase 1 добавлены UI-0..UI-3 (scaffold + base UI + UIClient + Streamlit fragments, суммарно +6.5 чел-дн); Phase 1 суммарно: 8 → 14.5 чел-дн. Phase 5 ADR-018 сужен до `SessionStore` + `RedisSessionStore` (без `UIClient` — уже в Phase 1). §15.2 метрика идеальности Phase 1 пересчитана. Источники патча: `BACKLOG.md` v1.0.0, `UI-PROMPTS.md` v1.0.0. |
+| Версия документа | 1.2.0 |
+| Дата | 2026-09-26 |
+| Changelog | 1.2.0 (2026-09-26): AG-составляющая (agent-service) добавлена в Phase 1 (новый §5.8 + строка 5.2.5 в таблице работ + п.6–10 в §5.6 критерии выхода) — применение принципа ТРИЗ #19 (переход в другое измерение) и закрытие пробелов D–G из `BACKLOG.md` v1.1.0 §2.3. В Phase 1 добавлены AG-0..AG-4 (scaffold FastAPI + LangGraph graph + LLMProviderFactory + SSE event protocol + file_export tool, суммарно +7.5 чел-дн); Phase 1 суммарно: 14.5 → 22.5 чел-дн. Phase 2: +5 чел-дн (AG-5 web_search + AG-6 rag_query). Phase 4: +3 чел-дн (AG-7 mcp_call). §15.2 метрика идеальности Phase 1 пересчитана (Δф=+6, Δсложности=+3 → 2.0). Источники патча: `BACKLOG.md` v1.1.0, `AG-PROMPTS.md` v1.0.0. \| 1.1.0 (2026-09-23): `UIClient` abstraction вынесена из Phase 5 (внутри ADR-018) в Phase 1 (новый §5.7) — применение принципа ТРИЗ #16. В Phase 1 добавлены UI-0..UI-3 (+6.5 чел-дн); Phase 1: 8 → 14.5 чел-дн. Phase 5 ADR-018 сужен до `SessionStore` + `RedisSessionStore`. \|
 | Статус | Draft → Review → Approved |
 | Аудитория | Tech-лид + команда разработки LLM Client |
-| Связанные документы | `ARCHITECT.md` v1.1.0, `TRIZ-ANALYSIS.md` v1.0.0, `BACKLOG.md` v1.0.0, `UI-PROMPTS.md` v1.0.0 |
+| Связанные документы | `ARCHITECT.md` v1.2.0, `TRIZ-ANALYSIS.md` v1.0.0, `BACKLOG.md` v1.1.0, `UI-PROMPTS.md` v1.0.0, `AG-PROMPTS.md` v1.0.0 |
 | Период планирования | 14–16 недель при команде из 2 разработчиков |
-| Суммарная оценка | ~121.5 чел-дн (v1.0.0: ~110; +6.5 на UI-0..UI-3 Phase 1, +6 на UI-5 Phase 5, остальное UI-7 уже учтено в Phase 6) на 12 новых ADR + 3 расширения существующих ADR + UI-0..UI-5 (Phase 1, Phase 5) |
+| Суммарная оценка | ~134.5 чел-дн (v1.0.0: ~110; v1.1.0: ~121.5 (+6.5 на UI-0..UI-3 Phase 1, +6 на UI-5 Phase 5); v1.2.0: +13 на AG-0..AG-4 Phase 1, +5 на AG-5/AG-6 Phase 2, +3 на AG-7 Phase 4) на 12 новых ADR + 3 расширения существующих ADR + UI-0..UI-3 (Phase 1) + UI-5 (Phase 5) + AG-0..AG-7 (Phase 1, 2, 4) |
 | Принцип планирования | Фазирование по этапам зрелости MVP → Alpha → Beta → Local LLM → Scale → Interoperability |
 | Привязка к ТРИЗ | Каждая фаза резолвит явный набор противоречий из `TRIZ-ANALYSIS.md` § 10 |
 
@@ -208,12 +208,15 @@ Phase 1 завершает MVP-стадию, устраняя три наибо�
 
 В v1.1.0 к Phase 1 добавлена четвёртая цель — **UI-составляющая**: формализация scaffold Streamlit-приложения (UI-0, ранее подразумевавшегося как данное, см. `BACKLOG.md` §2.1 Пробел A), базовые UI-элементы — sidebar истории, кнопки скачивания артефактов, индикатор статуса, бейдж PII (UI-1, ранее не формализованные, см. Пробел B), `UIClient` abstraction с одной имплементацией `StreamlitClient` (UI-2, ранее отложенной в Phase 5, см. Пробел C), и `@st.fragment` для изоляции chat/sidebar re-runs (UI-3, рекомендация из `TRIZ-ANALYSIS.md` §4.3). Без UI-составляющей промпт `C-5` из `MVP-PROMPTS.md` (UI watcher для auto-cancel) не имеет точки интеграции — некуда инжектить JS-фрагмент.
 
+В v1.2.0 к Phase 1 добавлена пятая цель — **AG-составляющая** (agent-service): формализация контейнера `agent-service` из `ARCHITECT.md` §4 (строка 124) как FastAPI-приложения с SSE-эндпоинтами (AG-0, ранее подразумевавшегося как «существующий», см. `BACKLOG.md` §2.3 Пробел D), LangGraph-граф с минимальными нодами `planner` + `final_answer` (AG-1, ранее не формализованный, см. Пробел E), `LLMProviderFactory` с OpenAI через `langchain-openai` (AG-2, ранее не формализованный, см. Пробел F), SSE event protocol — `event: token` / `metadata` / `artifact_ready` / `cancelled` / `error` / `done` (AG-3, ранее не формализованный, см. Пробел G), и `file_export` tool для сохранения артефактов в S3 (AG-4). Без AG-составляющей UI-0 смотрит на `AGENT_SERVICE_URL` где пусто (только `mock_agent_service.py`), UI-1 (PII badge, download buttons, cancelled badge) работает «вхолостую» — нет источника SSE events, ADR-001 (LangGraph) и ADR-007 (SSE) формально приняты, но не имеют имплементации. См. подробное обоснование в `BACKLOG.md` v1.1.0 §2.3–§2.4.
+
 Контрольные цели фазы:
 
-1. **UX cancel**: пользователь может отменить запущенный LLM-вызов в течение 100 мс. UI автоматически отменяет сессию при закрытии вкладки. **UI-часть**: в Streamlit UI есть кнопка Stop, индикатор streaming/cancelled/error (UI-1).
-2. **Compliance PII + trace**: в operational логах отсутствуют PII (детектированные через Presidio); forensic stream хранит полный trace 90 дней с шифрованием AES-256-GCM. **UI-часть**: PII score отображается бейджем для каждого user message (UI-1).
-3. **Dev-prod parity**: одно и то же S3-совместимое хранилище (MinIO в dev, S3 в prod) используется для всех файловых артефактов. LocalFileStorage упразднён. **UI-часть**: кнопки скачивания артефактов работают с 4 форматами (md/txt/pdf/docx) через `UIClient.render_artifact` (UI-1).
+1. **UX cancel**: пользователь может отменить запущенный LLM-вызов в течение 100 мс. UI автоматически отменяет сессию при закрытии вкладки. **UI-часть**: в Streamlit UI есть кнопка Stop, индикатор streaming/cancelled/error (UI-1). **AG-часть**: `event: cancelled` эмитится < 200 мс после `POST /cancel` (AG-3).
+2. **Compliance PII + trace**: в operational логах отсутствуют PII (детектированные через Presidio); forensic stream хранит полный trace 90 дней с шифрованием AES-256-GCM. **UI-часть**: PII score отображается бейджем для каждого user message (UI-1). **AG-часть**: `event: metadata` с `pii_score` и `pii_entities` (только типы и span'ы, без PII-текста) эмитится из agent-service (AG-3).
+3. **Dev-prod parity**: одно и то же S3-совместимое хранилище (MinIO в dev, S3 в prod) используется для всех файловых артефактов. LocalFileStorage упразднён. **UI-часть**: кнопки скачивания артефактов работают с 4 форматами (md/txt/pdf/docx) через `UIClient.render_artifact` (UI-1). **AG-часть**: `file_export` tool сохраняет артефакты в S3 через `create_file_storage()` (AG-4), `event: artifact_ready` эмитится из agent-service (AG-3).
 4. **UI-составляющая (new в v1.1.0)**: `UIClient` ABC существует с 4 методами; `StreamlitClient` — единственная имплементация; весь UI-код ходит через interface, не через Streamlit-specific API. `@st.fragment` применяется к chat area и sidebar. Latency-бенчмарк (U3-3) показывает прирост FPS стриминга ≥30% после fragments. Критерий готовности к Phase 5: добавление `ChainlitClient` не требует переписывания UI-кода — только новой имплементации interface.
+5. **AG-составляющая (new в v1.2.0)**: `python -m llm_client.agent` поднимает FastAPI на `:8000` (AG-0); `build_agent_graph(llm, token)` возвращает compiled graph с `planner` + `final_answer` нодами, `graph.astream(...)` отдаёт токены, cancel прерывает граф между нодами (AG-1); `LLMProviderFactory.create("openai", ...)` возвращает `ChatOpenAI`, `token_usage_tracker` логирует usage в operational stream (AG-2); SSE event protocol эмитит token/metadata/cancelled/error/done/artifact_ready (AG-3); `file_export` tool сохраняет артефакты в S3 (AG-4). Критерий готовности к Phase 2: ADR-001 (LangGraph) и ADR-007 (SSE) не просто приняты в `ARCHITECT.md`, но имеют рабочую имплементацию в `src/llm_client/agent/`.
 
 ### 5.2 Состав работ
 
@@ -223,7 +226,8 @@ Phase 1 завершает MVP-стадию, устраняя три наибо�
 | 5.2.2 | Реализация DualStreamLogger (operational + forensic) | ADR-014 | Medium | 4 | KMS/Vault |
 | 5.2.3 | Миграция LocalFileStorage → S3 (MinIO в dev) | (расш. ADR-008) | Low | 2 | MinIO |
 | 5.2.4 | **UI-составляющая (new в v1.1.0)**: UI-0 scaffold Streamlit + UI-1 base elements (sidebar/downloads/status/PII badge) + UI-2 `UIClient` ABC + `StreamlitClient` + UI-3 `@st.fragment` для chat/sidebar | (не ADR; формализация Phase 0 + применение ADR-002 + подготовка к ADR-018) | Low + Low + Medium + Low | **6.5** | ADR-001, ADR-002, ADR-007, расш. ADR-008, ADR-013, ADR-014 |
-| — | **Итого Phase 1** | — | — | **14.5** (v1.0.0: 8; +6.5 на UI) | — |
+| 5.2.5 | **AG-составляющая (new в v1.2.0)**: AG-0 scaffold FastAPI + AG-1 LangGraph graph (planner + final_answer) + AG-2 `LLMProviderFactory` (OpenAI only) + AG-3 SSE event protocol (token/metadata/artifact_ready/cancelled/error/done) + AG-4 `file_export` tool | (не ADR; формализация контейнера agent-service из ARCHITECT.md §4 + применение ADR-001/ADR-006/ADR-007 + закрытие пробелов D–G из BACKLOG.md v1.1.0 §2.3) | Low + Medium + Low + Medium + Low | **7.5** | ADR-001, ADR-006, ADR-007, расш. ADR-008, ADR-013, ADR-014, B-3 (cycle detection), C-1..C-4 (cancel), D-1/D-5 (PII) |
+| — | **Итого Phase 1** | — | — | **22.5** (v1.0.0: 8; v1.1.0: 14.5; v1.2.0: +7.5 на AG) | — |
 
 ### 5.3 ADR-013: SSE + HTTP Cancel Endpoint
 
@@ -288,10 +292,11 @@ Phase 1 считается завершённой при одновременн�
 2. **ADR-014 Approved**: PII leaks = 0 (automated audit); forensic stream retention 90 дней обеспечен.
 3. **(расш. ADR-008) Approved**: `LocalFileStorage` удалён; dev/staging/prod используют S3-only.
 4. **UI-составляющая Approved (new в v1.1.0)**: см. `BACKLOG.md` §5.1. UI-0 (scaffold) + UI-1 (sidebar/downloads/status/PII badge) + UI-2 (`UIClient` ABC + `StreamlitClient`, весь UI-код ходит через interface — `grep -r "st\.chat_message\|st\.chat_input\|st\.write_stream" src/llm_client/ui/ | grep -v streamlit_client.py | wc -l` = 0) + UI-3 (`@st.fragment` для chat и sidebar, latency-бенчмарк U3-3 показывает прирост FPS ≥30%).
-5. **Метрика идеальности не упала**: `Δф=+4 capabilities (cancel, dual-logging, dev-prod parity, UI scaffold + UIClient abstraction), Δсложности=+2 dependencies (KMS/Vault, UIClient abstraction) → Δф/Δсложности = 2 ≥ 1` (см. §15.2, обновлено в v1.1.0). Заметка: в v1.0.0 расчёт был `Δф=+2, Δсложности=+1, ratio=2`. В v1.1.0 добавлены 2 capabilities (UI scaffold + UIClient) и 1 абстракция (UIClient interface) — суммарно по фазе: `+4 caps / +2 deps = 2`, та же оценка, не нарушает порог.
-6. **Документация обновлена**: `ARCHITECT.md` § 7 ADR обновлён (ADR-013, ADR-014 добавлены; ADR-008 расширен; ADR-002 уточнён — UI-0 формализует scaffold); § 8 Trade-offs обновлён (C-4, C-11, C-15 помечены как resolved; C-1 — частично resolved через UI-2/UI-3, полная — в Phase 5 через ADR-018). `BACKLOG.md` v1.0.0 и `UI-PROMPTS.md` v1.0.0 в реестре связанных документов.
+5. **AG-составляющая Approved (new в v1.2.0)**: см. `BACKLOG.md` §5.2. AG-0 (`python -m llm_client.agent` поднимает FastAPI на `:8000`, `/health` отдаёт 200, `POST /sessions/{id}/chat` принимает промпт, `GET /sessions/{id}/stream` отдаёт SSE-стрим) + AG-1 (`build_agent_graph(llm, token)` возвращает compiled graph; `graph.astream(...)` отдаёт токены; при `token.cancel()` — выход с partial answer на следующем conditional edge; `IterationMonitor` срабатывает на 2 одинаковых итерациях подряд) + AG-2 (`LLMProviderFactory.create("openai", "gpt-4o-mini")` с валидным `OPENAI_API_KEY` возвращает `ChatOpenAI`; `token_usage_tracker` логирует usage в operational stream; `LLM_PROVIDER=anthropic` → `NotImplementedError("Phase 3 (ADR-015)")`) + AG-3 (после `POST /chat` + `GET /stream` UI получает `event: token` × N, `event: metadata` с `pii_score` и `pii_entities` (без PII-текста), `event: done`. При cancel — `event: cancelled` < 200 мс. При exception — `event: error` с `{message, type}`) + AG-4 (LLM prompt «save 'hello' as markdown» → `file_export` tool → S3 объект в bucket `llm-client-files` → UI-1 download button активируется, клик скачивает `.md`. Для `format: "pdf"` — 503 + retry (stub 2 сек)).
+6. **Метрика идеальности не упала**: `Δф=+6 capabilities (cancel, dual-logging, dev-prod parity, UI scaffold + UIClient abstraction, agent-service scaffold + LangGraph orchestration), Δсложности=+3 dependencies (KMS/Vault, UIClient abstraction, LangGraph + LLM provider) → Δф/Δсложности = 2 ≥ 1` (см. §15.2, обновлено в v1.2.0). Заметка: в v1.1.0 расчёт был `Δф=+4, Δсложности=+2, ratio=2`. В v1.2.0 добавлены 2 capabilities (agent-service scaffold, LangGraph orchestration) и 1 dependency (LangGraph + LLM provider) — суммарно по фазе: `+6 caps / +3 deps = 2`, та же оценка, не нарушает порог. Если AG-2 (LLMProviderFactory) откатывается (например, OpenAI API pricing меняется, или команда решает отложить интеграцию до Phase 3): 5 caps / 3 deps = 1.67 ≥ 1 — порог соблюдён.
+7. **Документация обновлена**: `ARCHITECT.md` § 7 ADR обновлён (ADR-013, ADR-014 добавлены; ADR-008 расширен; ADR-002 уточнён — UI-0 формализует scaffold; §5.1 строка 357 уточнена — AG-0 фиксирует FastAPI + SSE как единственную MVP-реализацию, in-process опция не используется). § 8 Trade-offs обновлён (C-4, C-11, C-15 помечены как resolved; C-1 — частично resolved через UI-2/UI-3, полная — в Phase 5 через ADR-018; C-2, C-5 — частично resolved через AG-1/AG-3, полная — в Phase 4 через расш. ADR-001). `BACKLOG.md` v1.1.0, `UI-PROMPTS.md` v1.0.0 и `AG-PROMPTS.md` v1.0.0 в реестре связанных документов.
 
-При невыполнении любого из п.1–4 — фаза продлевается на 1 sprint; при невыполнении п.5 — ADR/UI-элемент пересматривается (см. `BACKLOG.md` §6.2 — UI-3 может быть откатан, если бенчмарк не показывает прироста); при невыполнении п.6 — документационный долг, блокирует старт Phase 2.
+При невыполнении любого из п.1–5 — фаза продлевается на 1 sprint; при невыполнении п.6 — ADR/UI-элемент/AG-элемент пересматривается (см. `BACKLOG.md` §6.2 — UI-3 может быть откатан, если бенчмарк не показывает прироста; `BACKLOG.md` §6.4 — AG-0 может быть пересмотрен, если архитектурный комитет сочтёт FastAPI + SSE преждевременным в Phase 1); при невыполнении п.7 — документационный долг, блокирует старт Phase 2.
 
 ### 5.7 UI-составляющая Phase 1 (new в v1.1.0)
 
@@ -321,6 +326,38 @@ Phase 1 считается завершённой при одновременн�
 
 **Supersedes**: часть ADR-018 (Phase 5) — `UIClient` abstraction перенесена в Phase 1. ADR-018 в Phase 5 сужен до `SessionStore` + `RedisSessionStore` (см. §9.3).
 
+### 5.8 AG-составляющая Phase 1 (new в v1.2.0)
+
+**Резолвит**: противоречие C-4 (полная резолюция — cancel wiring в графе + `event: cancelled` через SSE); C-2 (частично — agent-service получает граф, к которому подключается ADR-010 checkpointer в Phase 2); C-5 (частично — `IterationMonitor` интегрируется в граф из B-3 Quick Win).
+**Принципы ТРИЗ**: 19 (переход в другое измерение — вынос agent-service в отдельный процесс FastAPI, не in-process Streamlit), 16 (частичное/избыточное действие — interface `POST /sessions/{id}/chat` + `GET /sessions/{id}/stream` + SSE event protocol фиксируется «избыточно» с первого дня, имплементация графа «частичная» — только `planner` + `final_answer`, остальное в Phase 2/4), 2 (вынесение — инфраструктура отделена, agent-service формализован как отдельное изделие).
+**Связанные G**: G-2 (унифицированный доступ к LLM — AG-2 `LLMProviderFactory`), G-3 (инструментальный слой — AG-4 `file_export` частично), G-5 (MVP за счёт agent-service, а не mock).
+
+**Суть**: в v1.1.0 `ROADMAP.md` agent-service неявно предполагался как «уже работающий» (см. `MVP-PROMPTS.md` §1 A-1: «существующий docker-compose уже содержит PostgreSQL и Streamlit-сервис», `UI-PROMPTS.md` §1 промпт UI-0: «ADR-001: LangGraph-агент с существующим SSE endpoint»). В кодовой базе Phase 1 (после v1.1.0) этого нет — UI смотрит на `AGENT_SERVICE_URL=http://localhost:8000`, где работает только `scripts/mock_agent_service.py` (FastAPI-мок для UI latency benchmark). ADR-001 (LangGraph) и ADR-007 (SSE) формально приняты в `ARCHITECT.md`, но не имеют имплементации в `src/llm_client/agent/` (только `IterationMonitor` из B-3 Quick Win). Это создаёт Пробелы D–G (`BACKLOG.md` v1.1.0 §2.3): нет scaffold agent-service (D), нет LangGraph graph (E), нет `LLMProviderFactory` (F), нет SSE event protocol emission (G). Патч v1.2.0 формализует AG-составляющую в Phase 1.
+
+Состав AG-составляющей (см. `BACKLOG.md` v1.1.0 §3.4 и `AG-PROMPTS.md` v1.0.0 §1–§5):
+
+- **AG-0** (1.5 чел-дн): формализация контейнера `agent-service` из `ARCHITECT.md` §4 (строка 124) и §5.1 (строка 357: «FastAPI + SSE для multi-instance») — FastAPI-приложение `src/llm_client/agent/service.py` с маршрутами `POST /sessions/{id}/chat`, `GET /sessions/{id}/stream`, `GET /health`, `POST /sessions/{id}/cancel` (делегирует в существующий `CancelPublisher` из C-2). Запуск через `python -m llm_client.agent` или `uvicorn`. Сервис в `docker-compose.yml` с depends_on redis/minio/vault.
+- **AG-1** (2.5 чел-дн): LangGraph graph `src/llm_client/agent/graph.py` — `build_agent_graph(llm, token, tools)` возвращает `CompiledStateGraph` с нодами `planner` + `final_answer`, conditional edges `route_after_planner` (проверка `token.is_cancelled` между нодами — C-4 wiring) + `route_after_final_answer` (END). Интеграция `IterationMonitor` (B-3 Quick Win, уже реализовано) как callback после каждой ноды. Минимальный `AgentState` (messages, user_id, session_id, provider, model_name, iteration, max_iterations=10, final_answer). В Phase 1 без `tool_executor` / `rag_retriever` / `mcp_invoker` — они приходят с AG-4 / AG-6 (Phase 2) / AG-7 (Phase 4).
+- **AG-2** (1 чел-дн): `LLMProviderFactory` `src/llm_client/agent/provider.py` — factory с `create(provider, model, **kwargs) -> BaseChatModel`. OpenAI через `langchain_openai.ChatOpenAI` (streaming=True по умолчанию, ADR-007). Anthropic/Ollama — stub `NotImplementedError` с указанием фазы (Phase 3 / Phase 4). Расширение `Settings`: `llm_provider`, `openai_api_key`, `openai_model`, `anthropic_api_key`, `anthropic_model` (заготовка). Валидация: при `LLM_PROVIDER=openai` и пустом `OPENAI_API_KEY` — startup fail fast. `token_usage_tracker` (BaseCallbackHandler) логирует `prompt_tokens` / `completion_tokens` / `cost_estimate` в operational stream (D-2). `retry_decorator` на 429/500/503, max 3 retry. Без `fallback_chain` — это Phase 3 (ADR-015).
+- **AG-3** (1.5 чел-дн): SSE event protocol emission в `src/llm_client/agent/service.py` — `GET /sessions/{id}/stream` как async generator, эмитит события в формате RFC 8895-style (тот же, что парсит `src/llm_client/ui/chat.py` `iter_sse_events`): `event: token` (для каждого токена из `graph.astream`), `event: metadata` (PII score + entities из `PIIDetector.detect`, без PII-текста — D-5), `event: artifact_ready` (при `ToolMessage` от `file_export`, AG-4), `event: cancelled` (при `CancellationToken.is_cancelled`, C-4, latency < 200 мс), `event: error` (`{message, type}`, traceback в forensic stream, не в SSE — security), `event: done` (normal completion). Heartbeat `: keepalive\n\n` каждые 15 сек.
+- **AG-4** (1 чел-дн): `file_export` tool `src/llm_client/agent/tools/file_export.py` — `@tool(args_schema=FileExportArgs)` декоратор (ARCHITECT.md §5.2.4), сохраняет контент в S3 через `create_file_storage()` (расш. ADR-008, уже реализовано). Форматы: `md`/`txt` синхронно (быстрый путь, < 100 мс), `pdf`/`docx`/`odt`/`xls`/`xlsx` асинхронно (stub `asyncio.sleep(2)` + 503 для UI retry, реальный worker — Phase 5 ADR-018). Path traversal protection через `pathlib.Path(filename).name`. Интеграция в AG-1 graph через `bind_tools([file_export])` (ADR-006) + `tool_executor` нода (единственная tool-нода в Phase 1). `GET /artifacts/{artifact_id}` endpoint для UI-1 download buttons (контракт совпадает с `fetch_artifact_content` в `src/llm_client/ui/render.py`).
+
+**Эффект**:
+
+- (+) UI-0..UI-3 работают с реальным agent-service, а не `mock_agent_service.py` — стриминг, PII badge, download buttons, cancelled badge активируются с реальными событиями.
+- (+) ADR-001 (LangGraph) и ADR-007 (SSE) перестают быть «формально принятыми, но без имплементации» — получают рабочую кодовую базу в `src/llm_client/agent/`.
+- (+) C-4 (cancel) получает полную резолюцию: cancel wiring в графе (AG-1) + `event: cancelled` через SSE (AG-3) + `POST /cancel` endpoint (AG-0, делегирует в C-2). Latency < 200 мс.
+- (+) Phase 2 ADR-010 (Redis+PG checkpointer) подключается к существующему графу AG-1, не требует создания графа с нуля.
+- (+) Phase 4 расш. ADR-001 (state-delta cycle detection с embeddings) расширяет существующий `IterationMonitor`, не создаёт новый.
+- (+) Phase 5 multi-instance (UI-4/UI-5) работает с тем же контрактом `AGENT_SERVICE_URL` — agent-service уже отдельный процесс, добавление второго инстанса за LB не требует переписывания UI-кода (принцип #16, применённый к AG-0).
+- (-) Phase 1 увеличивается с 14.5 до 22.5 чел-дн (+55% к v1.1.0, +181% к v1.0.0). Без увеличения команды — критический путь Phase 1 удлиняется на 7.5 чел-дн (см. §11).
+- (-) Добавляется зависимость от OpenAI API (AG-2). В dev-окружении без `OPENAI_API_KEY` — startup fail fast. Контр-мера: `LLM_PROVIDER` env var позволяет переключить на mock-LLM (`FakeListChatModel` из `langchain_core`) для dev/CI без реальных API-вызовов.
+- (-) LangGraph + LangChain как новые runtime-зависимости (уже декларированы в `pyproject.toml`, но не импортируемые до AG-1) — +1 к complexity delta. Контр-мера — `BACKLOG.md` §6.4: метрика идеальности считается по Phase 1 целиком (6 caps / 3 deps = 2.0, порог соблюдён).
+
+**Критерий готовности**: см. §5.6 п.5. Если AG-2 (LLMProviderFactory) откатывается (например, OpenAI API pricing неприемлем для команды): Phase 1 завершается без реальной LLM-интеграции, AG-1 graph работает с mock-LLM (`FakeListChatModel`), UI-0 стриминг работает с заглушкой. Метрика идеальности: 5 caps / 3 deps = 1.67 ≥ 1 — порог соблюдён. AG-2 переносится в Phase 3 (ADR-015 cost-aware router вместе с Anthropic).
+
+**Supersedes**: часть `MVP-PROMPTS.md` §1 A-1 (предположение «существующий docker-compose уже содержит Streamlit-сервис») — AG-0 формализует agent-service как создаваемый, а не данный. `ARCHITECT.md` §5.1 строка 357 (in-process опция) — помечается как «не используется; AG-0 фиксирует FastAPI + SSE как единственную MVP-реализацию» (см. `BACKLOG.md` §6.4).
+
 ---
 
 ## 6. Phase 2 — Alpha
@@ -339,10 +376,12 @@ Phase 2 переводит LLM Client из MVP в Alpha: система начи
 
 | # | Работа | ADR | Сложность | Срок (чел-дн) | Зависимости |
 |---|---|---|---|---|---|
-| 6.2.1 | Реализация `RedisPostgresCheckpointer` (composite, async) | ADR-010 | Medium | 5 | Redis |
+| 6.2.1 | Реализация `RedisPostgresCheckpointer` (composite, async) | ADR-010 | Medium | 5 | Redis, AG-1 (graph из Phase 1) |
 | 6.2.2 | Внедрение `bge-reranker-base` в RAG pipeline + RerankerRegistry | ADR-017 | Medium | 4 | bge-reranker |
 | 6.2.3 | Внедрение hybrid retrieval (BM25 + vector) по умолчанию | ADR-020 | Medium | 5 | PostgreSQL tsvector |
-| — | **Итого Phase 2** | — | — | **14** | — |
+| 6.2.4 | **AG-5 `web_search` tool via Tavily (new в v1.2.0)** — `@tool` для вызова Tavily API, интеграция в graph AG-1 через `bind_tools([file_export, web_search])` | (применение ADR-005) | Low | 1 | AG-1 (Phase 1), Tavily API |
+| 6.2.5 | **AG-6 `rag_query` tool + base RAG pipeline (new в v1.2.0)** — `@tool` + `rag_retriever` нода в graph, базовый vector retrieval; расширяется ADR-017 (reranker) и ADR-020 (hybrid) в этом же Phase 2 | (применение ADR-003, расширяется ADR-017/020) | Medium | 4 | AG-1 (Phase 1), ADR-003, ADR-017 (этот Phase), ADR-020 (этот Phase) |
+| — | **Итого Phase 2** | — | — | **19** (v1.0.0: 14; v1.2.0: +5 на AG-5+AG-6) | — |
 
 ### 6.3 ADR-010: Async Checkpoint Write-Behind Log
 
@@ -535,7 +574,8 @@ Phase 4 вводит локальные LLM как first-class citizen в LLM Cl
 | 8.2.1 | Реализация `VectorStoreRegistry` + entrypoint-based plugin loading + Core/Extended interfaces | ADR-009 | Medium | 5 | — |
 | 8.2.2 | Реализация `MCPTransport` abstraction + StdioTransport + SSETransport + auto-negotiation | ADR-012 | Medium | 5 | — |
 | 8.2.3 | Реализация state-delta cycle detection в `planner` node | (расш. ADR-001) | Low | 3 | Embeddings model |
-| — | **Итого Phase 4** | — | — | **13** | — |
+| 8.2.4 | **AG-7 `mcp_call` tool / `mcp_invoker` нода (new в v1.2.0)** — `@tool` + нода в graph AG-1, использует `MCPTransport` из ADR-012 (этот Phase) для вызова внешних MCP-серверов | (применение ADR-004, зависит от ADR-012) | Medium | 3 | AG-1 (Phase 1), ADR-012 (этот Phase) |
+| — | **Итого Phase 4** | — | — | **16** (v1.0.0: 13; v1.2.0: +3 на AG-7) | — |
 
 ### 8.3 ADR-009: Plugin-based VectorStore Registry
 
@@ -786,15 +826,15 @@ Phase 6 завершает эволюцию LLM Client, реализуя ИКР-
 Критический путь плана — последовательность фаз, не допускающих параллелизации из-за жёстких зависимостей:
 
 ```
-Phase 1 (8 чел-дн) → Phase 2 (14 чел-дн) → Phase 3 (31 чел-дн) → [branching point]
-                                                                              ├─ Phase 4 (13 чел-дн)
-                                                                              ├─ Phase 5 (25 чел-дн, partial after Phase 4)
+Phase 1 (22.5 чел-дн, v1.2.0) → Phase 2 (19 чел-дн) → Phase 3 (31 чел-дн) → [branching point]
+                                                                              ├─ Phase 4 (16 чел-дн)
+                                                                              ├─ Phase 5 (31 чел-дн, partial after Phase 4)
                                                                               └─ Phase 6 (18 чел-дн, после Phase 3 ADR-004 preview + Phase 5 ADR-019)
 ```
 
-Суммарная длительность критического пути: **8 + 14 + 31 + 25 + 18 = 96 чел-дн** чистой разработки + 14 чел-дн Phase 4 (можно параллелить с Phase 5). С учётом ревью, тестирования и интеграционных итераций — **14–16 недель при команде 2 разработчика**.
+Суммарная длительность критического пути: **22.5 + 19 + 31 + 31 + 18 = 121.5 чел-дн** чистой разработки (v1.2.0) + 16 чел-дн Phase 4 (можно параллелить с Phase 5). С учётом ревью, тестирования и интеграционных итераций — **16–18 недель при команде 2 разработчика** (v1.0.0: 14–16; v1.1.0: 15–17; v1.2.0: +1 неделя на AG-составляющую в Phase 1).
 
-Phase 1–3 — линейный путь. Каждая следующая фаза требует полного завершения предыдущей (см. § 3.2 критерии перехода). Параллелизация невозможна: ADR-010 (Phase 2) требует Redis, введённый в ADR-013 (Phase 1); ADR-011 (Phase 3) требует PostgreSQL tsvector из ADR-020 (Phase 2); ADR-016 (Phase 3) требует `ModelCapabilityMatrix`, который ссылается на ADR-015 (тоже Phase 3 — внутренняя зависимость).
+Phase 1–3 — линейный путь. Каждая следующая фаза требует полного завершения предыдущей (см. § 3.2 критерии перехода). Параллелизация невозможна: ADR-010 (Phase 2) требует Redis, введённый в ADR-013 (Phase 1) и graph из AG-1 (Phase 1); ADR-011 (Phase 3) требует PostgreSQL tsvector из ADR-020 (Phase 2); ADR-016 (Phase 3) требует `ModelCapabilityMatrix`, который ссылается на ADR-015 (тоже Phase 3 — внутренняя зависимость).
 
 ### 11.2 Возможности параллелизации
 
@@ -973,11 +1013,14 @@ Embed mode (Phase 6) ──→ (использует UIClient, но не тре�
 
 | После фазы | Минимальное значение Δф/Δсложности | Эффект при нарушении |
 |---|---|---|
-| Phase 1 (v1.1.0) | ≥ 2.0 (4 new capabilities — cancel, dual-logging, dev-prod parity, UI scaffold + UIClient — / 2 new deps — KMS/Vault + UIClient abstraction) → ratio = 2.0. Если UI-3 откатывается: 3 caps / 2 deps = 1.5 < 2.0 → ADR-014 или UI-2 пересматривается | ADR-014 пересматривается (KMS — потенциально избыточен) ИЛИ UI-2 (`UIClient` abstraction) откатывается до Phase 5 (возврат к v1.0.0 модели) |
+| Phase 1 (v1.2.0) | ≥ 2.0 (6 new capabilities — cancel, dual-logging, dev-prod parity, UI scaffold + UIClient, agent-service scaffold + LangGraph orchestration — / 3 new deps — KMS/Vault + UIClient abstraction + LangGraph/LLM provider) → ratio = 2.0. Если UI-3 откатывается: 5 caps / 3 deps = 1.67 < 2.0 → UI-2 или AG-2 пересматривается. Если AG-2 откатывается (mock-LLM): 5 caps / 3 deps = 1.67 ≥ 1 — порог соблюдён, но Phase 1 завершается без реальной LLM-интеграции | UI-3 откат (`@st.fragment` удалается, `BACKLOG.md` §6.2) ИЛИ AG-2 откат (LLMProviderFactory, переносится в Phase 3) ИЛИ UI-2 откат до Phase 5 (возврат к v1.0.0 модели) |
+| Phase 1 (v1.1.0 — для сравнения) | ≥ 2.0 (4 new capabilities / 2 new deps) → ratio = 2.0 | ADR-014 пересматривается (KMS — потенциально избыточен) ИЛИ UI-2 (`UIClient` abstraction) откатывается до Phase 5 |
 | Phase 1 (v1.0.0 — для сравнения) | ≥ 2.0 (2 new capabilities / 1 new dependency) | ADR-014 пересматривается (KMS — потенциально избыточен) |
-| Phase 2 | ≥ 1.5 (3 new capabilities / 2 new dependencies) | Рефакторинг на упрощение reranker (отказ от pluggable registry) |
+| Phase 2 (v1.2.0) | ≥ 1.5 (5 new capabilities — async checkpoint, reranker, hybrid retrieval, web_search tool, rag_query tool — / 2 new dependencies — bge-reranker, tsvector) → ratio = 2.5 | Рефакторинг на упрощение reranker (отказ от pluggable registry) |
+| Phase 2 (v1.0.0 — для сравнения) | ≥ 1.5 (3 new capabilities / 2 new dependencies) | Рефакторинг на упрощение reranker |
 | Phase 3 | ≥ 1.5 (4 new capabilities / 2 net new abstractions — `fallback_chain` упразднён) | Упрощение `LLMRouter` (отказ от privacy policy) |
-| Phase 4 | ≥ 1.0 (3 new capabilities / 3 new abstractions — граничный случай) | ADR пересматривается целиком |
+| Phase 4 (v1.2.0) | ≥ 1.0 (4 new capabilities — plugin registry, auto-transport, cycle detection, mcp_call tool — / 3 new abstractions — VectorStoreRegistry, MCPTransport, state-delta detector) → ratio = 1.33 | ADR пересматривается целиком |
+| Phase 4 (v1.0.0 — для сравнения) | ≥ 1.0 (3 new capabilities / 3 new abstractions — граничный случай) | ADR пересматривается целиком |
 | Phase 5 | ≥ 1.0 (v1.0.0: 4 caps / 4 deps; v1.1.0: 5 caps / 4 deps → 1.25, граничный) | Отказ от ABAC, retention RBAC; если v1.1.0 — отказ от UI-5 (`ChainlitClient`) и возврат к single-backend (Streamlit-only) |
 | Phase 6 | ≥ 5.0 (2 new capabilities / 0 new abstractions — использование существующих) | — (должен выполняться) |
 
