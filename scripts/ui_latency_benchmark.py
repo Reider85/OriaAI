@@ -90,10 +90,10 @@ def _kill_proc(proc: subprocess.Popen[bytes]) -> None:
     try:
         proc.terminate()
         proc.wait(timeout=5)
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         try:
             proc.kill()
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             pass
 
 
@@ -306,7 +306,7 @@ def run_full_benchmark() -> dict[str, Any]:
 
     REPORT_PATH.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     print(f"\n{'='*60}")
-    print(f"  Benchmark Report")
+    print("  Benchmark Report")
     print(f"{'='*60}")
     print(f"  baseline token_fps:    {baseline['token_fps']:.2f}")
     print(f"  fragments token_fps:   {fragments['token_fps']:.2f}")

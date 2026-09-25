@@ -36,27 +36,40 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import sys
 import time
 from pathlib import Path
+from types import ModuleType
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+
+def _load_idealidad_module() -> ModuleType:
+    module_path = SRC_ROOT / "llm_client" / "observability" / "idealidad.py"
+    spec = importlib.util.spec_from_file_location("llm_client_idealidad", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load ideality module from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+idealidad = _load_idealidad_module()
+PHASES = idealidad.PHASES
+collect_snapshot = idealidad.collect_snapshot
+phase_metric = idealidad.phase_metric
+
 from prometheus_client import (
     CollectorRegistry,
     Gauge,
     generate_latest,
     start_http_server,
-)
-
-from llm_client.observability.idealidad import (
-    PHASES,
-    collect_snapshot,
-    phase_metric,
 )
 
 DEFAULT_PORT = 9101

@@ -19,3 +19,5 @@ data/
 # Virtualenvs
 .venv/
 venv/
+
+scripts/.runtime/

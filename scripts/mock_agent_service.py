@@ -20,13 +20,11 @@ import json
 import os
 import threading
 import time
-import uuid
 from typing import Any
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
-
-import uvicorn
 
 TOKEN_COUNT = int(os.getenv("MOCK_TOKEN_COUNT", "1000"))
 TOKEN_DELAY_MS = float(os.getenv("MOCK_TOKEN_DELAY_MS", "50"))

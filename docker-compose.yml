@@ -24,7 +24,7 @@ services:
     networks:
       - llm-network
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
 
   # ── MinIO ────────────────────────────────────────────────
   minio:
@@ -48,8 +48,8 @@ services:
     networks:
       - llm-network
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
 
   # ── MinIO init — creates buckets ─────────────────────────
   minio-init:
@@ -97,7 +97,7 @@ services:
     networks:
       - llm-network
     ports:
-      - "8200:8200"
+      - "127.0.0.1:8200:8200"
 
   # ── Vault init — transit engine + key + policy ───────────
   vault-init:
@@ -113,14 +113,19 @@ services:
       - VAULT_TOKEN=root
     volumes:
       - ./ops/vault/policies:/policies:ro
-    entrypoint: |
-      /bin/sh -c "
-        vault secrets enable transit 2>/dev/null || echo 'transit already enabled' &&
-        vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96 2>/dev/null || echo 'forensic key already exists' &&
-        vault policy write forensic-encryptor /policies/forensic-encryptor.hcl &&
-        echo 'Vault transit configured.' &&
+    entrypoint:
+      - /bin/sh
+      - -ceu
+      - |
+        if ! vault secrets list | grep -q '^transit/'; then
+          vault secrets enable transit
+        fi
+        if ! vault read -field=type transit/keys/forensic-aes256-gcm >/dev/null 2>&1; then
+          vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96
+        fi
+        vault policy write forensic-encryptor /policies/forensic-encryptor.hcl
+        echo 'Vault transit configured.'
         vault policy read forensic-encryptor
-      "
     networks:
       - llm-network
     restart: "no"
@@ -145,7 +150,7 @@ services:
     networks:
       - llm-network
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
 
   # ── Grafana (dashboards + alerting, G-2) ─────────────────
   grafana:
@@ -173,7 +178,7 @@ services:
     networks:
       - llm-network
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
 
   # ── Ideality exporter (ROADMAP §18.2, G-2) ───────────────
   idealidad-exporter:
@@ -182,20 +187,25 @@ services:
     restart: unless-stopped
     working_dir: /repo
     volumes:
-      - ./:/repo:ro
+      - ./src:/repo/src:ro
+      - ./scripts:/repo/scripts:ro
+      - ./migrations:/repo/migrations:ro
+      - ./ops:/repo/ops:ro
+      - ./analytics:/repo/analytics:ro
+      - ./pyproject.toml:/repo/pyproject.toml:ro
     command: >
-      sh -c "pip install --quiet prometheus-client &&
-             python scripts/collect_idealidad_metrics.py --port 9101"
+      sh -c "pip install --quiet prometheus-client==0.22.1 &&
+             exec python scripts/collect_idealidad_metrics.py --port 9101"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9101/metrics"]
-      interval: 1h
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9101/metrics', timeout=3)"]
+      interval: 15s
       timeout: 5s
-      retries: 3
+      retries: 4
       start_period: 10s
     networks:
       - llm-network
     ports:
-      - "9101:9101"
+      - "127.0.0.1:9101:9101"
 
 volumes:
   redis-data:
