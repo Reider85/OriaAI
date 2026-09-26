@@ -564,8 +564,12 @@ CREATE TABLE documents (
     source_type TEXT NOT NULL,
     source_uri TEXT,
     content_hash TEXT NOT NULL,
-    meta JSONB NOT NULL DEFAULT '{}',
-    indexed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    content TEXT NOT NULL,        -- полный текст документа для полнотекстового поиска
+    metadata JSONB DEFAULT '{}',  -- метаданные документа (title, author и др.)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    search_vector tsvector,       -- tsvector индекс для полнотекстового поиска (BM25)
+    CONSTRAINT idx_documents_search_vector 
+      USING GIN(search_vector)   -- GIN индекс для быстрого поиска
 );
 
 CREATE TABLE llm_calls (

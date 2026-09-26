@@ -400,6 +400,82 @@ tests/integration/test_minio_storage.py`.
 
 ---
 
+## Phase 2 — PostgreSQL full-text search
+
+### Phase 2 инфраструктура
+
+PostgreSQL 16 добавлен для полнотекстового поиска с tsvector + GIN индексами:
+
+| Сервис | URL / порт | Назначение |
+|---|---|---|
+| PostgreSQL | `localhost:5432` (host) / `postgres:5432` (compose network) | База данных для документов, full-text search |
+
+### healthcheck
+
+```powershell
+docker-compose exec postgres pg_isready -U postgres -d llm_client
+# → llm_client is accepting connections
+```
+
+### Проверка tsvector
+
+```powershell
+docker-compose exec postgres psql -U postgres -d llm_client -c "
+SELECT id, search_vector FROM documents LIMIT 5;"
+# → Должен вернуть tsvector с лемматизированными терминами
+```
+
+### Проверка GIN индекса
+
+```powershell
+docker-compose exec postgres psql -U postgres -d llm_client -c "
+EXPLAIN ANALYZE SELECT * FROM documents 
+WHERE search_vector @@ websearch_to_tsquery('english', 'error code 1234');"
+# → Должен использовать "Bitmap Index Scan on idx_documents_search_vector"
+```
+
+### Проверка trigram fuzzy matching
+
+```powershell
+docker-compose exec postgres psql -U postgres -d llm_client -c "
+EXPLAIN ANALYZE SELECT * FROM documents WHERE content % 'приер';"
+# → Должен использовать "Bitmap Index Scan on idx_documents_content_trgm"
+```
+
+### Hybrid query benchmark
+
+На staging с 10k документов hybrid query (vector + tsvector) должен выполняться <50 мс:
+
+```powershell
+docker-compose exec postgres psql -U postgres -d llm_client -c "
+EXPLAIN ANALYZE SELECT * FROM documents 
+WHERE search_vector @@ websearch_to_tsquery('english', 'hello world')
+ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', 'hello world')) DESC
+LIMIT 10;"
+```
+
+### Migration
+
+Таблица `documents` и tsvector индекс создаются миграциями:
+
+```bash
+# Применить миграции
+alembic upgrade head
+
+# Проверить статус
+alembic current
+# → 007 (add_tsvector_to_documents)
+```
+
+### Конфигурация
+
+Переменные окружения для full-text search:
+
+- `PG_TEXT_SEARCH_CONFIG=english` — конфигурация полнотекстового поиска
+- `PG_FUZZY_MATCHING_ENABLED=false` — включить fuzzy matching через pg_trgm
+
+---
+
 ## Справка
 
 - **AOF-персистентность Redis**: файл `appendonly.aof` создаётся в volume `redis-data` после первого `PUBLISH`.

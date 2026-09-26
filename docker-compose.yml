@@ -3,6 +3,29 @@
 # All ports are localhost-bound; TLS disabled until Phase 5.
 
 services:
+  # ── PostgreSQL 16 ────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: llm-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=llm_client
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d llm_client"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - llm-network
+    ports:
+      - "127.0.0.1:5432:5432"
+
   # ── Redis 7 ──────────────────────────────────────────────
   redis:
     image: redis:7-alpine
@@ -138,6 +161,8 @@ services:
     restart: unless-stopped
     working_dir: /repo
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       minio:
@@ -252,6 +277,7 @@ services:
 volumes:
   redis-data:
   minio-data:
+  postgres-data:
   prometheus-data:
 
 networks:
