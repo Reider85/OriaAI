@@ -2,44 +2,64 @@
 
 | Атрибут | Значение |
 |---|---|
-| Версия документа | 1.0.0 |
-| Дата | 2026-09-23 |
-| Источники | `ROADMAP.md` v1.1.0 §6 (Phase 2 — Alpha), §12, §15.2, §18.1; `TRIZ-ANALYSIS.md` v1.0.0 §5.2 (C-2), §6.1 (C-6), §8.1 (стандарт 1.1.5), §10 (матрица противоречий), §11 (драфты ADR-010/017/020); `ARCHITECT.md` v1.1.0 §5.2.2 (Checkpointer), §5.2.5 (RAG Layer), §6 (`agent_checkpoints`/`documents` таблицы), §7 ADR-001/003/005 |
-| Этап | Phase 2 — Alpha (14 чел-дн ADR-работы + 2.5 чел-дн тесты/CI/доки = 16.5 чел-дн) |
+| Версия документа | 1.1.0 |
+| Дата | 2026-09-26 |
+| Источники | `ROADMAP.md` v1.2.0 §6 (Phase 2 — Alpha), §5.2.5/§5.8 (AG-составляющая Phase 1 — предусловие), §12, §15.2, §18.1; `TRIZ-ANALYSIS.md` v1.0.0 §5.2 (C-2), §6.1 (C-6), §8.1 (стандарт 1.1.5), §10 (матрица противоречий), §11 (драфты ADR-010/017/020); `ARCHITECT.md` v1.2.0 §4 (agent-service container), §5.1 (Phase 1 Update — FastAPI+SSE), §5.2.2 (Orchestration), §5.2.3 (LLM Provider), §5.2.4 (Tool Layer), §5.2.5 (RAG Layer), §6 (`agent_checkpoints`/`documents` таблицы), §7 ADR-001/003/005/006/007/008/013/014; `BACKLOG.md` v1.1.0 §3.4 (AG-0..AG-7), §3.2 (UI-0..UI-7 сводная таблица), §5.2 (критерии выхода AG Phase 1); `AG-PROMPTS.md` v1.0.0 §1..§5 (AG-0..AG-4 — предусловие для H-1/H-2); `UI-PROMPTS.md` v1.1.0 §1..§11 (UI-0..UI-3 — предусловие для G-1..G-4) |
+| Этап | Phase 2 — Alpha (14 чел-дн ADR-работы + 5 чел-дн AG-расширения (AG-5/AG-6) + 1.5 чел-дн UI-расширения (G-1..G-4) + 2.5 чел-дн тесты/CI/доки = 23 чел-дн) |
 | ADR в области | ADR-010 (Async Checkpoint Write-Behind Log), ADR-017 (Reranker Model in RAG), ADR-020 (Hybrid BM25+Vector RAG default) |
+| AG-расширения в области | AG-5 (`web_search` tool via Tavily, формализация `BACKLOG.md` v1.1.0 §3.4 — применяется ADR-005 Tool Layer), AG-6 (`rag_query` tool + base RAG pipeline + `rag_retriever` нода, формализация `BACKLOG.md` v1.1.0 §3.4 — применяется ADR-003 VectorStoreFactory, расширяется ADR-017/020 в этом же Phase 2) |
+| UI-расширения в области | G-1 (tool-call preview component), G-2 (RAG citations panel), G-3 (web search results panel), G-4 (settings panel extension: tools on/off, retrieval_strategy, reranker choice) — расширяют UI-0..UI-3 из `UI-PROMPTS.md` v1.1.0 для отображения результатов AG-5/AG-6 и настроек ADR-017/020 |
 | Резолвит противоречия | C-2 (PG checkpoint vs latency) — полностью; C-6 (long RAG context vs cost) — полностью (вместе ADR-017 + ADR-020; ADR-011 в Phase 3 закроет cost-составляющую) |
 | Целевой LLM | Универсальные (Cursor / Copilot / Claude Code / ChatGPT) |
 | Гранулярность | Микро-промпты (1 промпт = 1 файл / 1 класс / 1 подзадача) |
-| Предусловие | Phase 1 завершена (`ROADMAP.md` §5.6): Redis в docker-compose (Блок A-1 `MVP-PROMPTS`), PostgreSQL, `S3CompatibleStorage` (расш. ADR-008), ADR-013 (cancel), ADR-014 (DualStreamLogger), `UIClient` abstraction (UI-2) — все Approved. ARCHITECT.md v1.1.0 |
-| Связанные документы | `MVP-PROMPTS.md` v1.0.0 (контракты Phase 1, не переопределяются), `UI-PROMPTS.md` v1.0.0 (UI-3 Streamlit fragments — может помочь в latency-тесте B-6), `BACKLOG.md` v1.0.0 (UI-работы Phase 1, не входят в Phase 2) |
+| Предусловие | Phase 1 завершена полностью (`ROADMAP.md` v1.2.0 §5.6, п.1–11): UI-0..UI-3 Approved (`UI-PROMPTS.md` v1.1.0), AG-0..AG-4 Approved (`AG-PROMPTS.md` v1.0.0) — `python -m llm_client.agent` поднимает FastAPI на :8000, `build_agent_graph(llm, token, tools=[file_export])` возвращает compiled graph с `planner` + `final_answer` + `tool_executor` нодами, SSE event protocol эмитит token/metadata/cancelled/error/done/artifact_ready, `file_export` tool сохраняет артефакты в S3 (UI-1 download buttons активны). Redis (Блок A-1 `MVP-PROMPTS`), PostgreSQL, `S3CompatibleStorage` (расш. ADR-008), ADR-013 (cancel), ADR-014 (DualStreamLogger), `UIClient` abstraction (UI-2) — все Approved. ARCHITECT.md v1.2.0 (§5.1 уточнена: in-process опция не используется, AG-0 фиксирует FastAPI + SSE как единственную MVP-реализацию). |
+| Связанные документы | `MVP-PROMPTS.md` v1.0.0 (контракты Phase 1, не переопределяются), `UI-PROMPTS.md` v1.1.0 (UI-0..UI-3 — предусловие для Блока G), `AG-PROMPTS.md` v1.0.0 (AG-0..AG-4 — предусловие для Блока H), `BACKLOG.md` v1.1.0 (AG-5/AG-6 формализованы как Phase 2 работы, §3.4 + §5.3 критерии), `ROADMAP.md` v1.2.0 (Phase 2 = 19 чел-дн ADR+AG + 2.5 чел-дн tests/CI/docs = 21.5 чел-дн без UI-расширений), `ARCHITECT.md` v1.2.0, `TRIZ-ANALYSIS.md` v1.0.0 |
 
 ---
 
 ## 0. Как пользоваться документом
 
-Каждый промпт — самостоятельный блок, огороженный ` ``` `-код-блоком, готовый к копи-пасту в любой код-ассистент. Промпты сгруппированы в шесть блоков **A–F**, идущих в порядке зависимостей:
+Каждый промпт — самостоятельный блок, огороженный ` ``` `-код-блоком, готовый к копи-пасту в любой код-ассистент. Промпты сгруппированы в **восемь блоков A–H**, идущих в порядке зависимостей:
 
 ```
 A. Инфра ──┬──→ B. ADR-010 (RedisPostgresCheckpointer) ──┐
-           │                                              ├─→ E. Тесты/CI ──→ F. Документация
+           │                                              │
            ├──→ C. ADR-017 (Reranker) ─────────────────────┤
-           └──→ D. ADR-020 (Hybrid BM25+Vector RAG) ───────┘
-                                                       │
-                                                       └──→ D-5 зависит от C-4 (reranker применяется после fusion)
+           │                                              ├──→ E. Тесты/CI ──→ F. Документация
+           └──→ D. ADR-020 (Hybrid BM25+Vector RAG) ───────┤
+                                                          │
+            ┌───────────────────────────────────────────────┘
+            │
+            │  D-5 зависит от C-4 (reranker применяется после fusion)
+            │
+            ├──→ G. UI-расширения Phase 2 (G-1 tool-call preview, G-2 RAG citations,
+            │    G-3 web search results, G-4 settings panel) — зависит от H-1/H-2
+            │    (отображают результаты AG-5/AG-6 + настраивают ADR-017/020)
+            │
+            └──→ H. AG-расширения Phase 2 (H-1=AG-5 web_search via Tavily,
+                 H-2=AG-6 rag_query + base RAG pipeline + rag_retriever нода,
+                 H-3 graph integration (bind_tools + tool_executor extension),
+                 H-4 SSE event protocol extension (event: tool_call / tool_result /
+                 retrieved_docs)) — зависит от AG-1 (Phase 1 graph), AG-3 (SSE)
+                 и расширяется Блоками C (reranker) и D (hybrid retrieval)
 ```
 
-**Конвенции** (наследуются из `MVP-PROMPTS.md` §0):
+**Конвенции** (наследуются из `MVP-PROMPTS.md` §0, `AG-PROMPTS.md` §0, `UI-PROMPTS.md` §0):
 
-- Имена классов, методов, эндпоинтов — на английском (как в `ARCHITECT.md`).
+- Имена классов, методов, эндпоинтов — на английском (как в `ARCHITECT.md` v1.2.0).
 - Имена ADR и противоречий — в формате `ADR-010`, `C-2` (как в `TRIZ-ANALYSIS.md` §10).
+- Имена AG-работ — в формате `AG-5`, `AG-6` (как в `BACKLOG.md` v1.1.0 §3.4 и `ROADMAP.md` v1.2.0 §6.2).
+- Имена UI-работ — в формате `UI-1` (как в `BACKLOG.md` v1.1.0 §3.2 и `UI-PROMPTS.md` v1.1.0).
 - Раздел `Definition of Done` — конкретные измеримые критерии готовности.
 - Раздел `Антипаттерны` — что LLM НЕ должен делать; если предложит — отбраковывать.
 - Раздел `Связанные ADR` — какие ADR затрагивает (не ломает / упраздняет / требует).
-- Все env vars / class names / interface signatures — **продолжают** контракты Phase 1; не переопределяют, не дублируют. Существующие `BaseCheckpointSaver` (LangGraph), `VectorStoreFactory`/`VectorStoreRegistry` (ADR-003 / драфт ADR-009), `RetrieverConfig` (`ARCHITECT.md` §5.2.5), `PostgresSaver` (ADR-001), `agent_checkpoints` / `documents` таблицы (`ARCHITECT.md` §6) — **не переопределяются**; Phase 2 их расширяет.
+- Все env vars / class names / interface signatures — **продолжают** контракты Phase 1 (включая `AG-PROMPTS.md` v1.0.0); не переопределяют, не дублируют. Существующие `BaseCheckpointSaver` (LangGraph), `VectorStoreFactory`/`VectorStoreRegistry` (ADR-003 / драфт ADR-009), `RetrieverConfig` (`ARCHITECT.md` §5.2.5), `PostgresSaver` (ADR-001), `agent_checkpoints` / `documents` таблицы (`ARCHITECT.md` §6), `LLMProviderFactory` (AG-2), `build_agent_graph(llm, token, tools)` (AG-1), SSE event protocol (AG-3), `file_export` tool (AG-4), `UIClient` interface + `StreamlitClient` (UI-2), `@st.fragment` chat/sidebar (UI-3) — **не переопределяются**; Phase 2 их расширяет.
 
-Полный прогон блоков A→F занимает 14 чел-дн (ADR-работы по `ROADMAP.md` §6.2) + 2.5 чел-дн (тесты/CI/доки). Параллелизация (см. §8) — 9–10 чел-дн при команде из 2 разработчиков. Критерии выхода из Phase 2 — в Приложении §7.
+Полный прогон блоков A→H занимает 14 чел-дн ADR-работы (`ROADMAP.md` v1.2.0 §6.2.1–6.2.3) + 5 чел-дн AG-расширения (§6.2.4 AG-5 + §6.2.5 AG-6, `BACKLOG.md` v1.1.0 §3.4) + 1.5 чел-дн UI-расширения (Блок G, new в v1.1.0 — не входит в оценку `ROADMAP.md` v1.2.0, добавлен в ALPHA-PROMPTS.md v1.1.0 как необходимое расширение UI-0..UI-3 для отображения результатов AG-5/AG-6) + 2.5 чел-дн (тесты/CI/доки) = **23 чел-дн total** (vs 16.5 чел-дн в v1.0.0; delta = +6.5 чел-дн: +5 AG-5/AG-6 + 1.5 UI). Параллелизация (см. §10) — 11–13 чел-дн при команде из 3 разработчиков (2 backend + 1 frontend). Критерии выхода из Phase 2 — в Приложении §9.
 
-**Фазировка противоречий** (из `TRIZ-ANALYSIS.md` §10): Phase 2 резолвит C-2 (полностью через ADR-010) и C-6 (полностью через ADR-017 + ADR-020 — качественная составляющая retrieval; cost-составляющая C-6 остаётся для ADR-011 в Phase 3). Связанные законы развития ТРИЗ (§4 `TRIZ-ANALYSIS.md`): закон 4.3 (согласование ритмики частей системы) — ADR-010 развязывает ритмику node-execution и persistence; стандарт 1.1.5 (введение второго поля в веполь) — ADR-020 вводит BM25 как второе поле retrieval; стандарт 2.2.2 (переход к более динамичной веполи) — ADR-017 вводит cross-encoder как более сильное поле переранжировки.
+> **Замечание о UI-расширениях Блока G**: `ROADMAP.md` v1.2.0 не выделяет отдельную оценку на UI-работы Phase 2 — UI-0..UI-3 из Phase 1 формируют базовый чат, а следующие UI-работы (UI-4 `SessionStore`/`RedisSessionStore`, UI-5 `ChainlitClient`, UI-6 `FastAPIClient`, UI-7 Embed mode) относятся к Phase 5/6 (см. `BACKLOG.md` v1.1.0 §3.2). Однако с добавлением AG-5/AG-6 (внешние инструменты `web_search`/`rag_query`, эмитящие `event: tool_call` / `event: tool_result` / `event: retrieved_docs`) UI-1 из Phase 1 (sidebar + download buttons + status badge + PII badge) недостаточен — пользователь не видит, какие инструменты вызвал агент и какие результаты получил. Блок G (4 промпта, 1.5 чел-дн) закрывает этот пробел: расширяет `UIClient` interface и `StreamlitClient` реализацию из UI-2/UI-0 минимальными компонентами для отображения tool-call previews, RAG citations, web search results и настроек retrieval. Это не вводит новых ADR и не нарушает ADR-002 (Streamlit) — расширяет существующий интерфейс. Метрика идеальности Phase 2 учитывается отдельно (см. §9 п.13–14).
+
+**Фазировка противоречий** (из `TRIZ-ANALYSIS.md` §10): Phase 2 резолвит C-2 (полностью через ADR-010) и C-6 (полностью через ADR-017 + ADR-020 — качественная составляющая retrieval; cost-составляющая C-6 остаётся для ADR-011 в Phase 3). AG-5/AG-6 (Блок H) — применение уже Approved ADR-005 (Tool Layer) и ADR-003 (VectorStoreFactory) на конкретных инструментах, не вводят новых противоречий. Связанные законы развития ТРИЗ (§4 `TRIZ-ANALYSIS.md`): закон 4.3 (согласование ритмики частей системы) — ADR-010 развязывает ритмику node-execution и persistence; стандарт 1.1.5 (введение второго поля в веполь) — ADR-020 вводит BM25 как второе поле retrieval; стандарт 2.2.2 (переход к более динамичной веполи) — ADR-017 вводит cross-encoder как более сильное поле переранжировки. Принцип 25 (самообслуживание) — AG-5 использует внешний API Tavily, но результат (snippets) кэшируется в `messages` state, не требует повторных вызовов; принцип 3 (местное качество) — AG-6 использует специализированный `rag_retriever` ноду, не general-purpose `tool_executor`, для RAG-pipeline (хотя инструмент exposed to LLM через `bind_tools` как обычный `@tool`); принцип 17 (другое измерение) — UI-расширения Блока G выносят отображение tool-результатов в отдельный фрагмент UI (не в основном chat area), не ломая существующий `chat_component`.
 
 ---
 
@@ -2679,7 +2699,2098 @@ Definition of Done:
 
 ---
 
-## 5. Блок E. Тесты и CI для Phase 2
+## 5. Блок G. UI-расширения Phase 2
+
+**Источник**: `UI-PROMPTS.md` v1.1.0 §1..§11 (UI-0..UI-3 — предусловие), `BACKLOG.md` v1.1.0 §3.2 (UI-0..UI-7 сводная таблица — UI-4..UI-7 относятся к Phase 5/6, в Phase 2 их нет), `ARCHITECT.md` v1.2.0 §5.2.1 (Presentation Layer) и §5.2.4 (Tool Layer — какие tools у AG-5/AG-6), `AG-PROMPTS.md` v1.0.0 §4 (AG-3 SSE event protocol — источник событий `event: artifact_ready` для UI-1 download buttons, в Phase 2 добавляются `event: tool_call`/`event: tool_result`/`event: retrieved_docs`).
+
+**Назначение**: Phase 1 закрывает минимальный chat MVP — UI-0 (scaffold), UI-1 (sidebar + download buttons + status badge + PII badge), UI-2 (`UIClient` abstraction + `StreamlitClient`), UI-3 (`@st.fragment` для chat/sidebar). Phase 2 добавляет AG-5 (`web_search`) и AG-6 (`rag_query`) — инструменты, которые агент вызывает в середине граф-цикла, и которые эмитят новые SSE-события (`event: tool_call`, `event: tool_result`, `event: retrieved_docs` — см. Блок H-4). UI-1 из Phase 1 не имеет компонентов для отображения этих событий — пользователь видит только финальный токен-стрим, не видя, что агент обратился к веб-поиску или RAG. Без Блока G AG-5/AG-6 формально работают, но UX деградирует — пользователь не понимает, откуда агент взял ответ (не видно ни цитат, ни веб-ссылок, ни инструментов). Это не нарушает ADR-002 (Streamlit) и не вводит новые ADR — Блок G расширяет `UIClient` interface и `StreamlitClient` реализацию минимальными новыми методами/компонентами, продолжая контракты UI-0..UI-3.
+
+**Связь с архитектурой**: `ARCHITECT.md` v1.2.0 §5.2.1 таблица «Presentation Layer» упоминает 5 компонентов: `chat_component`, `session_history`, `download_button`, `settings_panel`, `auth_gate`. В Phase 1 реализованы `chat_component` (UI-0/UI-3), `session_history` (UI-1 sidebar), `download_button` (UI-1 через `render_artifact_buttons` в `src/llm_client/ui/render.py`). Phase 2 добавляет `settings_panel` (G-4) и расширяет `chat_component` новыми подкомпонентами: `tool_call_preview` (G-1), `rag_citations` (G-2), `web_search_results` (G-3). `auth_gate` — Phase 5 (расширение ADR-018).
+
+**Принципы ТРИЗ**: 17 (переход в другое измерение — tool-результаты рендерятся в отдельном фрагменте UI, не в основном chat area), 3 (местное качество — каждый компонент специализирован под свой тип tool-результата: RAG citations != web search results), 1 (сегментация — `UIClient` interface расщепляется на основной chat и tool-results sub-views), 16 (частичное/избыточное действие — interface расширяется, но `StreamlitClient` остаётся единственной имплементацией; `ChainlitClient` добавится в Phase 5, расширяя тот же interface).
+
+**Оценка и параллелизация**: 4 промпта, 1.5 чел-дн total. Критический путь: G-1 (0.25) → G-2 (0.5) и G-3 (0.25) параллельно → G-4 (0.5). Один Frontend-разработчик (Дев 3 в §10). Не входит в оценку `ROADMAP.md` v1.2.0 (Phase 2 = 19 чел-дн ADR+AG без UI) — добавлен в ALPHA-PROMPTS.md v1.1.0 как необходимое расширение. Метрика идеальности Phase 2: G-1..G-4 добавляют +1 capability (UX tool-transparency) при +0 новых зависимостей — улучшает ratio, не нарушает порог.
+
+### G-1. Tool-call preview component (расширение `UIClient` + `StreamlitClient`)
+
+```
+Ты — Frontend-разработчик LLM Client. Расширь `UIClient` interface и
+`StreamlitClient` реализацию из UI-2/UI-PROMPTS.md §3 для отображения
+tool-call previews: когда агент вызывает web_search (Блок H-1) или
+rag_query (Блок H-2), UI должен показать collapsible-панель с именем
+инструмента и его args ДО того, как агент получит результат.
+
+Контекст:
+- UI-2 (UI-PROMPTS.md §3, уже реализован в Phase 1) фиксирует `UIClient`
+  interface с 4 методами: render_message, render_artifact, stream_token,
+  handle_user_input. Этого достаточно для file_export (AG-4) — результат
+  рендерится через render_artifact (download button). Но web_search и
+  rag_query — не артефакты, а tool_calls с args и results. Нужен новый
+  метод.
+- AG-3 SSE event protocol (AG-PROMPTS.md §4, реализован в Phase 1)
+  эмитит события: token, metadata, artifact_ready, cancelled, error,
+  done. Блок H-4 добавляет: tool_call, tool_result, retrieved_docs.
+  UI должен уметь их парсить и рендерить.
+- ARCHITECT.md v1.2.0 §5.2.1 (строка 351) упоминает `chat_component`
+  с ответственностью "Рендеринг сообщений, streaming tokens, tool-call
+  previews" — но в Phase 1 tool-call previews не реализованы (только
+  токены и артефакты). G-1 их добавляет.
+- ТРИЗ-принцип 17 (переход в другое измерение): tool-call preview
+  рендерится в отдельном `@st.fragment`-блоке внутри chat_message, не
+  вмешиваясь в токен-стрим. Это сохраняет latency streaming (UI-3 benefit)
+  и даёт пользователю контекст "что делает агент" без пере-рендера
+  всего chat.
+- ТРИЗ-принцип 3 (местное качество): каждый preview — отдельный
+  компонент под свой tool (web_search — показывает query + max_results;
+  rag_query — показывает query + retrieval_strategy; file_export —
+  показывает content preview (truncated) + format). Не общий
+  tool-call-panel, а специализированные под tool-type.
+
+Задача:
+1. Расширь `UIClient` interface в `src/llm_client/ui/client.py`:
+   ```python
+   from abc import ABC, abstractmethod
+   from typing import Any, Literal
+
+   class UIClient(ABC):
+       # Существующие 4 метода (UI-2) — без изменений:
+       @abstractmethod
+       def render_message(self, role, content, metadata=None): ...
+       @abstractmethod
+       def render_artifact(self, artifact: dict): ...
+       @abstractmethod
+       def stream_token(self, token: str): ...
+       @abstractmethod
+       def handle_user_input(self) -> str | None: ...
+
+       # Новый метод (G-1):
+       @abstractmethod
+       def render_tool_call(self, tool_name: str, args: dict[str, Any],
+                             status: Literal["running", "done", "error"]
+                             = "running",
+                             result_preview: dict[str, Any] | None = None
+                             ) -> None:
+           '''Рендерит collapsible-панель tool-call preview внутри
+           текущего assistant chat_message.
+
+           Args:
+               tool_name: "web_search" | "rag_query" | "file_export" |
+                          "mcp_call" (Phase 4). Не локализовать —
+                          отображать как есть (developer-facing).
+               args: dict с аргументами tool_call (query, max_results,
+                     format, filename и т.д.). НЕ логировать content
+                     аргумент file_export — truncated до 200 символов
+                     с "..." (privacy: потенциально PII).
+               status: "running" (спиннер), "done" (зелёная галочка),
+                       "error" (красный бейдж).
+               result_preview: dict с кратким preview результата —
+                               {snippet_count: int} для web_search,
+                               {chunk_count: int, top_score: float} для
+                               rag_query, {artifact_id, format, filename}
+                               для file_export. None при status="running".
+           '''
+   ```
+
+2. Имплементируй в `src/llm_client/ui/streamlit_client.py`:
+   ```python
+   class StreamlitClient(UIClient):
+       # ... существующие методы без изменений ...
+
+       def render_tool_call(self, tool_name, args, status="running",
+                            result_preview=None):
+           import streamlit as st
+           # Фильтрация PII в args для file_export content:
+           display_args = dict(args)
+           if tool_name == "file_export" and "content" in display_args:
+               content = str(display_args["content"])
+               display_args["content"] = (content[:200] + "...") \
+                   if len(content) > 200 else content
+
+           # Collapsible-панель внутри текущего chat_message:
+           with st.expander(f"🔧 {tool_name} — {status}", expanded=False):
+               st.json(display_args)
+               if result_preview is not None:
+                   st.caption("Result preview")
+                   st.json(result_preview)
+               if status == "running":
+                   st.spinner("Running...")
+               elif status == "done":
+                   st.success("Done")
+               elif status == "error":
+                   st.error("Failed")
+   ```
+
+3. В `src/llm_client/ui/render.py` добавь helper для парсинга SSE events
+   `tool_call` и `tool_result` (Блок H-4):
+   ```python
+   def handle_tool_event(event_type: str, data: dict,
+                          client: UIClient,
+                          pending_tool_calls: dict[str, dict]) -> None:
+       '''Обновляет state pending tool_calls и триггерит ре-рендер
+       preview при поступлении tool_call/tool_result.
+
+       Args:
+           event_type: "tool_call" | "tool_result" | "retrieved_docs".
+           data: SSE event data (Блок H-4 contract).
+           client: UIClient instance (StreamlitClient).
+           pending_tool_calls: dict[tool_call_id, {tool_name, args,
+               status, result_preview}] в st.session_state.
+       '''
+       if event_type == "tool_call":
+           pending_tool_calls[data["tool_call_id"]] = {
+               "tool_name": data["tool_name"],
+               "args": data["args"],
+               "status": "running",
+               "result_preview": None,
+           }
+           client.render_tool_call(
+               tool_name=data["tool_name"],
+               args=data["args"],
+               status="running",
+           )
+       elif event_type == "tool_result":
+           tc_id = data["tool_call_id"]
+           if tc_id in pending_tool_calls:
+               pending_tool_calls[tc_id]["status"] = "done"
+               pending_tool_calls[tc_id]["result_preview"] = (
+                   data.get("preview") or {}
+               )
+               tc = pending_tool_calls[tc_id]
+               client.render_tool_call(
+                   tool_name=tc["tool_name"],
+                   args=tc["args"],
+                   status="done",
+                   result_preview=tc["result_preview"],
+               )
+       elif event_type == "retrieved_docs":
+           # Для rag_query — расширенный preview с цитатами (Блок G-2):
+           tc_id = data["tool_call_id"]
+           if tc_id in pending_tool_calls:
+               pending_tool_calls[tc_id]["result_preview"] = {
+                   "chunk_count": data.get("chunk_count", 0),
+                   "top_score": data.get("top_score", 0.0),
+                   "source_uris": data.get("source_uris", []),
+               }
+               tc = pending_tool_calls[tc_id]
+               client.render_tool_call(
+                   tool_name=tc["tool_name"],
+                   args=tc["args"],
+                   status="done",
+                   result_preview=tc["result_preview"],
+               )
+               # G-2 дополнительно рендерит citations panel:
+               render_rag_citations(data.get("chunks", []))
+   ```
+
+4. Обнови парсер SSE в `src/llm_client/ui/chat.py` `iter_sse_events` —
+   добавь case для event_type "tool_call" / "tool_result" /
+   "retrieved_docs" (Блок H-4 contract). Сейчас парсер понимает только
+   token/metadata/artifact_ready/cancelled/error/done (AG-3 из Phase 1).
+
+5. Оберни render_tool_call в `@st.fragment` (UI-3 pattern) для изоляции
+   ре-рендера от основного chat area:
+   ```python
+   @st.fragment
+   def _render_tool_call_fragment(tool_name, args, status, result_preview):
+       # ... реализация из п.2 ...
+   ```
+   Это гарантирует: стриминг токенов основного ответа не пере-рендерит
+   tool-call previews; обратное — тоже.
+
+6. Тесты в `tests/unit/test_ui_render.py` (расширь существующий файл):
+   - `test_render_tool_call_running` — StreamlitClient mock, проверяет
+     expander с label "🔧 web_search — running" и args внутри.
+   - `test_render_tool_call_done` — status="done", result_preview
+     отображается, "Done" success message.
+   - `test_render_tool_call_error` — status="error", error badge.
+   - `test_file_export_content_truncation` — args["content"] > 200
+     символов → отображается truncated.
+   - `test_handle_tool_event_tool_call` — pending_tool_calls обновляется.
+   - `test_handle_tool_event_tool_result` — status меняется на "done",
+     result_preview добавляется.
+   - `test_handle_tool_event_retrieved_docs` — chunk_count, top_score
+     отображаются; render_rag_citations вызывается.
+   - Integration: полный flow SSE → handle_tool_event → render_tool_call
+     для всех 3 events (tool_call, tool_result, retrieved_docs).
+
+Definition of Done:
+- `UIClient` interface в `src/llm_client/ui/client.py` содержит
+  `render_tool_call` abstractmethod.
+- `StreamlitClient` в `src/llm_client/ui/streamlit_client.py`
+  имплементирует `render_tool_call` с collapsible expander.
+- `src/llm_client/ui/render.py` содержит `handle_tool_event` helper.
+- `src/llm_client/ui/chat.py` SSE parser понимает event types
+  "tool_call" / "tool_result" / "retrieved_docs" (Блок H-4 contract).
+- `tests/unit/test_ui_render.py` — 7+ новых тестов зелёные.
+- Существующие тесты `tests/unit/test_ui_render.py`,
+  `tests/unit/test_ui_streamlit_client.py` (Phase 1) — не регрессируют.
+- Manual test: prompt "search web for python asyncio" → виден
+  expander "🔧 web_search — running" → через ~2 сек "🔧 web_search —
+  done" с preview {snippet_count: 5}.
+
+Антипаттерны:
+- НЕ добавляй в `UIClient` методы под каждый tool-type отдельно
+  (render_web_search_call, render_rag_query_call, render_file_export_call)
+  — это god-object. Один `render_tool_call(tool_name, args, status,
+  result_preview)` с switch внутри StreamlitClient-имплементации.
+- НЕ логируй content аргумент file_export в UI без truncation —
+  потенциально PII. Max 200 символов, всегда с "..." suffix.
+- НЕ показывай полный result (сниппеты, чанки) в tool_call preview —
+  это делает G-2 (RAG citations) и G-3 (web search results). Preview —
+  только краткая summary (count, top_score, source_uris).
+- НЕ пере-рендерь весь chat_message при tool_call event — только
+  @st.fragment с tool_call preview. Иначе ломается UI-3 streaming
+  latency.
+- НЕ хардкодь tool_name="web_search" — поддержи любой (mcp_call в
+  Phase 4, будущие tools). Switch внутри StreamlitClient для
+  tool-specific rendering, но interface общий.
+- НЕ локализуй tool_name в UI — "web_search" отображается как есть
+  (developer-facing, как в ADR-005). Локализуются только status-labels
+  ("running" → "Выполняется..." — опционально, в Phase 2-en оставляем
+  английский для consistency с ADR-005).
+- НЕ добавляй кнопку "Cancel tool" — cancel всего агента уже есть
+  (UI-1 status badge + MVP-PROMPTS C-5 JS watcher). Granular tool
+  cancel — Phase 4 (mcp_invoker с human_review нодой).
+
+Связанные ADR:
+- Расширяет: UI-2 (UIClient interface +1 method), AG-3 (SSE event
+  protocol +3 events — tool_call/tool_result/retrieved_docs, см. Блок
+  H-4).
+- Применяет: ADR-002 (Streamlit 1.40+), ADR-007 (SSE), UI-3 (@st.fragment
+  для изоляции re-runs).
+- Не затрагивает: ADR-013 (cancel endpoint), ADR-014 (PII metadata —
+  truncation applied to file_export content).
+- Разблокирует: G-2 (rag citations — handle_tool_event для
+  retrieved_docs), G-3 (web search results — handle_tool_event для
+  tool_result от web_search).
+```
+
+### G-2. RAG citations panel (компонент для отображения retrieved chunks)
+
+```
+Ты — Frontend-разработчик LLM Client. Создай компонент для отображения
+RAG citations: когда агент вызывает rag_query (Блок H-2) и эмитит
+event: retrieved_docs (Блок H-4), UI должен показать список чанков с
+источниками (source_uri, title, page, content_preview, score). Это
+помогает пользователю понять, откуда агент взял информацию в финальном
+ответе, и проверить факты.
+
+Контекст:
+- AG-6 (Блок H-2) — rag_query tool + rag_retriever нода в graph. Tool
+  возвращает list[dict] с чанками. Блок H-4 эмитит SSE event
+  "retrieved_docs" с fields: tool_call_id, chunk_count, top_score,
+  source_uris (list), chunks (list[{source_uri, title, page,
+  content_preview, score}]).
+- UI-1 (Phase 1) — sidebar + download buttons + status + PII badge.
+  Не покрывает RAG citations.
+- ARCHITECT.md v1.2.0 §5.2.5 (RAG Layer) — pipeline возвращает top-5
+  чанков после reranker (ADR-017). UI должен показать все 5 (не только
+  top-1), чтобы пользователь мог сравнить.
+- ТРИЗ-принцип 1 (сегментация): citations — отдельная панель, не часть
+  основного chat_message. Открывается по клику на "Показать источники"
+  или автоматически — на ваше усмотрение (default: collapsible).
+- ТРИЗ-принцип 3 (местное качество): каждый chunk — отдельная карточка с
+  source_uri (кликабельная ссылка), title, page (если есть), truncated
+  content (200 символов), score (как progress bar, не как число — для
+  UX). Не общий list, а визуально структурированные cards.
+
+Задача:
+1. Создай функцию `render_rag_citations(chunks: list[dict]) -> None`
+   в `src/llm_client/ui/render.py` (расширяет существующий файл из
+   Phase 1):
+   ```python
+   def render_rag_citations(chunks: list[dict]) -> None:
+       '''Рендерит RAG citations panel — список чанков с источниками,
+       заголовками, truncated content, score. Collapsible по умолчанию.
+
+       Args:
+           chunks: list of dict с fields {source_uri, title, page,
+                   content_preview, score}. Score в [0, 1] — cosine
+                   similarity или reranker score (ADR-017).
+       '''
+       import streamlit as st
+
+       if not chunks:
+           return
+
+       # Header — clickable, collapsed по умолчанию:
+       with st.expander(
+           f"📚 RAG citations ({len(chunks)} chunks)",
+           expanded=False,
+       ):
+           for i, chunk in enumerate(chunks, 1):
+               _render_citation_card(i, chunk)
+
+   def _render_citation_card(index: int, chunk: dict) -> None:
+       import streamlit as st
+
+       # Title с source_uri как кликабельная ссылка:
+       title = chunk.get("title") or chunk.get("source_uri") or f"Chunk {index}"
+       source_uri = chunk.get("source_uri", "")
+       page = chunk.get("page")
+       score = float(chunk.get("score", 0.0))
+
+       st.markdown(f"**{index}. [{title}]({source_uri})**")
+
+       # Meta-line: source + page:
+       meta_parts = [f"📎 {source_uri}"]
+       if page is not None:
+           meta_parts.append(f"📄 p.{page}")
+       st.caption(" · ".join(meta_parts))
+
+       # Score как progress bar (не как число):
+       st.progress(score, text=f"Relevance: {score:.2f}")
+
+       # Content preview (truncated, 200 char):
+       content = (chunk.get("content_preview") or "")[:200]
+       if len(chunk.get("content_preview", "")) > 200:
+           content += "..."
+       st.markdown(content)
+
+       st.divider()
+   ```
+
+2. Интегрируй в handle_tool_event (G-1) — при event_type="retrieved_docs"
+   вызывает render_rag_citations(data["chunks"]).
+   Уже сделано в G-1 п.3 — оставь как есть, эта функция — реализация
+   хелпера.
+
+3. Оберни в @st.fragment (UI-3 pattern):
+   ```python
+   import streamlit as st
+
+   @st.fragment
+   def _render_rag_citations_fragment(chunks: list[dict]) -> None:
+       render_rag_citations(chunks)
+   ```
+   Вызывай _render_rag_citations_fragment из handle_tool_event. Это
+   гарантирует: пере-рендер citations panel не вызывает пере-рендер
+   основного chat area (стриминг токенов продолжается без lag).
+
+4. Тесты в `tests/unit/test_ui_render.py` (расширь):
+   - `test_render_rag_citations_empty` — chunks=[] → ничего не рендерится.
+   - `test_render_rag_citations_one_chunk` — 1 chunk, card с title,
+     source_uri, page, progress bar, content_preview.
+   - `test_render_rag_citations_many_chunks` — 5 chunks (типовой reranker
+     top-5), все отображаются, divider между ними.
+   - `test_render_rag_citations_long_content` — content_preview > 200
+     символов → truncated + "...".
+   - `test_render_rag_citations_missing_fields` — chunk без title (использует
+     source_uri), без page (скрывает), без score (progress bar = 0.0).
+   - Integration: handle_tool_event("retrieved_docs", data, client,
+     pending) → render_rag_citations вызывается с data["chunks"].
+
+Definition of Done:
+- `render_rag_citations(chunks)` function в `src/llm_client/ui/render.py`.
+- `_render_citation_card(index, chunk)` helper.
+- @st.fragment обёртка для изоляции re-runs.
+- 6+ новых тестов зелёные.
+- Manual test: prompt "найди в документации по Python asyncio" →
+  rag_query tool_call → event: retrieved_docs → citations panel с
+  5 чанками, source_uri кликабельны, score progress bars отображаются.
+- Существующие тесты test_ui_render.py — не регрессируют.
+
+Антипаттерны:
+- НЕ показывай полный content чанка — может быть PII или IP. Max 200
+  символов, всегда с "..." suffix если длиннее.
+- НЕ показывай raw score как float — только как progress bar с
+  label "Relevance: 0.85". UX-friendly, не требует от пользователя
+  знания cosine similarity thresholds.
+- НЕ группируй все chunks в один блок text — индивидуальные cards с
+  divider. Пользователь может сравнить источники.
+- НЕ хардкодь "5 chunks" — len(chunks) переменный (reranker может
+  вернуть 3, 5, 8 — зависит от RetrieverConfig).
+- НЕ добавляй кнопку "Open in new tab" — source_uri уже кликабельная
+  ссылка (markdown `[title](source_uri)`).
+- НЕ эмитить новые SSE events из UI — UI только слушает. Citations
+  panel — pure render, не интерактивная (кроме раскрытия/сворачивания).
+- НЕ показывай chunk_id, content_hash или другие технические fields —
+  только user-facing: title, source_uri, page, content_preview, score.
+- НЕ путай citations с artifact_ready (download button из UI-1) — это
+  разные сущности: artifact = файл для скачивания; citation = источник
+  информации в ответе.
+
+Связанные ADR:
+- Расширяет: UI-1 (sidebar + download + status + PII — добавляется 5-й
+  элемент: citations panel), UI-3 (@st.fragment для citations).
+- Применяет: ADR-017 (reranker score — отображается как progress bar),
+  ADR-020 (hybrid retrieval — chunks могут прийти из vector или BM25
+  path, UI их не различает, только score), расш. ADR-008 (source_uri
+  для документов в S3 — кликабельная ссылка).
+- Зависит от: G-1 (handle_tool_event для retrieved_docs), H-2 (AG-6
+  rag_query tool — источник chunks), H-4 (SSE event: retrieved_docs —
+  источник события).
+- Не затрагивает: ADR-013 (cancel), ADR-014 (PII — в chunks не
+  попадает, meta-filtering на уровне rag_retriever ноды).
+```
+
+### G-3. Web search results panel (компонент для отображения Tavily results)
+
+```
+Ты — Frontend-разработчик LLM Client. Создай компонент для отображения
+web search results: когда агент вызывает web_search (Блок H-1) и
+эмитит event: tool_result (Блок H-4), UI должен показать список
+результатов с title, url, snippet. Это помогает пользователю понять,
+какие веб-источники использовал агент в финальном ответе.
+
+Контекст:
+- AG-5 (Блок H-1) — web_search tool via Tavily API. Tool возвращает
+  list[dict] с results: [{title, url, snippet, score?}]. Блок H-4
+  эмитит event: tool_result с fields: tool_call_id, tool_name="web_search",
+  preview: {snippet_count: N}, full_results: [{title, url, snippet}].
+- UI-1 (Phase 1) — не покрывает web search results. UI-2 — interface
+  для web_search не предусмотрен. Нужен отдельный компонент (G-3),
+  аналогичный G-2 (RAG citations), но для веб-результатов.
+- ARCHITECT.md v1.2.0 §5.2.4 (Tool Layer) — web_search как @tool,
+  возвращает list[dict]. UI должен отобразить list в user-friendly
+  виде.
+- ТРИЗ-принцип 3 (местное качество): web search results отличаются от
+  RAG citations: нет page, нет content_preview (только snippet ~100
+  символов), может быть score (Tavily возвращает relevance score).
+  Не переиспользовать _render_citation_card из G-2 — другая структура
+  данных.
+- ТРИЗ-принцип 17 (другое измерение): web search results рендерятся в
+  отдельной панели, не смешиваются с RAG citations. Если один запрос
+  инициировал и rag_query и web_search — пользователь видит обе панели
+  независимо.
+
+Задача:
+1. Создай функцию `render_web_search_results(results: list[dict]) -> None`
+   в `src/llm_client/ui/render.py` (расширяет существующий файл):
+   ```python
+   def render_web_search_results(results: list[dict]) -> None:
+       '''Рендерит web search results panel — список результатов с title
+       (кликабельная ссылка на url), snippet, опционально score.
+
+       Args:
+           results: list of dict с fields {title, url, snippet, score?}.
+                    Score в [0, 1] — Tavily relevance score (опционально).
+       '''
+       import streamlit as st
+
+       if not results:
+           return
+
+       with st.expander(
+           f"🌐 Web search results ({len(results)})",
+           expanded=False,
+       ):
+           for i, result in enumerate(results, 1):
+               _render_web_result_card(i, result)
+
+   def _render_web_result_card(index: int, result: dict) -> None:
+       import streamlit as st
+
+       title = result.get("title") or result.get("url") or f"Result {index}"
+       url = result.get("url", "")
+       snippet = result.get("snippet", "")
+       score = result.get("score")
+
+       st.markdown(f"**{index}. [{title}]({url})**")
+       st.caption(f"🔗 {url}")
+
+       if snippet:
+           st.markdown(snippet)
+
+       if score is not None:
+           # Score как meter (не progress bar — semantic отличие от
+           # RAG citations):
+           try:
+               st.metric("Relevance", f"{float(score):.2f}")
+           except (TypeError, ValueError):
+               pass
+
+       st.divider()
+   ```
+
+2. Интегрируй в handle_tool_event (G-1) — при event_type="tool_result"
+   и tool_name="web_search" вызывает render_web_search_results. Это
+   extension к G-1: render_tool_call обновляет preview (snippet_count),
+   а render_web_search_results показывает full results.
+
+   Обнови handle_tool_event в `src/llm_client/ui/render.py`:
+   ```python
+   def handle_tool_event(event_type, data, client, pending_tool_calls):
+       # ... существующая логика для tool_call/tool_result/retrieved_docs
+       # из G-1 ...
+       elif event_type == "tool_result":
+           tc_id = data["tool_call_id"]
+           tool_name = data.get("tool_name", "")
+           if tc_id in pending_tool_calls:
+               pending_tool_calls[tc_id]["status"] = "done"
+               pending_tool_calls[tc_id]["result_preview"] = (
+                   data.get("preview") or {}
+               )
+               tc = pending_tool_calls[tc_id]
+               client.render_tool_call(
+                   tool_name=tc["tool_name"],
+                   args=tc["args"],
+                   status="done",
+                   result_preview=tc["result_preview"],
+               )
+               # G-3 extension: full web search results:
+               if tool_name == "web_search" and "full_results" in data:
+                   render_web_search_results(data["full_results"])
+               # G-2 extension: full RAG chunks (если tool_result несёт
+               # chunks, не separate event retrieved_docs):
+               elif tool_name == "rag_query" and "full_chunks" in data:
+                   render_rag_citations(data["full_chunks"])
+   ```
+
+3. Оберни в @st.fragment (UI-3 pattern):
+   ```python
+   @st.fragment
+   def _render_web_search_results_fragment(results: list[dict]) -> None:
+       render_web_search_results(results)
+   ```
+
+4. Тесты в `tests/unit/test_ui_render.py` (расширь):
+   - `test_render_web_search_results_empty` — results=[] → no render.
+   - `test_render_web_search_results_one` — 1 result, title+url link,
+     snippet, score metric.
+   - `test_render_web_search_results_many` — 5 results (default Tavily),
+     all rendered with divider.
+   - `test_render_web_search_results_missing_snippet` — result без
+     snippet (скрывает).
+   - `test_render_web_search_results_missing_score` — result без score
+     (metric не рендерится).
+   - `test_handle_tool_event_web_search_full_results` — tool_result
+     с tool_name="web_search" + full_results → render_web_search_results
+     вызывается.
+   - Integration: SSE event tool_result для web_search → UI panel
+     с кликабельными ссылками.
+
+Definition of Done:
+- `render_web_search_results(results)` function в
+  `src/llm_client/ui/render.py`.
+- `_render_web_result_card(index, result)` helper.
+- @st.fragment обёртка.
+- handle_tool_event обновлён — вызывает render_web_search_results для
+  tool_name="web_search" tool_result events.
+- 7+ новых тестов зелёные.
+- Manual test: prompt "search web for python asyncio best practices" →
+  web_search tool_call → event: tool_result → web search results panel
+  с 5 результатами, urls кликабельны, snippets отображаются.
+- Существующие тесты test_ui_render.py — не регрессируют.
+
+Антипаттерны:
+- НЕ переиспользуй _render_citation_card из G-2 для web results —
+  другая структура данных (no page, no content_preview, only snippet).
+  Принцип 3: местное качество.
+- НЕ показывай raw Tavily JSON — только user-facing fields (title, url,
+  snippet, score). Технические fields (e.g. api_response_id) скрыть.
+- НЕ хардкодь "5 results" — len(results) переменный (max_results
+  параметр web_search, default 5, max 20 по WebSearchArgs).
+- НЕ добавляй кнопку "Search again" — это не responsibility UI; если
+  пользователь хочет новый поиск, он пишет новый prompt. UI только
+  отображает результаты tool_call.
+- НЕ открывай url в iframe (security: X-Frame-Options) — только как
+  markdown link, открывается в новой вкладке браузера.
+- НЕ кэшируй результаты в session_state — они уже в messages state на
+  backend (AG-1 graph state). Дублирование нарушает single-source-of-
+  truth.
+- НЕ показывай score для results без score field (Tavily иногда не
+  возвращает score для low-relevance results) — st.metric только при
+  score is not None.
+- НЕ путай web search results panel (G-3) с RAG citations panel (G-2) —
+  они оба появляются в одном chat_message, но в разных expanders:
+  "🌐 Web search results" vs "📚 RAG citations". Не смешивать.
+
+Связанные ADR:
+- Расширяет: UI-1 (+ 6-й элемент: web search results panel), UI-3
+  (@st.fragment).
+- Применяет: ADR-005 (Tool Layer — web_search @tool returns list[dict]),
+  ADR-007 (SSE — event: tool_result).
+- Зависит от: G-1 (handle_tool_event), H-1 (AG-5 web_search — источник
+  results), H-4 (SSE event: tool_result — источник события).
+- Не затрагивает: ADR-013, ADR-014 (PII: web snippets не проходят PII
+  detect — в них может быть PII, но не из user input, а из web; в Phase
+  2 не фильтруется; Phase 4 рассмотрит — см. OPEN question Q-6 в
+  TRIZ-ANALYSIS.md).
+```
+
+### G-4. Settings panel extension (tools on/off + retrieval strategy + reranker choice)
+
+```
+Ты — Frontend-разработчик LLM Client. Расширь settings_panel из
+ARCHITECT.md v1.2.0 §5.2.1 для Phase 2: добавь контроли для включения/
+выключения инструментов (web_search, rag_query), выбора retrieval
+strategy (vector/bm25/hybrid — ADR-020), выбора reranker (bge/cohere/
+none — ADR-017). Эти настройки передаются в agent-service через
+POST /sessions/{id}/chat body и используются graph-builder (AG-1) для
+конфигурации инструментов и rag_retriever ноды (H-2).
+
+Контекст:
+- ARCHITECT.md v1.2.0 §5.2.1 строка 354 упоминает `settings_panel` с
+  ответственностью "Выбор провайдера/модели, температура, max_tokens,
+  tools on/off". В Phase 1 settings_panel не реализован (UI-0..UI-3
+  покрывают только chat scaffold + sidebar + UIClient + fragments).
+  Phase 2 добавляет settings_panel + расширяет под ADR-017/020.
+- AG-1 (AG-PROMPTS.md §2) — `build_agent_graph(llm, token, tools)`.
+  В Phase 1 tools=[file_export]. В Phase 2 tools=[file_export,
+  web_search, rag_query] (Блок H-3). Но пользователь должен мочь
+  выключить web_search или rag_query (privacy: "не хочу чтобы агент
+  лазил в веб", "не хочу RAG по моим документам").
+- ADR-020 (Блок D-1) — `RetrieverConfig.retrieval_strategy` enum с
+  default HYBRID. Пользователь должен мочь переключить на VECTOR-only
+  или BM25-only (debug, performance testing, exact-term override).
+- ADR-017 (Блок C-1) — `RerankerRegistry` с bge-reranker (default) и
+  Cohere (optional). Пользователь должен мочь выбрать reranker или
+  выключить (none — для A/B baseline теста, E-3).
+- ТРИЗ-принцип 17 (переход в другое измерение): settings — отдельная
+  panel в sidebar, не в основном chat area. Раскрывается по клику на
+  "⚙️ Settings" (collapsible, по умолчанию свёрнут — не отвлекает).
+- ТРИЗ-принцип 3 (местное качество): каждая настройка — отдельный
+  виджет: selectbox для retrieval_strategy, radio для reranker,
+  checkbox для каждого tool. Не один большой form, а структурированные
+  sub-sections.
+
+Задача:
+1. Создай функцию `render_settings_panel(session_state: dict) -> dict`
+   в `src/llm_client/ui/render.py` (расширяет):
+   ```python
+   def render_settings_panel(session_state: dict) -> dict:
+       '''Рендерит settings panel в sidebar (collapsible). Возвращает
+       обновлённый dict с настройками для передачи в agent-service.
+
+       Args:
+           session_state: текущий st.session_state dict (читает
+               предыдущие значения).
+
+       Returns:
+           dict с fields:
+               - tools_enabled: list[str] — subset of ["web_search",
+                   "rag_query", "file_export"] (default: all 3).
+               - retrieval_strategy: "vector" | "bm25" | "hybrid"
+                   (default: "hybrid", ADR-020).
+               - reranker: "bge" | "cohere" | "none" (default: "bge",
+                   ADR-017).
+               - max_results: int (web_search max_results, default 5,
+                   range 1-20).
+               - top_k: int (rag_query top_k, default 5, range 1-20).
+       '''
+       import streamlit as st
+
+       with st.sidebar.expander("⚙️ Settings", expanded=False):
+           # Sub-section: Tools:
+           st.markdown("**Tools**")
+           tools_enabled = []
+           if st.checkbox("Web search (Tavily)", value=True,
+                           key="settings_tool_web_search"):
+               tools_enabled.append("web_search")
+           if st.checkbox("RAG query (documents)", value=True,
+                           key="settings_tool_rag_query"):
+               tools_enabled.append("rag_query")
+           if st.checkbox("File export", value=True,
+                           key="settings_tool_file_export"):
+               tools_enabled.append("file_export")
+
+           # Sub-section: Retrieval (only relevant if rag_query enabled):
+           if "rag_query" in tools_enabled:
+               st.markdown("**Retrieval**")
+               retrieval_strategy = st.selectbox(
+                   "Strategy",
+                   options=["hybrid", "vector", "bm25"],
+                   index=0,  # ADR-020 default
+                   key="settings_retrieval_strategy",
+                   help="hybrid = BM25 + vector (ADR-020 default); "
+                        "vector = semantic only; bm25 = exact-term only",
+               )
+               top_k = st.slider(
+                   "top_k (chunks to return)",
+                   min_value=1, max_value=20, value=5, step=1,
+                   key="settings_top_k",
+                   help="After reranker (ADR-017); 5 is recommended",
+               )
+
+               st.markdown("**Reranker**")
+               reranker = st.radio(
+                   "Model",
+                   options=["bge", "cohere", "none"],
+                   index=0,  # ADR-017 default
+                   key="settings_reranker",
+                   help="bge = local in-process (ADR-017 default); "
+                        "cohere = external API (optional); "
+                        "none = disable reranking (A/B baseline)",
+               )
+           else:
+               # Defaults if rag_query disabled:
+               retrieval_strategy = "hybrid"
+               top_k = 5
+               reranker = "bge"
+
+           # Sub-section: Web search (only if web_search enabled):
+           if "web_search" in tools_enabled:
+               st.markdown("**Web search**")
+               max_results = st.slider(
+                   "max_results",
+                   min_value=1, max_value=20, value=5, step=1,
+                   key="settings_max_results",
+                   help="Tavily API max results per query",
+               )
+           else:
+               max_results = 5
+
+       # Persist in session_state для следующего re-run:
+       settings = {
+           "tools_enabled": tools_enabled,
+           "retrieval_strategy": retrieval_strategy,
+           "reranker": reranker,
+           "max_results": max_results,
+           "top_k": top_k,
+       }
+       session_state["settings"] = settings
+       return settings
+   ```
+
+2. Интегрируй в `src/llm_client/ui/app.py` (точка входа Streamlit):
+   ```python
+   import streamlit as st
+   from llm_client.ui.render import render_settings_panel
+   from llm_client.ui.chat import post_chat  # существующий из Phase 1
+
+   def main():
+       st.title("LLM Client")
+       settings = render_settings_panel(st.session_state)
+
+       # При отправке сообщения — передать settings в chat body:
+       prompt = st.chat_input("Ask...")
+       if prompt:
+           response = post_chat(
+               session_id=st.session_state["session_id"],
+               message=prompt,
+               settings=settings,  # NEW: пробрасываем в agent-service
+           )
+           # ... streaming logic из Phase 1 ...
+   ```
+
+3. Обнови `src/llm_client/ui/chat.py` `post_chat` (или эквивалент) —
+   добавь `settings` параметр в тело POST запроса к agent-service:
+   ```python
+   def post_chat(session_id: str, message: str,
+                  settings: dict | None = None) -> dict:
+       '''POST /sessions/{session_id}/chat — старт graph с настройками.'''
+       body = {"message": message}
+       if settings:
+           body["settings"] = settings
+       response = httpx.post(
+           f"{AGENT_SERVICE_URL}/sessions/{session_id}/chat",
+           json=body,
+           timeout=30.0,
+       )
+       return response.json()
+   ```
+
+4. Обнови agent-service contract (Блок H-3) — POST /chat body принимает
+   опциональный `settings` field. См. H-3 п.2 для реализации на стороне
+   agent-service.
+
+5. Тесты в `tests/unit/test_ui_render.py` (расширь):
+   - `test_render_settings_panel_defaults` — все tools enabled,
+     retrieval_strategy="hybrid", reranker="bge", max_results=5,
+     top_k=5.
+   - `test_render_settings_panel_disable_web_search` — checkbox
+     unchecked → tools_enabled не содержит "web_search",
+     max_results=default 5.
+   - `test_render_settings_panel_disable_rag_query` — rag_query
+     unchecked → retrieval sub-section скрыт, defaults применены.
+   - `test_render_settings_panel_choose_vector` — selectbox="vector".
+   - `test_render_settings_panel_choose_cohere` — radio="cohere".
+   - `test_render_settings_panel_choose_none_reranker` — radio="none"
+     (A/B baseline mode).
+   - Integration: app.py main() → settings в session_state → post_chat
+     body содержит settings field.
+
+Definition of Done:
+- `render_settings_panel(session_state)` function в
+  `src/llm_client/ui/render.py`.
+- `src/llm_client/ui/app.py` main() вызывает render_settings_panel и
+  передаёт settings в post_chat.
+- `src/llm_client/ui/chat.py` post_chat принимает settings, кладёт в
+  POST body.
+- agent-service POST /chat body schema расширена опциональным settings
+  field (Блок H-3 реализует парсинг).
+- 6+ новых тестов зелёные.
+- Manual test: открыть sidebar → "⚙️ Settings" → выключить web_search
+  → отправить prompt "search web for X" → agent отвечает без
+  web_search tool_call (видно в tool-call preview G-1).
+- Manual test: выбрать reranker="none" → отправить prompt → в Grafana
+  видно что reranker fallback chain дошел до identity (Блок C-5).
+- Существующие тесты test_ui_render.py — не регрессируют.
+
+Антипаттерны:
+- НЕ показывай settings в основном chat area — только в sidebar
+  expander. Принцип 17: settings — отдельное измерение UI.
+- НЕ хардкодь tools list в UI — агент может добавить mcp_call (Phase 4).
+  Settings panel должен поддержать любой tool_name (но показывать
+  только для известных Phase 2: web_search, rag_query, file_export).
+  Расширение на mcp_call — Phase 4 (G-4 v2.0).
+- НЕ делай radio для retrieval_strategy — это selectbox (3 опции, не 2).
+  Radio уместен для reranker (3 опции тоже, но categorical vs ordinal).
+- НЕ валидируй settings в UI — валидация в agent-service (Блок H-3).
+  UI только собирает; валидация и fallback на defaults — backend
+  responsibility (security: никогда не доверяй client).
+- НЕ добавляй кнопку "Apply" — настройки применяются на следующий
+  prompt автоматически (session_state). Если нужен явный Apply — Phase
+  5 (UI-4 SessionStore sync).
+- НЕ сохраняй settings в БД — только в session_state Streamlit (Phase
+  5 UI-4 добавит RedisSessionStore, в Phase 2 in-memory достаточно).
+- НЕ показывай продвинутые настройки (temperature, max_tokens, model) —
+  это не Phase 2 responsibility (нет явных ADR-requirements). Phase 4
+  (Local LLM) рассмотрит advanced settings.
+- НЕ混淆 reranker="none" с retrieval_strategy="vector" — это разные
+  настройки. reranker="none" отключает переранжировку (A/B baseline);
+  retrieval_strategy="vector" отключает BM25 path. Оба могут быть
+  independently выбраны.
+
+Связанные ADR:
+- Расширяет: UI-1 (sidebar + 7-й элемент: settings_panel),
+  ARCHITECT.md §5.2.1 (settings_panel responsibility — реализован).
+- Применяет: ADR-017 (RerankerRegistry — radio bge/cohere/none),
+  ADR-020 (RetrieverConfig.retrieval_strategy — selectbox
+  hybrid/vector/bm25), ADR-005 (Tool Layer — tools_enabled checkboxes).
+- Зависит от: H-3 (graph integration — settings парсится на стороне
+  agent-service), C-1 (RerankerRegistry), D-1 (RetrieverConfig).
+- Не затрагивает: ADR-013 (cancel), ADR-014 (PII), ADR-002 (Streamlit
+  — расширяет, не заменяет).
+```
+
+---
+
+## 6. Блок H. AG-расширения Phase 2 (AG-5 web_search + AG-6 rag_query)
+
+**Источник**: `BACKLOG.md` v1.1.0 §3.4 (AG-5, AG-6 — формализация для Phase 2), `ROADMAP.md` v1.2.0 §6.2.4 (AG-5, 1 чел-дн) + §6.2.5 (AG-6, 4 чел-дн), `ARCHITECT.md` v1.2.0 §5.2.4 (Tool Layer — `@tool` декоратор + `WebSearchArgs`/`FileExportArgs`), §5.2.2 (Orchestration — `rag_retriever` нода упоминается в graph nodes), §5.2.5 (RAG Layer — pipeline vector → BM25 → fusion → reranker), `AG-PROMPTS.md` v1.0.0 §2 (AG-1 `build_agent_graph(llm, token, tools)` — точка интеграции), §4 (AG-3 SSE event protocol — точка расширения), §5 (AG-4 `file_export` — pattern для нового `@tool`).
+
+**Назначение**: Phase 1 закрыла AG-0..AG-4 — agent-service scaffold (FastAPI + SSE), LangGraph graph (planner + final_answer + tool_executor для file_export), LLMProviderFactory (OpenAI only), SSE event protocol (token/metadata/artifact_ready/cancelled/error/done), file_export tool. Однако `BACKLOG.md` v1.1.0 §3.4 формализует ещё две AG-работы для Phase 2: AG-5 (`web_search` tool via Tavily — реализует ADR-005 Tool Layer на конкретном веб-поиске) и AG-6 (`rag_query` tool + base RAG pipeline — реализует ADR-003 VectorStoreFactory на конкретном retrieval и добавляет `rag_retriever` ноду в graph). Без AG-5/AG-6 LLM-агент умеет только генерировать текст и экспортировать файлы, но не может искать информацию в вебе (G-1 business goal "сокращение времени аналитика на поиск") или в корпоративном корпусе (G-1 RAG). Phase 2 закрывает обе возможности — и заодно даёт реальный pipeline, на котором работают ADR-017 (reranker) и ADR-020 (hybrid retrieval): без `rag_query` tool/rag_retriever ноды Блоки C и D — абстрактные компоненты без точки вызова. AG-6 — тот самый "вызов", на котором ADR-017 и ADR-020 применяются в production pipeline.
+
+**Связь с архитектурой**: `ARCHITECT.md` v1.2.0 §5.2.4 явно показывает `WebSearchArgs`/`web_search` (строка 435) и `FileExportArgs`/`file_export` (строка 445) как примеры Tool Layer. В Phase 1 реализован только `file_export` (AG-4). AG-5 реализует `web_search` —.architecture уже зафиксирована, нужно только написать `@tool`-функцию. AG-6 добавляет `rag_query` tool — architecture явно не показывает (упоминается в §5.2.4 как часть `tools_enabled: ["web_search", "rag_query", ...]` в AgentState, и в §5.2.2 как `rag_retriever` нода). Блок H-2 фиксирует RagQueryArgs/rag_query contract.
+
+**Принципы ТРИЗ**: 25 (самообслуживание — web_search использует внешний API Tavily, но результат кэшируется в `messages` state, не требует повторных вызовов; AG-6 использует `BGEEmbeddings` в Phase 4 для локального режима), 3 (местное качество — `rag_retriever` специализированная нода, не general-purpose `tool_executor`; хотя для LLM tool exposed через `bind_tools` как обычный `@tool`), 19 (переход в другое измерение — `rag_retriever` вынесен в отдельную ноду graph, не выполняется внутри `tool_executor`; даёт точку перехвата для retrieval-specific logic — reranker, hybrid fusion, PII filtering), 16 (частичное/избыточное действие — `web_search` и `rag_query` exposed to LLM через `bind_tools` как обычные `@tool`, но `rag_query` имеет второй путь — `rag_retriever` нода, когда planner явно решает "RAG first" strategy; LLM может вызвать rag_query через tool_call, или planner может направить в rag_retriever напрямую).
+
+**Оценка и параллелизация**: 4 промпта, 5 чел-дн total (AG-5: 1 чел-дн, AG-6: 4 чел-дн — включает base RAG pipeline + rag_retriever ноду + интеграцию с C/D блоками). Критический путь: H-1 (1) и H-2 (4) параллельны → H-3 (0.5, после H-1+H-2) → H-4 (0.5, после H-3). Два Backend-разработчика (Дев 1 и Дев 2 в §10): Дев 1 → H-1 + H-3 (graph integration), Дев 2 → H-2 + H-4 (SSE event protocol).
+
+### H-1. (AG-5) `web_search` tool via Tavily API
+
+```
+Ты — Backend/Agent-разработчик LLM Client. Создай `web_search` tool —
+@tool-декорированную async-функцию, вызывающую Tavily API для веб-поиска.
+Это AG-5 из `BACKLOG.md` v1.1.0 §3.4, реализует ADR-005 (Tool Layer)
+на конкретном инструменте веб-поиска.
+
+Контекст:
+- ARCHITECT.md v1.2.0 §5.2.4 строки 435–443 уже зафиксировали contract:
+  ```python
+  class WebSearchArgs(BaseModel):
+      query: str = Field(..., description="Поисковый запрос")
+      max_results: int = Field(5, ge=1, le=20)
+
+  @tool(args_schema=WebSearchArgs)
+  def web_search(query: str, max_results: int = 5) -> list[dict]:
+      '''Ищет в вебе через Tavily API. Возвращает список {title, url,
+      snippet}.'''
+      # реализация через tavily-python
+      ...
+  ```
+  Этот contract НЕ переопределяется — реализуется как есть.
+- AG-4 `file_export` (AG-PROMPTS.md §5) — pattern для нового `@tool`.
+  Структура: FileExportArgs schema + @tool декоратор + storage = ... +
+  return dict. web_search следует той же структуре: WebSearchArgs
+  schema + @tool декоратор + tavily client call + return list[dict].
+- AG-1 graph (AG-PROMPTS.md §2) — `build_agent_graph(llm, token,
+  tools)`. В Phase 1 tools=[file_export]. В Phase 2 (Блок H-3)
+  tools=[file_export, web_search, rag_query]. LLM получает tools через
+  `llm.bind_tools(tools)` (ADR-006 native tool calling).
+- AG-3 SSE (AG-PROMPTS.md §4) — эмитит events. В Phase 1: token,
+  metadata, artifact_ready, cancelled, error, done. Блок H-4
+  расширяет: tool_call, tool_result, retrieved_docs. web_search
+  tool_call эмитит tool_call event; return value эмитит tool_result
+  event.
+- Tavily API: https://api.tavily.com — LLM-oriented search API.
+  Requires TAVILY_API_KEY env var. Free tier: 1000 calls/month.
+  Returns: {results: [{title, url, content, score}], answer?
+  (LLM-generated summary)}.
+- ТРИЗ-принцип 25 (самообслуживание): web_search — внешний API, но
+  результат кэшируется в messages state (ToolMessage content). При
+  follow-up вопросе LLM видит предыдущие результаты в context, не
+  вызывает tool снова (если не нужен refresh).
+- ТРИЗ-принцип 35 (изменение физических свойств): web_search — external
+  dependency, но hot path синхронный (HTTP call ~2 сек). В Phase 3
+  (ADR-011 semantic cache) рассмотрим кэширование query → results,
+  сейчас — простой прямой вызов.
+
+Задача:
+1. Создай src/llm_client/agent/tools/__init__.py (если ещё не создан
+   в AG-4 — в существующей кодовой базе пакет tools может отсутствовать;
+   проверь src/llm_client/agent/tools/ перед стартом. Если нет — создай).
+2. Создай src/llm_client/agent/tools/web_search.py:
+   ```python
+   """web_search tool via Tavily API (AG-5, Phase 2).
+
+   Implements ADR-005 (Tool Layer) on a concrete web-search tool.
+   Architecture contract: ARCHITECT.md v1.2.0 §5.2.4 строки 435-443.
+   """
+   import logging
+   from typing import Any
+
+   import httpx
+   from langchain_core.tools import tool
+   from pydantic import BaseModel, Field
+
+   from ...config import get_settings
+
+   logger = logging.getLogger(__name__)
+
+
+   class WebSearchArgs(BaseModel):
+       query: str = Field(..., description="Поисковый запрос")
+       max_results: int = Field(
+           default=5, ge=1, le=20,
+           description="Max number of results to return (1-20)",
+       )
+
+
+   @tool(args_schema=WebSearchArgs)
+   async def web_search(query: str, max_results: int = 5) -> list[dict]:
+       '''Ищет в вебе через Tavily API. Возвращает список
+       {title, url, snippet, score?}.
+
+       Используется агентом для актуальной информации (новости,
+       документация, факты). Результат кэшируется в ToolMessage —
+       follow-up вопрос может переиспользовать результаты без
+       повторного вызова.
+       '''
+       settings = get_settings()
+       api_key = settings.tavily_api_key
+       if not api_key:
+           logger.error("TAVILY_API_KEY not set — web_search unavailable")
+           raise RuntimeError(
+               "web_search tool requires TAVILY_API_KEY in environment"
+           )
+
+       async with httpx.AsyncClient(timeout=10.0) as client:
+           response = await client.post(
+               "https://api.tavily.com/search",
+               headers={"Authorization": f"Bearer {api_key}"},
+               json={
+                   "query": query,
+                   "max_results": max_results,
+                   "include_answer": False,  # мы хотим только results
+                   "search_depth": "basic",  # advanced — Phase 3+
+               },
+           )
+           response.raise_for_status()
+           data = response.json()
+
+       # Normalize Tavily response to our contract:
+       results = []
+       for r in data.get("results", [])[:max_results]:
+           results.append({
+               "title": r.get("title", ""),
+               "url": r.get("url", ""),
+               "snippet": r.get("content", "")[:500],  # truncate
+               "score": r.get("score"),
+           })
+
+       logger.info(
+           "web_search query=%r max_results=%d returned=%d",
+           query, max_results, len(results),
+       )
+       return results
+   ```
+
+3. Добавь настройки в `src/llm_client/config.py` Settings:
+   - `tavily_api_key: str | None = None` (env: TAVILY_API_KEY).
+   - `tavily_search_depth: Literal["basic", "advanced"] = "basic"`.
+   - `tavily_timeout_seconds: float = 10.0`.
+   - В `Settings._validate_environment`: если tools_enabled содержит
+     "web_search" и TAVILY_API_KEY пустой — startup fail fast
+     (аналогично OPENAI_API_KEY валидации из AG-2).
+   - В .env.example добавь:
+     - `TAVILY_API_KEY=tvly-xxxxxxxxxxxxxxxxxxxxxxxx` (placeholder).
+     - `TAVILY_SEARCH_DEPTH=basic` (default).
+     - `TAVILY_TIMEOUT_SECONDS=10.0` (default).
+
+4. Тесты в `src/llm_client/agent/tools/test_web_search.py`:
+   - `test_web_search_returns_results` — mock httpx.AsyncClient,
+     Tavily response с 3 results, web_search returns 3 dicts с
+     {title, url, snippet, score}.
+   - `test_web_search_truncates_snippet` — Tavily возвращает content
+     1000 символов → snippet truncated до 500.
+   - `test_web_search_max_results_cap` — max_results=3, Tavily
+     возвращает 10 results → web_search returns только 3.
+   - `test_web_search_no_api_key_raises` — settings.tavily_api_key=None
+     → RuntimeError.
+   - `test_web_search_http_error_propagates` — Tavily 500 → httpx
+     raises, web_search raises (graph error handler в H-3 поймает).
+   - `test_web_search_timeout` — Tavily > 10 сек → httpx.TimeoutException.
+   - Integration: build_agent_graph(llm=mock, tools=[web_search]),
+     mock LLM возвращает tool_call("web_search", {query: "python
+     asyncio"}) → tool_executor вызывает web_search → ToolMessage с
+     list[dict] content → graph возвращается в planner для
+     интерпретации.
+
+Definition of Done:
+- `src/llm_client/agent/tools/web_search.py` существует с
+  WebSearchArgs + @tool web_search.
+- Settings расширен tavily_api_key, tavily_search_depth,
+  tavily_timeout_seconds.
+- .env.example обновлён.
+- 7+ новых тестов зелёные.
+- Integration тест: graph с web_search tool, mock LLM возвращает
+  tool_call → web_search выполняется → ToolMessage в state → graph
+  продолжается.
+- Manual test: запуск agent-service локально с TAVILY_API_KEY, POST
+  /chat с prompt "search web for python asyncio best practices" →
+  agent вызывает web_search → SSE event: tool_call (Блок H-4) →
+  event: tool_result → event: token × N (финальный ответ с
+  веб-источниками) → event: done.
+- Существующие тесты tests/unit/test_ui_*.py — не регрессируют.
+
+Антипаттерны:
+- НЕ хардкодь TAVILY_API_KEY в коде — только через Settings + .env.
+- НЕ используй sync `requests` library — только async `httpx`. AG-1
+  graph — async; sync HTTP call блокирует event loop.
+- НЕ хардкодь Tavily URL в коде — вынеси в Settings.tavily_api_url
+  (default "https://api.tavily.com/search"; для self-hosted Tavily
+  alternative в Phase 4).
+- НЕ возвращай Tavily "answer" field (LLM-generated summary) — мы
+  хотим {title, url, snippet, score} для UI (G-3), не LLM summary
+  (дубликат с нашим LLM в graph).
+- НЕ хардкодь snippet truncation 500 — вынеси в Settings
+  (tavily_snippet_max_chars=500). В UI (G-3) ещё раз truncate до 200.
+- НЕ делай web_search sync @tool — обязательно async. Sync @tool
+  в LangGraph tool_executor блокирует event loop.
+- НЕ добавляй retry в web_search — retry_decorator на уровне LLM
+  Provider (AG-2) для LLM вызовов; web_search — single call, при
+  failure graph error handler (H-3) ловит и эмитит event: error. Retry
+  logic — Phase 3 (cost-aware router ADR-015 consider caching).
+- НЕ кэшируй results в Redis (Phase 3 ADR-011 — semantic cache для
+  LLM responses, не для tool results). Phase 2 — простой прямой вызов.
+- НЕ вызывай web_search напрямую из planner ноды — только через
+  LLM tool_call (bind_tools) → tool_executor нода (H-3 integration).
+  Planner не должен знать о конкретных tools.
+- НЕ показывай raw Tavily JSON в ToolMessage content — нормализуй
+  в {title, url, snippet, score} list. UI (G-3) парсит этот формат.
+
+Связанные ADR:
+- Реализует: ADR-005 (Tool Layer — web_search как @tool с
+  args_schema=WebSearchArgs).
+- Применяет: ADR-006 (native tool calling через bind_tools в AG-1
+  graph), расш. ADR-008 (S3 storage — не используется, но web_search
+  results могут быть saved как artifact через file_export в future
+  tool-chaining — Phase 3+).
+- Зависит от: AG-1 (graph), AG-3 (SSE — Блок H-4 расширяет под
+  tool_call/tool_result events), AG-4 (pattern для @tool — file_export
+  из Phase 1).
+- Расширяется в: Phase 3 (ADR-011 semantic cache — кэш query → results;
+  ADR-015 cost-aware router — решение web_search vs LLM-knowledge).
+- Не затрагивает: ADR-010 (checkpoint — graph state автоматически
+  сериализует ToolMessage), ADR-013 (cancel — token.is_cancelled
+  проверяется между нодами, web_search inside tool_executor не
+  отменяемо, но после tool_executor graph выходит на cancel).
+```
+
+### H-2. (AG-6) `rag_query` tool + `rag_retriever` нода + base RAG pipeline
+
+```
+Ты — Backend/Agent-разработчик LLM Client. Создай `rag_query` tool и
+`rag_retriever` ноду в graph для RAG-поиска по корпоративному корпусу.
+Это AG-6 из `BACKLOG.md` v1.1.0 §3.4, реализует ADR-003
+(VectorStoreFactory) на конкретном retrieval pipeline. Базовый
+vector retrieval; ADR-017 (reranker, Блок C) и ADR-020 (hybrid BM25+
+vector, Блок D) расширяют этот pipeline в том же Phase 2.
+
+Контекст:
+- ARCHITECT.md v1.2.0 §5.2.5 (RAG Layer) описывает pipeline:
+  Load → Chunk → Embed → Store (через VectorStoreFactory) → Retrieve
+  (vector_store.as_retriever). В Phase 1 нет retrieval — retrieval
+  появляется в Phase 2 с AG-6.
+- ARCHITECT.md v1.2.0 §5.2.2 (Orchestration) перечисляет ноды графа:
+  planner, tool_executor, rag_retriever, mcp_invoker, final_answer.
+  В Phase 1 (AG-1) реализованы planner + final_answer + tool_executor
+  (для file_export). В Phase 2 AG-6 добавляет rag_retriever.
+- ARCHITECT.md v1.2.0 §5.2.4 (Tool Layer) — упоминает rag_query в
+  AgentState.tools_enabled: ["web_search", "rag_query", ...].
+  Блок H-2 фиксирует RagQueryArgs/rag_query contract.
+- ADR-003 (VectorStoreFactory) — Approved в Phase 1 (MVP-PROMPTS).
+  Создаёт Chroma/Qdrant/PGVector. В Phase 2 default — Chroma (in-
+  process, no external service) для dev; PGVector для staging (uses
+  existing PostgreSQL + pgvector extension).
+- ADR-017 (Блок C) — RerankerRegistry с bge-reranker (default). AG-6
+  rag_retriever нода ВЫЗЫВАЕТ reranker после vector retrieval (Блок
+  C-4 pipeline integration).
+- ADR-020 (Блок D) — RetrieverConfig.retrieval_strategy=hybrid default.
+  AG-6 rag_retriever нода ВЫЗЫВАЕТ HybridRetriever (Блок D-4) вместо
+  vector-only retriever, если strategy=hybrid.
+- ТРИЗ-принцип 19 (переход в другое измерение): rag_retriever —
+  отдельная нода graph, не внутри tool_executor. Это даёт точку
+  перехвата для retrieval-specific logic (reranker, hybrid fusion,
+  PII filtering) без перегрузки tool_executor.
+- ТРИЗ-принцип 16 (частичное/избыточное действие): rag_query exposed
+  to LLM через bind_tools как обычный @tool (LLM может вызвать
+  напрямую), но rag_retriever нода — второй путь, когда planner
+  явно решает "RAG first". Оба пути вызывают один и тот же
+  RagPipeline.retrieve() — single source of truth.
+
+Задача:
+1. Создай src/llm_client/agent/tools/rag_query.py:
+   ```python
+   """rag_query tool + rag_retriever node (AG-6, Phase 2).
+
+   Implements ADR-003 (VectorStoreFactory) on a concrete retrieval
+   pipeline. Extended by ADR-017 (reranker, Block C) and ADR-020
+   (hybrid retrieval, Block D) in the same Phase 2.
+   """
+   import logging
+   from typing import Any
+   from uuid import uuid4
+
+   from langchain_core.tools import tool
+   from pydantic import BaseModel, Field
+
+   from ...config import get_settings
+   from ...rag.config import RetrieverConfig  # Блок D-1
+   from ...rag.pipeline import RagPipeline  # создан ниже
+
+   logger = logging.getLogger(__name__)
+
+
+   class RagQueryArgs(BaseModel):
+       query: str = Field(..., description="Поисковый запрос по корпусу документов")
+       top_k: int = Field(
+           default=5, ge=1, le=20,
+           description="Number of chunks to return after reranker (1-20)",
+       )
+       # retrieval_strategy и reranker — из Settings / session settings (G-4),
+       # не из args — они session-level, не per-query.
+
+
+   @tool(args_schema=RagQueryArgs)
+   async def rag_query(query: str, top_k: int = 5) -> dict:
+       '''Ищет по корпоративному корпусу документов. Возвращает dict
+       {chunks: [{source_uri, title, page, content_preview, score}],
+       chunk_count, top_score, source_uris}.
+
+       Pipeline: vector retrieval (top-20) → [BM25 retrieval (top-20) →
+       RRF fusion (top-50)] (if strategy=hybrid, ADR-020) → reranker
+       top-5 (ADR-017). PII filtering applied (ADR-014 metadata).
+       '''
+       pipeline = RagPipeline.from_settings(get_settings())
+       result = await pipeline.retrieve(query, top_k=top_k)
+       return result
+   ```
+
+2. Создай src/llm_client/rag/__init__.py (новый пакет):
+   - `src/llm_client/rag/config.py` — Re-exports RetrieverConfig из
+     Блока D-1 (RetrievalStrategy enum + RetrieverConfig dataclass).
+   - `src/llm_client/rag/pipeline.py` — RagPipeline class (см. ниже).
+   - `src/llm_client/rag/reranker.py` — Re-exports RerankerRegistry
+     из Блока C-1.
+   - `src/llm_client/rag/retrievers.py` — Re-exports VectorRetriever
+     (base), HybridRetriever (Блок D-4), BM25Retriever (Блок D-3).
+
+3. Создай src/llm_client/rag/pipeline.py:
+   ```python
+   """RagPipeline — single source of truth for RAG retrieval.
+
+   Used by both rag_query @tool (LLM-driven) and rag_retriever node
+   (planner-driven). Extended by ADR-017 (reranker) and ADR-020
+   (hybrid retrieval) in the same Phase 2.
+   """
+   import logging
+   from typing import Any
+
+   from langchain_core.retrievers import BaseRetriever
+
+   from ..config import get_settings
+   from .config import RetrieverConfig, RetrievalStrategy
+   from .reranker import RerankerRegistry
+
+   logger = logging.getLogger(__name__)
+
+
+   class RagPipeline:
+       '''Composes retriever + reranker based on RetrieverConfig.
+
+       Lifecycle:
+       - Created at agent-service startup (singleton, in-process).
+       - retrieve(query, top_k) — called by rag_query tool and by
+         rag_retriever node.
+       - Vector store created via VectorStoreFactory (ADR-003).
+       - Retriever: VectorRetriever (base), HybridRetriever (ADR-020),
+         or BM25Retriever (ADR-020) — based on retrieval_strategy.
+       - Reranker: BgeRerankerAdapter (ADR-017 default),
+         CohereRerankAdapter (optional), or identity (disabled).
+       '''
+
+       def __init__(self, retriever: BaseRetriever,
+                    reranker_registry: RerankerRegistry,
+                    config: RetrieverConfig):
+         self._retriever = retriever
+         self._reranker_registry = reranker_registry
+         self._config = config
+
+       @classmethod
+       def from_settings(cls, settings) -> "RagPipeline":
+           '''Factory method — called at agent-service startup.'''
+           # Vector store через VectorStoreFactory (ADR-003):
+           from .retrievers import VectorRetriever, HybridRetriever, BM25Retriever
+           from .reranker import RerankerRegistry
+
+           config = RetrieverConfig.from_settings(settings)
+           reranker_registry = RerankerRegistry.from_settings(settings)
+
+           if config.retrieval_strategy == RetrievalStrategy.HYBRID:
+               retriever = HybridRetriever(config=config)
+           elif config.retrieval_strategy == RetrievalStrategy.BM25:
+               retriever = BM25Retriever(config=config)
+           else:
+               retriever = VectorRetriever(config=config)
+
+           return cls(retriever=retriever,
+                      reranker_registry=reranker_registry,
+                      config=config)
+
+       async def retrieve(self, query: str, top_k: int = 5) -> dict:
+           '''Returns dict {chunks, chunk_count, top_score, source_uris}.
+
+           Pipeline:
+           1. retriever.get_relevant_documents(query) — vector top-20
+              (+ BM25 top-20 if hybrid, fused via RRF).
+           2. reranker.rerank(query, docs) → top-top_k chunks.
+           3. PII filter on content_preview (Блок D-5 / ADR-014).
+           4. Normalize to {source_uri, title, page, content_preview,
+              score} list.
+           '''
+           # Step 1: Retrieval (vector, hybrid, or BM25):
+           docs = await self._retriever.aget_relevant_documents(query)
+           logger.info("Retrieved %d docs (strategy=%s)",
+                       len(docs), self._config.retrieval_strategy)
+
+           # Step 2: Reranker (ADR-017):
+           reranker = self._reranker_registry.get_active()
+           if reranker is not None:
+               docs = await reranker.arerank(query, docs, top_k=top_k)
+           else:
+               docs = docs[:top_k]
+
+           # Step 3: PII filter on content_preview:
+           # (Блок D-5 PII metadata applied at indexing time; here we
+           # only truncate preview for UI safety.)
+           chunks = []
+           source_uris = []
+           for doc in docs:
+               source_uri = doc.metadata.get("source_uri", "")
+               title = doc.metadata.get("title", source_uri)
+               page = doc.metadata.get("page")
+               content_preview = doc.page_content[:200]
+               if len(doc.page_content) > 200:
+                   content_preview += "..."
+               score = float(doc.metadata.get("score", 0.0))
+               chunks.append({
+                   "source_uri": source_uri,
+                   "title": title,
+                   "page": page,
+                   "content_preview": content_preview,
+                   "score": score,
+               })
+               if source_uri:
+                   source_uris.append(source_uri)
+
+           top_score = chunks[0]["score"] if chunks else 0.0
+           return {
+               "chunks": chunks,
+               "chunk_count": len(chunks),
+               "top_score": top_score,
+               "source_uris": source_uris,
+           }
+   ```
+
+4. Создай rag_retriever node в `src/llm_client/agent/graph.py` (расширь
+   AG-1):
+   ```python
+   # В src/llm_client/agent/graph.py:
+
+   async def _rag_retriever_node(state: dict[str, Any],
+                                  pipeline: RagPipeline) -> dict[str, Any]:
+       """Retrieves documents from RAG corpus based on last user message.
+
+       Called when planner decides 'rag_first' strategy. Updates
+       state['retrieved_docs'] for final_answer node to use as context.
+       """
+       messages = state.get("messages") or []
+       last_user_msg = None
+       for m in reversed(messages):
+           if getattr(m, "type", "") == "human" or \
+              getattr(m, "role", "") == "user":
+               last_user_msg = m
+               break
+       if last_user_msg is None:
+           return {"retrieved_docs": []}
+
+       query = last_user_msg.content if hasattr(last_user_msg, "content") \
+               else str(last_user_msg)
+       top_k = state.get("rag_top_k", 5)
+
+       result = await pipeline.retrieve(query, top_k=top_k)
+       return {"retrieved_docs": result["chunks"]}
+   ```
+
+5. Расширь `build_agent_graph` в `src/llm_client/agent/graph.py` для
+   Phase 2 (Блок H-3 детализирует graph integration):
+   - Добавь rag_retriever ноду.
+   - Добавь conditional edge route_after_planner: если
+     route_decision=="rag_first" → rag_retriever; если "tools_needed"
+     → tool_executor; иначе → final_answer.
+   - rag_retriever → final_answer (после retrieval — агент формирует
+     ответ с retrieved_docs как context).
+
+6. Тесты в `src/llm_client/agent/tools/test_rag_query.py`:
+   - `test_rag_query_returns_chunks` — mock RagPipeline.retrieve
+     возвращает 3 chunks → rag_query returns dict с chunks,
+     chunk_count=3, top_score, source_uris.
+   - `test_rag_query_top_k_param` — top_k=3 → pipeline.retrieve
+     called with top_k=3.
+   - `test_rag_query_default_top_k` — no top_k arg → default 5.
+   - `test_rag_query_empty_results` — pipeline returns no chunks →
+     rag_query returns {chunks: [], chunk_count: 0, top_score: 0.0}.
+   - `test_rag_query_content_truncation` — doc.page_content 1000
+     chars → content_preview 200 + "...".
+   - `test_rag_retriever_node_extracts_query` — last human message
+     extracted as query.
+   - `test_rag_retriever_node_no_user_msg` — empty messages →
+     retrieved_docs=[].
+   - Integration: graph с rag_retriever, mock planner возвращает
+     route_decision="rag_first" → rag_retriever → final_answer →
+     state["retrieved_docs"] contains chunks.
+
+Definition of Done:
+- `src/llm_client/agent/tools/rag_query.py` с RagQueryArgs + @tool
+  rag_query.
+- `src/llm_client/rag/` пакет создан с config.py, pipeline.py,
+  reranker.py (re-export), retrievers.py (re-export).
+- `RagPipeline` class имплементирован с from_settings + retrieve
+  methods.
+- `rag_retriever` нода добавлена в `src/llm_client/agent/graph.py`.
+- `build_agent_graph` расширена для Phase 2 (Блок H-3 детализирует).
+- 8+ новых тестов зелёные.
+- Manual test: загрузить 3 документа через RAG indexing (отдельный
+  script), POST /chat с prompt "что говорится в документации про
+  asyncio?" → agent решает rag_first → rag_retriever нода вызывается
+  → event: retrieved_docs (Блок H-4) → event: token × N (ответ с
+  цитатами) → event: done.
+- Существующие тесты test_graph.py — не регрессируют (Phase 1 graph
+  без rag_retriever всё ещё работает через tools=[] path).
+
+Антипаттерны:
+- НЕ возвращай полный doc.page_content — truncate до 200 символов.
+  Полный content — в ToolMessage для LLM context (LLM видит полный);
+  UI (G-2) видит только preview.
+- НЕ хардкодь top_k=5 в rag_query — default 5, но параметр
+  Pydantic-field. Settings могут override default (G-4 slider).
+- НЕ создавай VectorStore instance в rag_query tool — только через
+  RagPipeline singleton (создаётся при startup). Если создавать в
+  каждом tool_call — +5 сек latency на загрузку модели embeddings.
+- НЕ делай retrieve sync — только async (AG-1 graph async; LangChain
+  retrievers поддерживают aget_relevant_documents).
+- НЕ включай PII filtering в rag_retriever ноде — PII detect applied
+  при indexing (Блок D-5 metadata); на retrieval только truncated
+  preview. Phase 4 рассмотрит runtime PII filtering (Q-6 TRIZ).
+- НЕ добавляй chat_history в rag_query query — только последний
+  user message. Multi-turn RAG — Phase 3 (ADR-011 semantic cache с
+  conversational context). В Phase 2 каждый rag_query — independent.
+- НЕ хардкодь "Chroma" vector store в RagPipeline — через
+  VectorStoreFactory (ADR-003) из Settings.vector_store_kind.
+- НЕ создавай отдельный RagPipeline instance для rag_retriever и
+  rag_query — один singleton. Если разные — разные reranker_registry
+  instances, разные models loaded = 1.2GB RAM x2.
+- НЕ забудь reranker identity fallback (Блок C-5) — если reranker=
+  "none" (settings G-4), pipeline.retrieve всё ещё работает, просто
+  без reranking step.
+- НЕ эмить SSE events из RagPipeline — только из rag_query/rag_retriever
+  через tool_executor (Блок H-4). RagPipeline — pure retrieval logic.
+
+Связанные ADR:
+- Реализует: ADR-003 (VectorStoreFactory — RagPipeline использует),
+  ADR-005 (Tool Layer — rag_query как @tool), ADR-006 (native tool
+  calling через bind_tools), ADR-001 (LangGraph — rag_retriever нода).
+- Расширяется: ADR-017 (reranker — RagPipeline.retrieve step 2),
+  ADR-020 (hybrid retrieval — RagPipeline.retrieve step 1, если
+  strategy=hybrid).
+- Зависит от: AG-1 (graph), AG-3 (SSE — Блок H-4 events
+  retrieved_docs), Блок D-1 (RetrieverConfig), Блок C-1
+  (RerankerRegistry), Блок D-4 (HybridRetriever), Блок D-3
+  (BM25Retriever), Блок D-5 (PII metadata applied at indexing).
+- Не затрагивает: ADR-010 (checkpoint — graph state автоматически
+  сериализует retrieved_docs), ADR-013 (cancel), ADR-014 (PII —
+  applied at indexing time, не в retrieval).
+```
+
+### H-3. Graph integration: `bind_tools([file_export, web_search, rag_query])` + rag_retriever нода
+
+```
+Ты — Backend/Agent-разработчик LLM Client. Интегрируй web_search (H-1)
+и rag_query (H-2) tools в AG-1 graph из Phase 1. Расширь
+tool_executor для multi-tool dispatch, добавь rag_retriever ноду и
+conditional edge route_after_planner для трёх стратегий:
+direct_llm / tools_needed / rag_first.
+
+Контекст:
+- AG-1 graph (AG-PROMPTS.md §2) — Phase 1 build_agent_graph(llm,
+  token, tools) с planner + final_answer + tool_executor (для
+  file_export). В Phase 2 tools расширяется до [file_export,
+  web_search, rag_query] + добавляется rag_retriever нода.
+- AG-4 file_export (AG-PROMPTS.md §5) — pattern для multi-tool
+  registry: просто list в build_agent_graph. Pluggable registry —
+  Phase 4 (ADR-009 pattern).
+- ARCHITECT.md v1.2.0 §5.2.2 — graph nodes: planner, tool_executor,
+  rag_retriever, mcp_invoker, final_answer. В Phase 2 реализуем
+  planner + tool_executor + rag_retriever + final_answer (mcp_invoker
+  — Phase 4 AG-7).
+- ARCHITECT.md v1.2.0 §5.2.2 — conditional edges: route_after_planner
+  (tools_needed → tool_executor; иначе → final_answer), route_after_tool
+  (если новый tool message → обратно в planner; если final_answer_ready
+  → END). Phase 2 расширяет route_after_planner третьей опцией:
+  rag_first → rag_retriever.
+- ТРИЗ-принцип 19 (переход в другое измерение): rag_retriever —
+  отдельная нода, не внутри tool_executor. Это даёт точку перехвата
+  для retrieval-specific logic без перегрузки tool_executor.
+- ТРИЗ-принцип 17 (другое измерение): route_after_planner имеет 3
+  выхода (direct_llm / tools_needed / rag_first), не 2 как в Phase 1.
+  Это не усложняет graph — добавляется один conditional branch.
+
+Задача:
+1. Обнови `build_agent_graph` в `src/llm_client/agent/graph.py` для
+   Phase 2 (расширь существующую Phase 1 реализацию):
+   ```python
+   from typing import Any, Literal
+   from langchain_core.language_models import BaseChatModel
+   from langchain_core.tools import BaseTool
+   from langgraph.graph import END, StateGraph
+
+   from ..rag.pipeline import RagPipeline
+   from ..transport.cancel import CancellationToken
+   from .cycle_detection import IterationMonitor
+   from .tools.file_export import file_export  # AG-4, Phase 1
+   from .tools.rag_query import rag_query       # H-2, Phase 2
+   from .tools.web_search import web_search      # H-1, Phase 2
+
+
+   # RouteDecision enum:
+   RouteDecision = Literal["direct_llm", "tools_needed", "rag_first"]
+
+
+   def build_agent_graph(
+       llm: BaseChatModel,
+       token: CancellationToken | None = None,
+       tools: list[BaseTool] | None = None,
+       rag_pipeline: RagPipeline | None = None,
+       *,
+       monitor: IterationMonitor | None = None,
+       settings: dict | None = None,
+   ) -> Any:
+       '''Construct Phase 2 agent graph.
+
+       Phase 2 extensions over Phase 1 (AG-1):
+       - tools default = [file_export, web_search, rag_query] (если
+         не передан явно).
+       - rag_pipeline — singleton RagPipeline (H-2). None в тестах
+         без RAG.
+       - rag_retriever нода добавлена (если rag_pipeline не None).
+       - route_after_planner расширен: 3 выхода (direct_llm /
+         tools_needed / rag_first).
+       - settings — из G-4 UI panel: tools_enabled, retrieval_strategy,
+         reranker, top_k, max_results.
+
+       Returns:
+           Compiled LangGraph graph ready for graph.astream(state).
+       '''
+       if tools is None:
+           # Default Phase 2 tools:
+           tools = [file_export, web_search, rag_query]
+
+       graph = StateGraph(dict)
+
+       # ── Nodes ────────────────────────────────────────────────────
+
+       async def planner(state: dict[str, Any]) -> dict[str, Any]:
+           # Bind tools to LLM (ADR-006 native tool calling):
+           bound_llm = llm.bind_tools(tools) if tools else llm
+           response = await bound_llm.ainvoke(state["messages"])
+           return {
+               "messages": [response],
+               "iteration": state.get("iteration", 0) + 1,
+           }
+
+       async def tool_executor(state: dict[str, Any]) -> dict[str, Any]:
+           '''Dispatches tool_calls from last AIMessage to appropriate tool.
+
+           In Phase 2: file_export (AG-4), web_search (H-1), rag_query (H-2).
+           '''
+           from langchain_core.messages import ToolMessage
+
+           last_msg = state["messages"][-1]
+           tool_calls = getattr(last_msg, "tool_calls", []) or []
+           results = []
+           for tc in tool_calls:
+               tool_name = tc["name"]
+               tool_args = tc["args"]
+               tool_call_id = tc["id"]
+
+               # Find tool by name:
+               matching = [t for t in tools if t.name == tool_name]
+               if not matching:
+                   results.append(ToolMessage(
+                       content=f"Tool {tool_name} not found",
+                       tool_call_id=tool_call_id,
+                   ))
+                   continue
+               tool = matching[0]
+
+               try:
+                   # Both sync and async tools supported:
+                   if hasattr(tool, "arun"):
+                       result = await tool.arun(tool_args)
+                   else:
+                       result = await tool.ainvoke(tool_args)
+                   results.append(ToolMessage(
+                       content=str(result),
+                       tool_call_id=tool_call_id,
+                   ))
+               except Exception as e:
+                   logger.exception("Tool %s failed", tool_name)
+                   results.append(ToolMessage(
+                       content=f"Error: {e}",
+                       tool_call_id=tool_call_id,
+                   ))
+
+           return {"messages": results}
+
+       async def rag_retriever(state: dict[str, Any]) -> dict[str, Any]:
+           '''Retrieves RAG chunks, updates state for final_answer.'''
+           if rag_pipeline is None:
+               return {"retrieved_docs": []}
+
+           # Extract last user message:
+           messages = state.get("messages") or []
+           last_user_msg = None
+           for m in reversed(messages):
+               if getattr(m, "type", "") == "human":
+                   last_user_msg = m
+                   break
+           if last_user_msg is None:
+               return {"retrieved_docs": []}
+
+           query = last_user_msg.content if \
+                   hasattr(last_user_msg, "content") else str(last_user_msg)
+           top_k = (settings or {}).get("top_k", 5)
+
+           result = await rag_pipeline.retrieve(query, top_k=top_k)
+           return {"retrieved_docs": result["chunks"]}
+
+       def final_answer(state: dict[str, Any]) -> dict[str, Any]:
+           # Если retrieved_docs не пустой — добавить их в context
+           # для LLM в final_answer generation:
+           # (в Phase 2 simplified — final_answer — это просто
+           # extraction последнего AIMessage content; в Phase 3+ будет
+           # отдельная LLM generation с retrieved_docs в system prompt)
+           messages = state.get("messages") or []
+           if messages:
+               last = messages[-1]
+               content = last.content if hasattr(last, "content") else str(last)
+           else:
+               content = ""
+           return {"final_answer": content, "messages": []}
+
+       graph.add_node("planner", planner)
+       graph.add_node("tool_executor", tool_executor)
+       if rag_pipeline is not None:
+           graph.add_node("rag_retriever", rag_retriever)
+       graph.add_node("final_answer", final_answer)
+
+       # ── Conditional edges ─────────────────────────────────────────
+
+       def route_after_planner(state: dict[str, Any]) -> str:
+           # Cancel check (C-4):
+           if token is not None and token.is_cancelled:
+               return END
+
+           # Cycle detection:
+           if monitor is not None and monitor.check(state):
+               return END
+
+           # Iteration limit:
+           if state.get("iteration", 0) >= state.get("max_iterations", 10):
+               return END
+
+           last_msg = state["messages"][-1]
+
+           # 1. Если LLM вернул tool_calls —> tool_executor:
+           if getattr(last_msg, "tool_calls", None):
+               return "tool_executor"
+
+           # 2. Если route_decision=="rag_first" в state (set by
+           # planner LLM через structured output — Phase 3+; в Phase 2
+           # simplified heuristic: если в last user message есть слова
+           # "найди", "search", "find", "документ" и rag_pipeline not
+           # None —> rag_retriever):
+           user_msg = None
+           for m in reversed(state.get("messages") or []):
+               if getattr(m, "type", "") == "human":
+                   user_msg = m
+                   break
+           if user_msg and rag_pipeline is not None:
+               content_lower = (getattr(user_msg, "content", "") or "").lower()
+               rag_triggers = ("найди", "search", "find", "документ",
+                               "look up", "поиск")
+               if any(t in content_lower for t in rag_triggers):
+                   return "rag_retriever"
+
+           # 3. Default — direct LLM, final_answer:
+           return "final_answer"
+
+       graph.set_entry_point("planner")
+       graph.add_conditional_edges(
+           "planner",
+           route_after_planner,
+           {
+               "tool_executor": "tool_executor",
+               "rag_retriever": "rag_retriever" if rag_pipeline else "final_answer",
+               "final_answer": "final_answer",
+               END: END,
+           },
+       )
+       # tool_executor → back to planner (для интерпретации tool result):
+       graph.add_edge("tool_executor", "planner")
+       # rag_retriever → final_answer (после retrieval — формируем ответ):
+       if rag_pipeline is not None:
+           graph.add_edge("rag_retriever", "final_answer")
+       graph.add_edge("final_answer", END)
+
+       return graph.compile()
+   ```
+
+2. Обнови POST /sessions/{session_id}/chat endpoint в
+   `src/llm_client/agent/service.py` (AG-0) для приёма settings (G-4):
+   ```python
+   @app.post("/sessions/{session_id}/chat")
+   async def start_chat(session_id: str, body: ChatRequest):
+       '''Body: {message: str, user_id?: str, settings?: dict}.
+       settings — from G-4 UI panel (tools_enabled, retrieval_strategy,
+       reranker, top_k, max_results).'''
+       settings = body.settings or {}
+       # Filter tools_enabled:
+       tools = []
+       for name in settings.get("tools_enabled",
+                                  ["file_export", "web_search", "rag_query"]):
+           if name == "file_export":
+               tools.append(file_export)
+           elif name == "web_search":
+               tools.append(web_search)
+           elif name == "rag_query":
+               tools.append(rag_query)
+       # Build pipeline with settings (retrieval_strategy, reranker):
+       rag_pipeline = RagPipeline.from_settings_with_overrides(
+           get_settings(), settings
+       )
+       # Build graph:
+       graph = build_agent_graph(
+           llm=llm_provider,
+           token=token,
+           tools=tools or None,
+           rag_pipeline=rag_pipeline,
+           settings=settings,
+       )
+       # Start graph async:
+       asyncio.create_task(graph.astart({"messages": [...], ...}))
+       return {"status": "ok", "session_id": session_id}
+   ```
+
+3. Тесты в `src/llm_client/agent/test_graph.py` (расширь
+   существующий):
+   - `test_build_agent_graph_phase2_default_tools` — tools=None →
+     default [file_export, web_search, rag_query].
+   - `test_build_agent_graph_phase2_custom_tools` — tools=[web_search]
+     only.
+   - `test_route_after_planner_tool_calls` — last AIMessage с
+     tool_calls → route "tool_executor".
+   - `test_route_after_planner_rag_first` — user message "найди
+     документацию" → route "rag_retriever".
+   - `test_route_after_planner_direct_llm` — user message "привет"
+     → route "final_answer".
+   - `test_tool_executor_dispatches_web_search` — mock LLM возвращает
+     tool_call("web_search", {query: "test"}) → tool_executor
+     вызывает web_search (mock) → ToolMessage с list[dict].
+   - `test_tool_executor_dispatches_rag_query` — аналогично для
+     rag_query.
+   - `test_tool_executor_unknown_tool` — tool_call("unknown_tool") →
+     ToolMessage "Tool unknown_tool not found".
+   - `test_tool_executor_tool_error` — mock tool raises → ToolMessage
+     "Error: ...".
+   - `test_rag_retriever_node_no_pipeline` — rag_pipeline=None →
+     retrieved_docs=[].
+   - `test_rag_retriever_node_with_pipeline` — rag_pipeline mock
+     returns 3 chunks → state["retrieved_docs"] содержит 3 chunks.
+   - `test_settings_filter_tools_enabled` — settings={tools_enabled:
+     ["file_export"]} → graph build with only file_export (no web_search,
+     no rag_query).
+
+Definition of Done:
+- `build_agent_graph` в `src/llm_client/agent/graph.py` расширена:
+  tools default = [file_export, web_search, rag_query], rag_pipeline
+  параметр, rag_retriever нода, route_after_planner 3 выхода.
+- POST /sessions/{id}/chat в `src/llm_client/agent/service.py` принимает
+  settings field, фильтрует tools, строит rag_pipeline с overrides.
+- 12+ новых тестов зелёные.
+- Manual test: POST /chat с settings={tools_enabled:["file_export",
+  "web_search"], retrieval_strategy:"hybrid", reranker:"bge"} → agent
+  build graph с этими настройками, web_search available, rag_query
+  not (filtered out).
+- Существующие test_graph.py — не регрессируют (Phase 1 path без
+  rag_pipeline и с tools=[file_export] всё ещё работает через
+  явную передачу tools параметра).
+
+Антипаттерны:
+- НЕ хардкодь tools list внутри build_agent_graph — только default
+  (если tools=None). Параметр tools имеет приоритет.
+- НЕ создавай rag_pipeline внутри build_agent_graph — передавай через
+  параметр. Если создавать внутри — singleton нарушается, embeddings
+  model loaded per graph build = +5 sec latency.
+- НЕ хардкодь "найди", "search" triggers — вынеси в Settings
+  rag_triggers list (default ["найди", "search", "find", "документ",
+  "look up", "поиск"]). В Phase 3+ это заменится на LLM structured
+  output route_decision field.
+- НЕ возвращай graph с rag_retriever нодой если rag_pipeline=None —
+  graph.add_edge("rag_retriever", ...) только если rag_pipeline not
+  None. Иначе conditional edge route "rag_retriever" приведёт к
+  KeyError.
+- НЕ передавай settings в graph nodes напрямую — settings = параметр
+  build_agent_graph, используется в closure для rag_retriever (top_k).
+  Не "протаскивать" через state — state чисто для graph dataflow.
+- НЕ делай tool_executor синхронным — только async. Sync tool_executor
+  блокирует event loop graph.astream.
+- НЕ хардкодь tool_call_id format — берётся из last_msg.tool_calls[i]["id"].
+  LangChain format, не переопределять.
+- НЕ забудь CycleMonitor integration — после добавления rag_retriever
+  cycle detection всё ещё работает (monitor.check(state) после
+  planner).
+- НЕ добавляй human_review ноду — это Phase 4 (mcp_invoker с
+  human_review для тяжёлых действий). Phase 2 — нет human-in-the-loop.
+- НЕ забудь route_after_planner END case — если iteration >=
+  max_iterations → END. Это защита от зацикливания (planner ↔
+  tool_executor ↔ planner loop).
+
+Связанные ADR:
+- Расширяет: AG-1 (build_agent_graph — Phase 1 → Phase 2), AG-0
+  (POST /chat — settings field добавлен).
+- Применяет: ADR-001 (LangGraph — rag_retriever нода), ADR-003
+  (VectorStoreFactory — через RagPipeline), ADR-005 (Tool Layer —
+  bind_tools(tools)), ADR-006 (native tool calling), ADR-017 (reranker
+  через RagPipeline), ADR-020 (hybrid через RagPipeline).
+- Зависит от: H-1 (web_search), H-2 (rag_query + RagPipeline), AG-4
+  (file_export — pattern, не переопределяется).
+- Не затрагивает: ADR-010 (checkpoint — graph state автоматически),
+  ADR-013 (cancel — token проверяется в route_after_planner, как в
+  Phase 1), ADR-014 (PII — на indexing time, не в graph).
+```
+
+### H-4. SSE event protocol extension: `event: tool_call` / `event: tool_result` / `event: retrieved_docs`
+
+```
+Ты — Backend/Agent-разработчик LLM Client. Расширь SSE event protocol
+из AG-3 (AG-PROMPTS.md §4, реализован в Phase 1) для Phase 2: добавь
+3 новых события для tool-call lifecycle. UI (Блок G-1) слушает эти
+события и рендерит tool-call previews / RAG citations / web search
+results.
+
+Контекст:
+- AG-3 SSE (AG-PROMPTS.md §4, реализован в Phase 1) эмитит 6 событий:
+  token, metadata, artifact_ready, cancelled, error, done. В Phase 2
+  добавляются tool_call, tool_result, retrieved_docs — для отображения
+  tool lifecycle в UI (Блок G).
+- SSE format — RFC 8895-style (см. src/llm_client/ui/chat.py
+  iter_sse_events): каждое событие — `event: <name>\n` + `data:
+  <json>\n` + `\n` (separator). Heartbeat `: keepalive\n\n` каждые
+  15 сек.
+- AG-1 graph (H-3) — graph.astream(...) отдаёт chunks: AIMessage
+  chunks (tokens), ToolMessage (tool results), dict updates
+  (retrieved_docs). Stream generator (AG-3) парсит chunks и эмитит
+  соответствующие SSE events.
+- ТРИЗ-принцип 17 (переход в другое измерение): tool lifecycle events
+  — отдельные SSE events, не смешиваются с token streaming. Это
+  даёт UI точку перехвата для render_tool_call (G-1) без парсинга
+  всего стрима.
+- ТРИЗ-принцип 1 (сегментация): tool_call и tool_result — separate
+  events, не один "tool_event" с all-fields. Это даёт UI возможность
+  progressive rendering (preview running → preview done).
+
+Задача:
+1. Обнови stream_generator в `src/llm_client/agent/service.py`
+   (AG-0) для Phase 2 (расширь существующий из Phase 1):
+   ```python
+   import json
+   from typing import AsyncIterator
+   from langchain_core.messages import AIMessage, ToolMessage
+
+   async def stream_generator(graph, session_id: str) -> AsyncIterator[str]:
+       '''Yields SSE events from graph.astream(...).
+
+       Phase 1 events: token, metadata, artifact_ready, cancelled,
+                       error, done.
+       Phase 2 events (new): tool_call, tool_result, retrieved_docs.
+       '''
+       try:
+           async for chunk in graph.astream(
+               {"messages": ...},  # state from session
+               stream_mode="values",
+           ):
+               # chunk может быть: AIMessage (with content + tool_calls),
+               # ToolMessage, dict (state update с retrieved_docs).
+
+               if isinstance(chunk, AIMessage):
+                   # 1. Token streaming (если есть content):
+                   if chunk.content:
+                       for token in (chunk.content if isinstance(chunk.content, str)
+                                     else [chunk.content]):
+                           yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+
+                   # 2. Tool calls (если AIMessage содержит tool_calls):
+                   for tc in (chunk.tool_calls or []):
+                       tool_call_event = {
+                           "tool_call_id": tc["id"],
+                           "tool_name": tc["name"],
+                           "args": tc["args"],
+                       }
+                       yield f"event: tool_call\ndata: {json.dumps(tool_call_event)}\n\n"
+
+               elif isinstance(chunk, ToolMessage):
+                   # 3. Tool result (когда tool_executor возвращает
+                   # ToolMessage):
+                   tool_result_event = {
+                       "tool_call_id": chunk.tool_call_id,
+                       "tool_name": _infer_tool_name_from_tool_call_id(
+                           chunk.tool_call_id, graph
+                       ),
+                       "preview": _build_tool_result_preview(chunk.content),
+                       "full_results": _parse_tool_full_results(chunk.content),
+                   }
+                   yield f"event: tool_result\ndata: {json.dumps(tool_result_event)}\n\n"
+
+               elif isinstance(chunk, dict) and "retrieved_docs" in chunk:
+                   # 4. Retrieved docs (когда rag_retriever нода
+                   # возвращает state update с retrieved_docs):
+                   chunks_data = chunk.get("retrieved_docs", [])
+                   retrieved_event = {
+                       "tool_call_id": _get_last_rag_query_call_id(graph),
+                       "chunk_count": len(chunks_data),
+                       "top_score": chunks_data[0]["score"] if chunks_data else 0.0,
+                       "source_uris": [c.get("source_uri") for c in chunks_data
+                                        if c.get("source_uri")],
+                       "chunks": chunks_data,
+                   }
+                   yield f"event: retrieved_docs\ndata: {json.dumps(retrieved_event)}\n\n"
+
+               # Heartbeat (каждые 15 сек — упрощённо, в реальном коде
+               # через asyncio.timeout):
+               # yield ": keepalive\n\n"
+
+           # Final event:
+           yield "event: done\ndata: {}\n\n"
+
+       except asyncio.CancelledError:
+           yield f"event: cancelled\ndata: {json.dumps({'reason': 'user_cancelled'})}\n\n"
+       except Exception as e:
+           yield f"event: error\ndata: {json.dumps({'message': str(e), 'type': type(e).__name__})}\n\n"
+   ```
+
+2. Создай helper functions в `src/llm_client/agent/service.py`:
+   ```python
+   def _build_tool_result_preview(tool_message_content: str) -> dict:
+       '''Builds short preview dict for tool_call preview (G-1).
+
+       For web_search: {snippet_count: N}.
+       For rag_query: {chunk_count: N, top_score: float}.
+       For file_export: {artifact_id, format, filename} (legacy —
+                         artifact_ready event в Phase 1, здесь для
+                         полноты).
+       '''
+       try:
+           result = json.loads(tool_message_content)
+       except (json.JSONDecodeError, TypeError):
+           return {}
+
+       if isinstance(result, list):
+           # web_search returns list[dict]:
+           return {"snippet_count": len(result)}
+       if isinstance(result, dict):
+           if "chunks" in result:
+               # rag_query:
+               return {
+                   "chunk_count": result.get("chunk_count", len(result["chunks"])),
+                   "top_score": result.get("top_score", 0.0),
+               }
+           if "artifact_id" in result:
+               # file_export:
+               return {
+                   "artifact_id": result["artifact_id"],
+                   "format": result.get("format"),
+                   "filename": result.get("filename"),
+               }
+       return {}
+
+
+   def _parse_tool_full_results(tool_message_content: str) -> list[dict] | None:
+       '''Parses tool_message_content for full results (G-3 web search).
+
+       For web_search: returns list[{title, url, snippet, score}].
+       For rag_query: returns None (chunks через retrieved_docs event,
+                       не tool_result).
+       For file_export: returns None (artifact через artifact_ready
+                         event из Phase 1).
+       '''
+       try:
+           result = json.loads(tool_message_content)
+       except (json.JSONDecodeError, TypeError):
+           return None
+
+       if isinstance(result, list):
+           # web_search results:
+           return result
+       return None
+
+
+   def _infer_tool_name_from_tool_call_id(tool_call_id: str, graph) -> str:
+       '''Looks up tool_name by tool_call_id from graph state messages.'''
+       # Simplified — в реальном коде через graph.get_state(...) или
+       # tracking pending tool_calls в stream_generator closure:
+       for msg in (graph.state.get("messages") or []):
+           if hasattr(msg, "tool_calls"):
+               for tc in (msg.tool_calls or []):
+                   if tc["id"] == tool_call_id:
+                       return tc["name"]
+       return "unknown"
+   ```
+
+3. Обнови SSE parser в `src/llm_client/ui/chat.py` `iter_sse_events`
+   (Phase 1) для понимания новых event types:
+   ```python
+   async def iter_sse_events(response: httpx.Response) -> AsyncIterator[dict]:
+       '''Parses SSE events from agent-service stream endpoint.
+
+       Phase 1: token, metadata, artifact_ready, cancelled, error, done.
+       Phase 2 (new): tool_call, tool_result, retrieved_docs.
+       '''
+       event_type = None
+       data_buffer = []
+
+       async for line in response.aiter_lines():
+           if line.startswith("event: "):
+               event_type = line[len("event: "):].strip()
+           elif line.startswith("data: "):
+               data_buffer.append(line[len("data: "):])
+           elif line == "" and event_type is not None:
+               # End of event — yield:
+               data = json.loads("".join(data_buffer)) if data_buffer else {}
+               yield {"event": event_type, "data": data}
+               event_type = None
+               data_buffer = []
+           # Ignore heartbeat lines (": keepalive") and others.
+   ```
+
+4. Тесты в `tests/unit/test_sse.py` (расширь существующий):
+   - `test_stream_generator_emits_tool_call` — graph mock yields
+     AIMessage с tool_calls=[{id: "1", name: "web_search", args:
+     {query: "test"}}] → stream emits event: tool_call с
+     {tool_call_id, tool_name, args}.
+   - `test_stream_generator_emits_tool_result_web_search` — ToolMessage
+     с content='[{title,url,snippet}]' → stream emits event: tool_result
+     с {tool_call_id, tool_name="web_search", preview={snippet_count:
+     1}, full_results=[...]}.
+   - `test_stream_generator_emits_tool_result_rag_query` — ToolMessage
+     с content='{"chunks": [...], "chunk_count": 5, "top_score": 0.9}'
+     → stream emits event: tool_result с preview={chunk_count: 5,
+     top_score: 0.9}, full_results=None.
+   - `test_stream_generator_emits_retrieved_docs` — graph yields
+     {"retrieved_docs": [chunk1, chunk2]} → stream emits event:
+     retrieved_docs с {tool_call_id, chunk_count: 2, top_score,
+     source_uris, chunks}.
+   - `test_stream_generator_token_interleaved_with_tool_events` —
+     graph yields AIMessage("Hello"), AIMessage с tool_call,
+     ToolMessage, AIMessage("final answer") → stream emits event:
+     token × 2, event: tool_call × 1, event: tool_result × 1, event:
+     token × 1, event: done.
+   - `test_iter_sse_events_parses_tool_call` — raw SSE "event:
+     tool_call\ndata: {...}\n\n" → parsed as {event: "tool_call",
+     data: {...}}.
+   - `test_iter_sse_events_parses_retrieved_docs` — аналогично для
+     retrieved_docs.
+   - `test_iter_sse_events_ignores_heartbeat` — ": keepalive\n\n"
+     → не эмитит event.
+   - Integration: full flow graph.astream → stream_generator → SSE
+     response → iter_sse_events → handle_tool_event (G-1) → UI render.
+
+Definition of Done:
+- `stream_generator` в `src/llm_client/agent/service.py` расширена:
+  emits tool_call, tool_result, retrieved_docs events в дополнение
+  к Phase 1 events (token, metadata, artifact_ready, cancelled, error,
+  done).
+- Helper functions `_build_tool_result_preview` и
+  `_parse_tool_full_results` имплементированы.
+- `iter_sse_events` в `src/llm_client/ui/chat.py` понимает новые event
+  types.
+- 9+ новых тестов зелёные.
+- Manual test: POST /chat → GET /stream → видно последовательность:
+  event: tool_call (web_search) → event: tool_result → event: token ×
+  N → event: done. UI (G-1, G-3) рендерит tool-call preview и web
+  search results panel.
+- Существующие test_sse.py — не регрессируют.
+
+Антипаттерны:
+- НЕ эмить PII в tool_call event args — для file_export content
+  truncate до 200 символов с "..." (на стороне UI в G-1, но также
+  можно в stream_generator). В Phase 2 — UI truncation (G-1), в
+  Phase 3+ рассмотрим server-side truncation.
+- НЕ объединять tool_call и tool_result в один event — UI (G-1)
+  progressive rendering: preview running → preview done. Один event
+  не дал бы этого UX.
+- НЕ эмить full chunks в tool_result event для rag_query — chunks
+  идут через отдельное event retrieved_docs. tool_result для rag_query
+  — только preview (chunk_count, top_score).
+- НЕ эмить artifact_ready (Phase 1 event) для web_search/rag_query —
+  только для file_export. web_search и rag_query не генерируют
+  artifacts (файлы), только results.
+- НЕ хардкодь "web_search" и "rag_query" в _build_tool_result_preview —
+  распознавание по структуре data (list → web_search, dict с chunks →
+  rag_query, dict с artifact_id → file_export).
+- НЕ забывай heartbeat `: keepalive\n\n` — без него proxy закрывает
+  connection через 60 сек. В stream_generator через asyncio.timeout
+  или async iterator with periodic yield.
+- НЕ эмить event: done после event: cancelled или event: error —
+  terminal события последние (наследовано из AG-3 Phase 1).
+- НЕ эмить event: tool_call если tool_calls=[] — пустой tool_calls
+  не должен генерировать events.
+- НЕ хардкодь tool_call_id format — берётся из LangChain AIMessage.
+  tool_calls[i]["id"].
+- НЕ теряй token events при interleaving с tool events — stream
+  generator должен yield всех событий по порядку (tokens для
+  content AIMessage, tool_calls для tool_calls field).
+
+Связанные ADR:
+- Расширяет: AG-3 (SSE event protocol +3 events — tool_call,
+  tool_result, retrieved_docs).
+- Применяет: ADR-007 (SSE — RFC 8895-style, heartbeat).
+- Зависит от: H-3 (graph integration — graph.astream yields
+  AIMessage/ToolMessage/dict), G-1 (UI handle_tool_event —
+  consumer).
+- Не затрагивает: ADR-013 (cancel — event: cancelled остаётся),
+  ADR-014 (PII — в args truncation на UI side, G-1), ADR-010
+  (checkpoint — graph state автоматически сериализует ToolMessage,
+  не влияет на SSE event emission).
+```
+
+---
+
+## 7. Блок E. Тесты и CI для Phase 2
 
 **Источник**: `ROADMAP.md` v1.1.0 §6.6 (критерии выхода), §15.2 (метрика идеальности), §18.2 (Grafana dashboard + Slack alerting). Покрывает три ADR-критерия: (1) ADR-010 — latency checkpoint <2 мс, восстановление при restart; (2) ADR-017 — recall@5 ↑ ≥15%, latency retrieval ↑ <100 мс; (3) ADR-020 — recall ↑ для точных терминов ≥30%, latency retrieval ↑ <50%. Расширяет Phase 1 CI pipeline из `MVP-PROMPTS.md` Блок F-4 (не дублирует).
 
@@ -2913,27 +5024,46 @@ Definition of Done:
 
 ```
 Ты — DevOps/CI-разработчик LLM Client. Расширь Phase 1 CI pipeline
-(MVP-PROMPTS.md Блок F-4) для Phase 2: добавь jobs для ADR-010/017/020
-тестов, обнови nightly pipeline.
+(MVP-PROMPTS.md Блок F-4 + AG-PROMPTS.md §6 (future, создать в Phase 1
+конце) + UI-PROMPTS.md §11 (future, создать в Phase 1 конце)) для
+Phase 2: добавь jobs для ADR-010/017/020 тестов + AG-5/AG-6 tool
+тестов + UI-расширений (Блок G) тестов, обнови nightly pipeline.
 
 Контекст:
-- MVP-PROMPTS.md Блок F-4 создал Phase 1 CI:
+- MVP-PROMPTS.md Блок F-4 создал Phase 1 CI baseline:
   - PR-pipeline: lint + unit + integration-dev + integration-staging + pii-
     leak-audit + minio-parity.
   - Nightly: cancel-latency-staging + minio-parity-full + idealidad-metric.
+- AG-PROMPTS.md Приложение (Phase 1 конец) добавит AG-0..AG-4 тесты
+  (test_graph.py, test_provider.py, test_sse.py, test_file_export.py).
+- UI-PROMPTS.md §11 (Phase 1 конец) добавит UI-0..UI-3 тесты
+  (test_ui_render.py, test_ui_streamlit_client.py, test_ui_chat.py,
+  test_ui_session.py, test_ui_sidebar.py, latency_benchmark.py).
 - Phase 2 добавляет 3 new ADR (010, 017, 020) — каждый требует testing.
-- ROADMAP.md §6.6 — критерии выхода Phase 2.
+- Phase 2 добавляет 2 new AG-расширения (AG-5 web_search, AG-6 rag_query)
+  — каждый требует unit + integration тестов.
+- Phase 2 добавляет 4 new UI-расширения (G-1..G-4) — каждый требует
+  unit тестов (test_ui_render.py extension).
+- ROADMAP.md v1.2.0 §6.6 — критерии выхода Phase 2.
 
 Задача:
-1. Расширь `.github/workflows/phase1-ci.yml` (или эквивалент) — добавь jobs:
+1. Расширь `.github/workflows/phase1-ci.yml` (или эквивалент) — добавь
+   PR-pipeline jobs:
    - `checkpoint-quick`: Блок E-1 quick-test (100 сэмплов), PASS p99 <5 мс.
-     <2 мин. В PR-pipeline.
+     <2 мин.
    - `bm25-indexing-regression`: Блок E-4 BM25 indexing unit-test. <30 сек.
-     В PR-pipeline.
    - `reranker-quick`: Блок E-3 quick-test (10 queries), no regression vs
-     main. <3 мин. В PR-pipeline.
+     main. <3 мин.
    - `hybrid-rag-quick`: Блок E-4 quick-test (15 queries), no regression.
-     <5 мин. В PR-pipeline.
+     <5 мин.
+   - `web-search-quick` (new для AG-5): test_web_search.py с mock Tavily
+     API (httpx mocking), no real API calls в PR-pipeline. <1 мин.
+   - `rag-query-quick` (new для AG-6): test_rag_query.py + test_graph.py
+     extension (rag_retriever node) с mock RagPipeline. <2 мин.
+   - `ui-render-phase2-quick` (new для Блока G): test_ui_render.py
+     extension — render_tool_call, render_rag_citations,
+     render_web_search_results, render_settings_panel, handle_tool_event.
+     <1 мин.
 2. Обнови `.github/workflows/phase1-nightly.yml` (или создай `phase2-nightly
    .yml`):
    - `checkpoint-latency-staging`: Блок E-1 full (1000 сэмплов), p99 <2 мс.
@@ -2941,6 +5071,16 @@ Definition of Done:
    - `checkpoint-recovery-staging`: Блок E-2 (4 scenarios). <20 мин.
    - `reranker-ab-test-staging`: Блок E-3 full (50+ queries). <10 мин.
    - `hybrid-rag-ab-test-staging`: Блок E-4 full (30 queries). <10 мин.
+   - `web-search-integration-staging` (new для AG-5): real Tavily API call
+     (через STAGING_TAVILY_API_KEY secret), 5 queries, validates 200 OK
+     + result schema. <3 мин.
+   - `rag-query-integration-staging` (new для AG-6): real vector store
+     (PGVector on staging), 10 queries, validates chunks returned +
+     reranker applied (top_score in [0, 1]). <5 мин.
+   - `sse-tool-events-staging` (new для Блока H-4 + G-1): full flow POST
+     /chat + GET /stream с web_search prompt → validates event: tool_call
+     + event: tool_result + event: retrieved_docs (если rag_query) +
+     event: done. <2 мин.
    - `idealidad-metric`: обнови под Phase 2 metrics (Блок F-2).
 3. Кэширование (расширь Phase 1):
    - `~/.cache/huggingface` для bge-reranker (Блок A-2) — large cache, days.
@@ -2950,23 +5090,29 @@ Definition of Done:
    - `checkpoint_recovery_report_{date}.json` (E-2).
    - `ab_test_reranker_{date}.json` (E-3).
    - `ab_test_hybrid_rag_{date}.json` (E-4).
+   - `web_search_integration_report_{date}.json` (new для AG-5).
+   - `rag_query_integration_report_{date}.json` (new для AG-6).
+   - `sse_tool_events_report_{date}.json` (new для Блока H-4).
    - Все хранить 30 дней (наследовано из Phase 1).
 5. Staging secrets (через GitHub Secrets / GitLab Variables):
    - `COHERE_API_KEY` (опционально, для CohereRerankAdapter testing).
    - `STAGING_REDIS_URL`, `STAGING_POSTGRES_URL` (если separate от CI
      runner).
+   - `STAGING_TAVILY_API_KEY` (new для AG-5 integration tests).
+   - `STAGING_OPENAI_API_KEY` (наследовано из Phase 1 AG-2).
 6. Локальный запуск (расширь `make ci-local`):
    - `make ci-local-quick` — запускает PR-pipeline jobs локально.
    - `make ci-local-staging` — запускает nightly jobs на staging (manual).
    - Тот же docker-compose + pytest, что в CI.
 
 Definition of Done:
-- PR-pipeline завершается за <25 минут (parallel jobs, 5 новых quick-
-  tests добавили ~15 мин к Phase 1 baseline 15 мин).
-- Nightly pipeline завершается за <60 минут (4 new jobs).
+- PR-pipeline завершается за <30 минут (parallel jobs, 8 новых quick-
+  tests добавили ~18 мин к Phase 1 baseline 15 мин = 33 мин, с
+  parallelism 12 мин).
+- Nightly pipeline завершается за <80 минут (7 new jobs).
 - При FAIL — понятное сообщение в PR с ссылкой на artefact.
 - Coverage report показывает % покрытия ADR-010 (Блок B), ADR-017 (Блок C),
-  ADR-020 (Блок D).
+  ADR-020 (Блок D), AG-5 (Блок H-1), AG-6 (Блок H-2), G-1..G-4 (Блок G).
 - Slack alerting в #architecture при падении idealidad metric.
 - Hugging Face cache переиспользуется между запусками (visible через cache
   hit rate в CI logs).
@@ -2982,35 +5128,55 @@ Definition of Done:
   `phase2-ci.yml` или используй префикс `phase2-*` для jobs.
 - НЕ запускай nightly jobs одновременно — staggered (один за другим, не
   параллельно), чтобы не перегружать staging.
+- НЕ делай real Tavily API calls в PR-pipeline — только mock. Real calls
+  — nightly only (cost + rate limit 1000/month free tier).
+- НЕ делай real OpenAI API calls в CI — только mock LLM (FakeListChatModel
+  из LangChain, как в test_graph.py AG-1). Real LLM calls — manual
+  integration test only.
+- НЕ пропускай UI тесты (Блок G) — они unit, <1 мин, ловят
+  regression в handle_tool_event / render_tool_call контрактах.
 
 Связанные ADR:
 - Покрывает CI для: ADR-010 (Блок B + E-1, E-2), ADR-017 (Блок C + E-3),
-  ADR-020 (Блок D + E-4).
-- Расширяет: Блок F-4 MVP-PROMPTS (Phase 1 CI).
+  ADR-020 (Блок D + E-4), AG-5 (Блок H-1), AG-6 (Блок H-2), G-1..G-4
+  (Блок G).
+- Расширяет: Блок F-4 MVP-PROMPTS (Phase 1 CI) + AG-PROMPTS §6 (future)
+  + UI-PROMPTS §11 (future).
 - Зависит от: Блок A-1..A-3 (infra для Phase 2), Блоки B/C/D (реализации),
-  Блоки E-1..E-4 (тесты).
+  Блоки E-1..E-4 (тесты), Блок G (UI-расширения), Блок H (AG-расширения).
 ```
 
 ---
 
-## 6. Блок F. Документация и метрика идеальности
+## 8. Блок F. Документация и метрика идеальности
 
-**Источник**: `ROADMAP.md` v1.1.0 §6.6 п.5 (документация обновлена), §15.2 (метрика идеальности Phase 2 control point), §18.2 (Grafana + Slack alerting). Расширяет Phase 1 Блок G `MVP-PROMPTS.md`.
+**Источник**: `ROADMAP.md` v1.2.0 §6.6 п.5 (документация обновлена), §15.2 (метрика идеальности Phase 2 control point), §18.2 (Grafana + Slack alerting). Расширяет Phase 1 Блок G `MVP-PROMPTS.md` и Phase 1 AG-PROMPTS §6 (future).
 
 ### F-1. Обновление `ARCHITECT.md` §7 / §8 / §12 после Phase 2
 
 ```
 Ты — Tech-писатель / архитектор LLM Client. Обнови `ARCHITECT.md` после
 завершения Phase 2: добавь новые ADR (010, 017, 020), пометь противоречия
-C-2, C-6 как resolved, обнови component diagram.
+C-2, C-6 как resolved, обнови component diagram, добавь AG-5/AG-6
+описание в §5.2.4 Tool Layer, обнови §5.2.2 Orchestration с rag_retriever
+нодой, обнови §5.2.5 RAG Layer с RagPipeline.
 
 Контекст:
-- ROADMAP.md §6.6 п.5: "ARCHITECT.md § 7 ADR обновлён (ADR-010, ADR-017,
-  ADR-020 добавлены); § 8 Trade-offs обновлён (C-2, C-6 помечены как
-  resolved)".
+- ROADMAP.md v1.2.0 §6.6 п.5: "ARCHITECT.md § 7 ADR обновлён (ADR-010,
+  ADR-017, ADR-020 добавлены); § 8 Trade-offs обновлён (C-2, C-6 помечены
+  как resolved)".
 - ROADMAP.md §18.5: "После approval каждого ADR — обновление ARCHITECT.md.
   Срок: 1 день после approval."
 - MVP-PROMPTS.md Блок G-1 — аналог для Phase 1; паттерн переиспользуется.
+- AG-PROMPTS.md §6 (future, создать в Phase 1 конце) — аналог для AG-0..AG-4;
+  ALPHA-PROMPTS.md v1.1.0 Блок F-1 расширяет его для AG-5/AG-6.
+- BACKLOG.md v1.1.0 §3.4 — AG-5/AG-6 формализованы как Phase 2 работы.
+- ARCHITECT.md v1.2.0 §5.2.4 (Tool Layer) — уже упоминает web_search и
+  file_export как примеры @tool; F-1 добавляет rag_query к ним.
+- ARCHITECT.md v1.2.0 §5.2.2 (Orchestration) — упоминает rag_retriever
+  ноду; F-1 фиксирует её Phase 2 реализацию (H-2/H-3).
+- ARCHITECT.md v1.2.0 §5.2.5 (RAG Layer) — упоминает pipeline (vector →
+  BM25 → fusion → reranker); F-1 фиксирует RagPipeline class (H-2).
 
 Задача:
 1. В §7 ADR ARCHITECT.md:
@@ -3044,34 +5210,84 @@ C-2, C-6 как resolved, обнови component diagram.
    - Добавить `RerankerRegistry` + `BgeRerankerAdapter` в RAG Layer.
    - Добавить `BM25IndexBuilder` + `BM25Retriever` + `HybridRetriever` +
      `RRFFusion` в RAG Layer.
+   - Добавить `RagPipeline` (class H-2) в RAG Layer — композирует retriever
+     + reranker на основе RetrieverConfig.
+   - Добавить `rag_retriever` ноду в Orchestration Layer (между planner и
+     final_answer).
+   - Добавить `web_search` tool + `rag_query` tool в Tool Layer (§5.2.4)
+     рядом с `file_export` (Phase 1).
    - Показать PostgreSQL с двумя extensions: pgvector (existing) + tsvector
      (new).
-5. В §5.2.2 (Checkpointer):
+5. В §5.2.2 (Orchestration):
    - Обновить: "PostgresSaver (ADR-001)" → "RedisPostgresCheckpointer
      (ADR-010, Phase 2; composite sync Redis + async PG; PostgresSaver
      deprecated, только для backward-compat tests)".
-6. В §5.2.5 (RAG Layer):
+   - Добавить описание rag_retriever ноды (H-2/H-3): "rag_retriever —
+     Phase 2 (AG-6). Извлекает RAG chunks через RagPipeline, обновляет
+     state['retrieved_docs'] для final_answer. Вызывается когда planner
+     выбирает route_decision='rag_first' (в Phase 2 — heuristic по
+     ключевым словам; в Phase 3+ — LLM structured output)."
+   - Обновить conditional edges: route_after_planner теперь 3 выхода
+     (direct_llm / tools_needed / rag_first) — Phase 1 был 1 выход.
+6. В §5.2.4 (Tool Layer):
+   - Добавить rag_query к примерам @tool: `RagQueryArgs` + `rag_query`
+     (H-2 contract).
+   - Обновить: "В Phase 1 реализован только file_export (AG-4). Phase 2
+     добавляет web_search (AG-5, через Tavily API) и rag_query (AG-6,
+     через RagPipeline). Phase 4 добавит mcp_call (AG-7, через
+     MCPTransport)."
+7. В §5.2.5 (RAG Layer):
    - Обновить pipeline: "...vector top-20 + BM25 top-20 → RRF fusion top-50
      → reranker top-5" (ADR-020 + ADR-017).
    - Обновить RetrieverConfig fields (D-1).
-7. Согласованность с ROADMAP/TRIZ:
-   - В §7 ARCHITECT.md для каждого ADR — ссылка на соответствующий § в
-     ROADMAP.md (§6.3, §6.4, §6.5) и TRIZ-ANALYSIS.md (§5.2, §6.1, §11).
+   - Добавить RagPipeline class (H-2): "RagPipeline — композирует retriever
+     (VectorRetriever / HybridRetriever / BM25Retriever) + reranker
+     (BgeRerankerAdapter / CohereRerankAdapter / identity) на основе
+     RetrieverConfig. Создаётся как singleton при agent-service startup.
+     Используется rag_query @tool и rag_retriever нодой — single source of
+     truth."
+8. В §5.1 (Presentation Layer):
+   - Обновить: "chat_component: Рендеринг сообщений, streaming tokens,
+     tool-call previews (G-1, Phase 2)" — реализовано.
+   - Обновить: "settings_panel: Выбор провайдера/модели, температура,
+     max_tokens, tools on/off, retrieval_strategy (ADR-020), reranker
+     (ADR-017)" — реализовано (G-4, Phase 2).
+   - Добавить: "RAG citations panel (G-2, Phase 2) и web search results
+     panel (G-3, Phase 2) — расширения chat_component для отображения
+     результатов AG-5/AG-6."
+9. В §7 (ADRs) добавить AG-расширения Approved в Phase 2:
+   - AG-5 (web_search tool via Tavily) — Status: Approved. Применяет
+     ADR-005 (Tool Layer) + ADR-006 (native tool calling через bind_tools).
+   - AG-6 (rag_query tool + base RAG pipeline + rag_retriever нода) —
+     Status: Approved. Применяет ADR-003 (VectorStoreFactory) + ADR-001
+     (LangGraph rag_retriever нода). Расширяется ADR-017 (reranker) и
+     ADR-020 (hybrid retrieval).
+10. Согласованность с ROADMAP/TRIZ:
+    - В §7 ARCHITECT.md для каждого ADR — ссылка на соответствующий § в
+      ROADMAP.md (§6.3, §6.4, §6.5) и TRIZ-ANALYSIS.md (§5.2, §6.1, §11).
+    - Для AG-5/AG-6 — ссылка на ROADMAP.md §6.2.4/§6.2.5 и BACKLOG.md
+      v1.1.0 §3.4.
 
 Definition of Done:
-- ARCHITECT.md версия обновлена (1.1.0 → 1.2.0) с changelog.
-- Changelog: "1.2.0 (2026-09-XX): Phase 2 завершена — добавлены ADR-010,
+- ARCHITECT.md версия обновлена (1.2.0 → 1.3.0) с changelog.
+- Changelog: "1.3.0 (2026-09-XX): Phase 2 завершена — добавлены ADR-010,
   ADR-017, ADR-020; C-2 помечено [RESOLVED]; C-6 помечено [PARTIALLY
   RESOLVED, ADR-011 pending Phase 3]; Q-5 частично закрыт; component
   diagram обновлён с Redis DB 1, RerankerRegistry, HybridRetriever,
-  BM25IndexBuilder; §5.2.2 Checkpointer обновлён на
-  RedisPostgresCheckpointer; §5.2.5 RAG pipeline обновлён на hybrid +
-  reranker".
-- §7 содержит ADR-010, ADR-017, ADR-020 (новые).
+  BM25IndexBuilder, RagPipeline, rag_retriever нодой, web_search и
+  rag_query tools; §5.2.2 Checkpointer обновлён на RedisPostgresCheckpointer
+  + rag_retriever нода; §5.2.4 Tool Layer обновлён с AG-5 web_search и
+  AG-6 rag_query; §5.2.5 RAG pipeline обновлён на hybrid + reranker +
+  RagPipeline class; §5.1 Presentation Layer обновлён с tool-call
+  previews, settings_panel, RAG citations, web search results panels;
+  AG-5 и AG-6 помечены Approved в §7."
+- §7 содержит ADR-010, ADR-017, ADR-020 (новые) + AG-5, AG-6 (новые).
 - §8 содержит 2 помеченных [RESOLVED] / [PARTIALLY RESOLVED] противоречия.
 - §12 содержит Q-5 [PARTIALLY CLOSED].
-- Компонентная диаграмма обновлена.
-- Все ссылки на ROADMAP.md / TRIZ-ANALYSIS.md — корректны (не 404).
+- §13 компонентная диаграмма обновлена.
+- §5.1, §5.2.2, §5.2.4, §5.2.5 — обновлены в соответствии с Блоками G, H.
+- Все ссылки на ROADMAP.md / TRIZ-ANALYSIS.md / BACKLOG.md / AG-PROMPTS.md /
+  UI-PROMPTS.md — корректны (не 404).
 - PR с обновлением reviewed архитектурным комитетом, merged.
 
 Антипаттерны:
@@ -3079,16 +5295,24 @@ Definition of Done:
   [RESOLVED] меткой.
 - НЕ скрывай упразднённый PostgresSaver — явно пометь "deprecated in Phase
   2, replaced by RedisPostgresCheckpointer".
-- НЕ переписывай ADR-001, ADR-003, ADR-005, ADR-007, ADR-008, ADR-013, ADR-014
-  (Phase 1) — только обнови cross-references если нужно.
+- НЕ переписывай ADR-001, ADR-003, ADR-005, ADR-006, ADR-007, ADR-008,
+  ADR-013, ADR-014 (Phase 1) — только обнови cross-references если нужно.
 - НЕ добавляй ADR из Phase 3+ (ADR-011, ADR-015, ADR-016, ADR-018, ADR-019)
-  — только Phase 2 ADR.
+  — только Phase 2 ADR + AG-5/AG-6.
 - НЕ забудь changelog — без него невозможно отследить что изменилось.
+- НЕ забудь обновить §5.2.4 Tool Layer с rag_query — это новое ADR-005
+  применение (AG-6), должно быть в архитектурной документации.
+- НЕ забудь обновить §5.1 с tool-call previews и settings_panel — эти
+  UI-компоненты упоминались в v1.2.0 как "ответственность", но не были
+  реализованы; v1.3.0 помечает их как реализованные (Блок G).
 
 Связанные ADR:
-- Документирует: ADR-010, ADR-017, ADR-020.
-- Ссылается на: ROADMAP.md §6, TRIZ-ANALYSIS.md §5.2, §6.1, §11.
-- Расширяет: Блок G-1 MVP-PROMPTS (Phase 1 ARCHITECT.md update).
+- Документирует: ADR-010, ADR-017, ADR-020, AG-5 (H-1), AG-6 (H-2).
+- Ссылается на: ROADMAP.md v1.2.0 §6, TRIZ-ANALYSIS.md §5.2, §6.1, §11,
+  BACKLOG.md v1.1.0 §3.4.
+- Расширяет: Блок G-1 MVP-PROMPTS (Phase 1 ARCHITECT.md update) +
+  AG-PROMPTS §6 (future, AG-0..AG-4 update) + UI-PROMPTS §11 (future,
+  UI-0..UI-3 update).
 ```
 
 ### F-2. Grafana dashboard: Phase 2 control point (Δф/Δсложности = 1.5)
@@ -3163,9 +5387,9 @@ Definition of Done:
 
 ---
 
-## 7. Приложение: чек-лист выхода из Phase 2
+## 9. Приложение: чек-лист выхода из Phase 2
 
-**Источник**: `ROADMAP.md` v1.1.0 §6.6. Используется после прогона всех блоков A–F для самопроверки перед ревью архитектурным комитетом. Критерии выхода — параллельно с Phase 1 чек-листом `MVP-PROMPTS.md` §8 (Phase 1 + Phase 2 — последовательные фазы, Phase 2 не стартует до завершения Phase 1).
+**Источник**: `ROADMAP.md` v1.2.0 §6.6. Используется после прогона всех блоков A–H для самопроверки перед ревью архитектурным комитетом. Критерии выхода — параллельно с Phase 1 чек-листом `MVP-PROMPTS.md` §8 + `AG-PROMPTS.md` Приложение (Phase 1 + Phase 2 — последовательные фазы, Phase 2 не стартует до завершения Phase 1, включая AG-0..AG-4).
 
 | # | Критерий | Где проверяется | Соответствующий блок промптов |
 |---|---|---|---|
@@ -3181,21 +5405,40 @@ Definition of Done:
 | 10 | ADR-020: latency retrieval ↑ <50% (relative to baseline vector-only) | E-4 nightly | Блок D, E-4 |
 | 11 | ADR-020: BM25 index строится синхронно с vector index при индексации | E-4 BM25 indexing regression test | D-2, E-4 |
 | 12 | ADR-020: hybrid retrieval default (RetrieverConfig.retrieval_strategy=HYBRID) | `python -c "from llm_client.rag.config import RetrieverConfig; print(RetrieverConfig().retrieval_strategy)"` → `RetrievalStrategy.HYBRID` | D-1 |
-| 13 | Метрика идеальности: Δф=+3 capabilities (async checkpoint, reranker, hybrid retrieval), Δсложности=+2 dependencies (bge-reranker, tsvector) → Δф/Δсложности = 1.5 ≥ 1 | F-2 Grafana dashboard | F-2 |
-| 14 | Документация обновлена: `ARCHITECT.md` §7 ADR-010/017/020, §8 C-2/C-6 [RESOLVED]/[PARTIALLY RESOLVED], §12 Q-5 [PARTIALLY CLOSED] | PR merged | F-1 |
-| 15 | Все ADR Phase 2: Status Approved в `ARCHITECT.md` v1.2.0 | manual check | F-1 |
-| 16 | Phase 1 не регрессировал: ADR-013 cancel latency <100ms, ADR-014 PII leaks = 0, расш. ADR-008 MinIO parity | Phase 1 nightly jobs (MVP-PROMPTS.md Блок F-1..F-3) — все PASS | Блоки F-1..F-3 MVP-PROMPTS (не регрессируют) |
+| 13 | Метрика идеальности (ADR-часть): Δф=+3 capabilities (async checkpoint, reranker, hybrid retrieval), Δсложности=+2 dependencies (bge-reranker, tsvector) → Δф/Δсложности = 1.5 ≥ 1 | F-2 Grafana dashboard | F-2 |
+| 14 | AG-5 Approved: `web_search` tool via Tavily — `curl -X POST .../sessions/test/chat -d '{"message":"search web for python asyncio","settings":{"tools_enabled":["web_search"]}}'` → SSE event: tool_call + event: tool_result (snippet_count ≥1) + event: done | E-5 `web-search-integration-staging` nightly + manual | Блок H-1 |
+| 15 | AG-5: TAVILY_API_KEY validation — startup fail fast если tools_enabled содержит "web_search" и TAVILY_API_KEY пустой | `python -c "from llm_client.config import get_settings; s = get_settings(); s.tools_enabled=['web_search']; s._validate_environment()"` → `ValidationError` | H-1 (Settings validation) |
+| 16 | AG-6 Approved: `rag_query` tool + `rag_retriever` нода — `curl -X POST .../sessions/test/chat -d '{"message":"найди в документации","settings":{"tools_enabled":["rag_query"],"retrieval_strategy":"hybrid","reranker":"bge"}}'` → SSE event: tool_call + event: retrieved_docs (chunk_count ≥1) + event: done | E-5 `rag-query-integration-staging` nightly + manual | Блок H-2, H-3 |
+| 17 | AG-6: `RagPipeline.from_settings(settings)` создаётся как singleton при agent-service startup, переиспользуется `rag_query` tool и `rag_retriever` нодой (single instance, не per-call) | manual (startup log “RagPipeline initialized” once) + test_rag_query.py | H-2 |
+| 18 | AG-6: pipeline — vector retrieval (top-20) → [BM25 retrieval (top-20) → RRF fusion (top-50)] (if strategy=hybrid, ADR-020) → reranker top-5 (ADR-017) | E-5 `rag-query-integration-staging` nightly (validate top_score in [0, 1] and chunk_count ≤ top_k) | H-2, Блок C, Блок D |
+| 19 | H-3 Graph integration: `build_agent_graph(llm, token, tools=[file_export, web_search, rag_query], rag_pipeline=pipeline)` возвращает compiled graph; `route_after_planner` имеет 3 выхода (direct_llm / tools_needed / rag_first) | test_graph.py `test_route_after_planner_*` (3 теста) | H-3 |
+| 20 | H-4 SSE event protocol: после POST /chat + GET /stream UI получает `event: tool_call` × N + `event: tool_result` × N + (опционально) `event: retrieved_docs` + `event: done`. При cancel — `event: cancelled` < 200 мс | E-5 `sse-tool-events-staging` nightly + test_sse.py `test_stream_generator_emits_*` | H-4 |
+| 21 | G-1 Tool-call preview: `UIClient` interface содержит `render_tool_call` abstractmethod; `StreamlitClient` имплементирует с collapsible expander; file_export content truncated до 200 символов | test_ui_render.py `test_render_tool_call_*` + `test_file_export_content_truncation` | G-1 |
+| 22 | G-2 RAG citations panel: `render_rag_citations(chunks)` отображает chunks с source_uri (кликабельная ссылка), title, page, content_preview (≤200 char), score (progress bar) | test_ui_render.py `test_render_rag_citations_*` (6 тестов) | G-2 |
+| 23 | G-3 Web search results panel: `render_web_search_results(results)` отображает results с title (url link), snippet, score (metric) | test_ui_render.py `test_render_web_search_results_*` (7 тестов) | G-3 |
+| 24 | G-4 Settings panel: `render_settings_panel` в sidebar expander с tools on/off checkboxes, retrieval_strategy selectbox (default hybrid), reranker radio (default bge), top_k/max_results sliders | test_ui_render.py `test_render_settings_panel_*` (6 тестов) + manual (sidebar UI) | G-4 |
+| 25 | UI-расширения метрика идеальности (Блок G): Δф=+1 capability (UX tool-transparency), Δсложности=+0 dependencies → Δф/Δсложности = ∞ (улучшает общий ratio, не нарушает порог) | F-2 Grafana dashboard (Panel 6 дополнить) | G-1..G-4 |
+| 26 | AG-расширения метрика идеальности (Блок H): Δф=+2 capabilities (web_search, rag_query), Δсложности=+1 dependency (Tavily API) → Δф/Δсложности = 2.0 ≥ 1 | F-2 Grafana dashboard (Panel 6 дополнить) | H-1..H-4 |
+| 27 | Документация обновлена: `ARCHITECT.md` §7 ADR-010/017/020 + AG-5/AG-6, §8 C-2/C-6 [RESOLVED]/[PARTIALLY RESOLVED], §12 Q-5 [PARTIALLY CLOSED], §5.1 tool-call previews + settings_panel, §5.2.2 rag_retriever нода, §5.2.4 rag_query tool, §5.2.5 RagPipeline | PR merged | F-1 |
+| 28 | Все ADR Phase 2 + AG-5/AG-6: Status Approved в `ARCHITECT.md` v1.3.0 | manual check | F-1 |
+| 29 | Phase 1 не регрессировал: ADR-013 cancel latency <100ms, ADR-014 PII leaks = 0, расш. ADR-008 MinIO parity, UI-0..UI-3 чат работает, AG-0..AG-4 agent-service отвечает на /health | Phase 1 nightly jobs (MVP-PROMPTS.md Блок F-1..F-3 + AG-PROMPTS §6) — все PASS | Блоки F-1..F-3 MVP-PROMPTS + AG-PROMPTS §6 (не регрессируют) |
 
-**При невыполнении любого из п.1–4, 5–7, 9–11**: фаза продлевается на 1 sprint (`ROADMAP.md` §6.6).
+**При невыполнении любого из п.1–4, 5–7, 9–11**: фаза продлевается на 1 sprint (`ROADMAP.md` v1.2.0 §6.6).
 **При невыполнении п.8** (RerankerRegistry): ADR-017 не может быть Approved (pluggable architecture нарушена), блокирует п.5–7.
 **При невыполнении п.12** (retrieval_strategy=HYBRID default): ADR-020 не Approved, блокирует п.9–11.
-**При невыполнении п.13** (метрика идеальности <1): ADR пересматривается (вероятный over-engineering, `ROADMAP.md` §13.1 — Phase 2 превышает tight 1.5, но должен ≥1).
-**При невыполнении п.14–15**: документационный долг, блокирует старт Phase 3.
-**При невыполнении п.16** (Phase 1 regression): критично — Phase 2 не может быть Approved если Phase 1 сломан; rollback Phase 2 changes, fix Phase 1 first.
+**При невыполнении п.13** (ADR-метрика идеальности <1): ADR пересматривается (вероятный over-engineering, `ROADMAP.md` v1.2.0 §13.1 — Phase 2 превышает tight 1.5, но должен ≥1).
+**При невыполнении п.14–15** (AG-5): web_search не работает или fail-fast нарушен — блокирует п.20 (SSE tool events для web_search) и п.21–24 (UI-расширения не имеют источника событий).
+**При невыполнении п.16–18** (AG-6): rag_query не работает или pipeline неверный — блокирует п.20 (SSE tool events для rag_query), п.22 (RAG citations не имеют источника chunks), п.18 (ADR-017/ADR-020 pipeline integration).
+**При невыполнении п.19** (H-3 Graph integration): graph не собирается или route_after_planner неверный — блокирует все зависящие выше (п.14, 16, 20).
+**При невыполнении п.20** (H-4 SSE event protocol): UI-расширения (Блок G) не получают события — п.21–24 не имеют источника данных.
+**При невыполнении п.21–24** (Блок G): UI не отображает tool-call previews / RAG citations / web search results / settings — UX деградирует, но AG-5/AG-6 (п.14–18) работают. Метрика идеальности п.25 падает (Δф=+0 вместо +1). Фаза может быть Approved без Блока G, но с пометкой "UI-расширения отложены на Phase 3" — `ROADMAP.md` v1.2.0 §6.6 не блокирует.
+**При невыполнении п.25–26** (метрики идеальности AG/UI): Блок G/H рассматривается на over-engineering (аналогично п.13). Блок G (UI-расширения) —+1/0 = ∞, не может нарушить порог. Блок H — +2/+1 = 2.0, не нарушает.
+**При невыполнении п.27–28**: документационный долг, блокирует старт Phase 3.
+**При невыполнении п.29** (Phase 1 regression): критично — Phase 2 не может быть Approved если Phase 1 сломан; rollback Phase 2 changes, fix Phase 1 first.
 
 ---
 
-## 8. Карта промптов для быстрого навигации
+## 10. Карта промптов для быстрого навигации
 
 | ID | Промпт | Зависимости | Срок (чел-дн) |
 |---|---|---|---|
@@ -3220,33 +5463,54 @@ Definition of Done:
 | D-4 | `HybridRetriever` (vector top-20 + BM25 top-20) | D-1, D-3 | 0.75 |
 | D-5 | RRF fusion (top-50) → reranker (top-5) | C-4, D-4 | 0.5 |
 | D-6 | A/B test для exact-term recall (sku/error/employee_id) | D-5 | 0.5 |
+| **G-1** | **Tool-call preview component** (`UIClient.render_tool_call` + StreamlitClient) | UI-2 (Phase 1) | **0.25** |
+| **G-2** | **RAG citations panel** (`render_rag_citations`) | G-1, H-2, H-4 | **0.5** |
+| **G-3** | **Web search results panel** (`render_web_search_results`) | G-1, H-1, H-4 | **0.25** |
+| **G-4** | **Settings panel extension** (tools on/off, retrieval strategy, reranker) | UI-1 (Phase 1) | **0.5** |
+| **H-1** | **AG-5 `web_search` tool via Tavily API** (WebSearchArgs + @tool) | AG-1 (Phase 1), Tavily API | **1.0** |
+| **H-2** | **AG-6 `rag_query` tool + `rag_retriever` нода + `RagPipeline`** | AG-1, ADR-003, ADR-017 (C), ADR-020 (D) | **4.0** |
+| **H-3** | **Graph integration** (`bind_tools([file_export, web_search, rag_query])` + `rag_retriever` + `route_after_planner` 3 выхода) | H-1, H-2, AG-1 | **0.5** |
+| **H-4** | **SSE event protocol extension** (`event: tool_call` / `tool_result` / `retrieved_docs`) | AG-3 (Phase 1), H-3 | **0.5** |
 | E-1 | Latency checkpoint test (<2 мс в 99%) | Блок B, A-1..A-3 | 0.25 |
 | E-2 | Restart recovery test (4 scenarios) | B-5 | 0.5 |
 | E-3 | Recall@5 A/B test (bge vs baseline) | Блок C | 0.25 |
 | E-4 | Exact-term recall A/B test (hybrid vs vector-only) | Блок D | 0.25 |
-| E-5 | Phase 2 CI pipeline (расширение Phase 1 CI) | Блоки A-D, E-1..E-4 | 0.75 |
-| F-1 | `ARCHITECT.md` update (ADR-010/017/020, C-2/C-6 resolved) | Блоки B, C, D completed | 0.25 |
-| F-2 | Grafana dashboard Phase 2 control point (ratio 1.5) | — | 0.25 |
-| **Итого** | **27 промптов** | | **~14 чел-дн ADR-работы + 2.5 чел-дн тесты/CI/доки = 16.5 чел-дн** |
+| E-5 | Phase 2 CI pipeline (расширение Phase 1 CI + AG + UI tests) | Блоки A-D, G, H, E-1..E-4 | 0.75 |
+| F-1 | `ARCHITECT.md` update (ADR-010/017/020 + AG-5/AG-6 + §5.1/§5.2.2/§5.2.4/§5.2.5 updates, C-2/C-6 resolved) | Блоки B, C, D, G, H completed | 0.25 |
+| F-2 | Grafana dashboard Phase 2 control point (ADR ratio 1.5, AG ratio 2.0, UI ratio ∞) | — | 0.25 |
+| **Итого** | **36 промптов** (28 v1.0.0 + 4 G + 4 H) | | **~14 чел-дн ADR + 5 чел-дн AG + 1.5 чел-дн UI + 2.5 чел-дн tests/CI/docs = 23 чел-дн** |
 
-**Параллелизация (2 разработчика)** (`ROADMAP.md` §11.2):
+**Параллелизация (3 разработчика)** (`ROADMAP.md` v1.2.0 §11.2 + ALPHA-PROMPTS.md v1.1.0 extension):
 
 - **Дев 1 (Backend/Orchestration)**: A-1 → B-1 → B-2 → B-3 → B-4 → B-5 → B-6 → E-1 → E-2 → F-1 (orchestration часть)
   - Срок: 5 чел-дн ADR-010 + 1.5 чел-дн tests/docs = **6.5 чел-дн**
-- **Дев 2 (Backend/RAG)**: A-2 → C-1 → C-2 → C-3 → A-3 → D-1 → D-2 → D-3 → D-4 → D-5 → C-4 → C-5 → C-6 → D-6 → E-3 → E-4 → F-1 (RAG часть) → F-2
-  - Срок: 4 чел-дн ADR-017 + 5 чел-дн ADR-020 + 1.5 чел-дн tests/docs = **10.5 чел-дн**
+- **Дев 2 (Backend/RAG)**: A-2 → C-1 → C-2 → C-3 → A-3 → D-1 → D-2 → D-3 → D-4 → D-5 → C-4 → C-5 → C-6 → D-6 → E-3 → E-4 → H-1 (AG-5) → H-2 (AG-6) → H-3 (graph integration) → H-4 (SSE) → F-1 (RAG+AG часть) → F-2
+  - Срок: 4 чел-дн ADR-017 + 5 чел-дн ADR-020 + 5 чел-дн AG (H-1..H-4) + 1.5 чел-дн tests/docs = **15.5 чел-дн**
+- **Дев 3 (Frontend/UI)**: G-1 → G-2 → G-3 → G-4 (UI-расширения, после готовности H-1/H-2/H-4 для manual integration test)
+  - Срок: 1.5 чел-дн UI + 0.5 чел-дн integration = **2 чел-дн** (стартует после Dev 2 H-1 + H-4 ready)
 - **Параллельные (стартуют сразу, не блокируют critical path)**: A-3 (1 разработчик), E-5 (DevOps).
 
-**Critical path**: A-1 → B-1..B-6 (6 промптов, 3.5 чел-дн) → E-1, E-2 (1 чел-дн) → F-1 (0.25 чел-дн) = **4.75 чел-дн** для Dev 1.
+**Critical path**: A-1 → B-1..B-6 (6 промптов, 3.5 чел-дн) → E-1, E-2 (1 чел-дн) → F-1 (0.25 чел-дн) = **4.75 чел-дн** для Dev 1. Dev 2 critical path = 15.5 чел-дн. Dev 3 = 2 чел-дн после Dev 2 готовности H-1/H-4 (на 9-10 чел-дн Dev 2).
 
-**Суммарная оценка Phase 2**: 14 чел-дн ADR-работы (`ROADMAP.md` §6.2: 5 + 4 + 5 = 14) + 2.5 чел-дн тесты/CI/доки (Блоки E, F) = **16.5 чел-дн** total. С параллелизацией 2 разработчиков — **9–10 рабочих дней** (Dev 1 critical path 4.75 чел-дн + Dev 2 critical path 10.5 чел-дн, max = 10.5 чел-дн / 2 = 5.25 рабочих дня = 1 sprint).
+**Суммарная оценка Phase 2**: 14 чел-дн ADR-работы (`ROADMAP.md` v1.2.0 §6.2.1–6.2.3: 5 + 4 + 5 = 14) + 5 чел-дн AG-расширения (§6.2.4 AG-5 + §6.2.5 AG-6, `BACKLOG.md` v1.1.0 §3.4: 1 + 4 = 5) + 1.5 чел-дн UI-расширения (Блок G, new в ALPHA-PROMPTS.md v1.1.0, не входит в оценку `ROADMAP.md` v1.2.0) + 2.5 чел-дн тесты/CI/доки (Блоки E, F) = **23 чел-дн** total (vs 16.5 чел-дн в v1.0.0; delta = +6.5 чел-дн: +5 AG-5/AG-6 + 1.5 UI). С параллелизацией 3 разработчиков — **11–13 рабочих дней** (max(Dev 1 4.75, Dev 2 15.5, Dev 3 2 + lag) = 15.5 чел-дн / 3 разработчика = 5.17 рабочих дней critical path, но с onboarding и review — 11–13 дней = ~2.5 sprint).
 
 **Зависимости между блоками** (см. диаграмму в §0):
 - Блок A — стартует первым, все 3 подзадачи (A-1, A-2, A-3) параллельны.
 - Блок B — зависит от A-1 (Redis WAL).
 - Блок C — зависит от A-2 (bge-reranker).
 - Блок D — зависит от A-3 (tsvector) и C-4 (reranker для fusion top-5).
-- Блок E — зависит от Блоков B, C, D.
-- Блок F — зависит от Блоков B, C, D (после их завершения).
+- Блок H (AG-расширения) — зависит от AG-1 (Phase 1 graph), AG-3 (Phase 1 SSE); H-2 (AG-6) дополнительно зависит от Блоков C и D (использует reranker и hybrid retriever из RagPipeline).
+- Блок G (UI-расширения) — зависит от Блока H (SSE events tool_call/tool_result/retrieved_docs из H-4 — источник данных для UI render).
+- Блок E — зависит от Блоков B, C, D, G, H.
+- Блок F — зависит от Блоков B, C, D, G, H (после их завершения).
 
-**Переход к Phase 3 (Beta)**: Phase 2 → Phase 3 критерий (`ROADMAP.md` §3.2): все пункты чек-листа §7 выполнены (особенно п.13 — метрика идеальности ≥1, п.14 — документация обновлена). Phase 3 добавляет ADR-011 (semantic cache — закрывает C-6 cost-составляющую), ADR-015 (cost-aware router), ADR-016 (tool capability adapter), ADR-004 ускорение (MCP server mode preview). См. `BETA-PROMPTS.md` (драфт, создать в Phase 2 конце).
+**Переход к Phase 3 (Beta)**: Phase 2 → Phase 3 критерий (`ROADMAP.md` v1.2.0 §3.2): все пункты чек-листа §9 выполнены (особенно п.13, 25, 26 — метрики идеальности ≥1, п.27–28 — документация обновлена, п.29 — Phase 1 regression-free). Phase 3 добавляет ADR-011 (semantic cache — закрывает C-6 cost-составляющую), ADR-015 (cost-aware router), ADR-016 (tool capability adapter), ADR-004 ускорение (MCP server mode preview). AG-7 (mcp_call tool, Phase 4, `BACKLOG.md` v1.1.0 §3.4) — следующий AG-промпт после AG-5/AG-6. См. `BETA-PROMPTS.md` (драфт, создать в Phase 2 конце).
+
+---
+
+## 11. История изменений
+
+| Версия | Дата | Изменение |
+|---|---|---|
+| 1.0.0 | 2026-09-23 | Initial draft. 28 промптов в 6 блоках A–F: A (инфра), B (ADR-010 RedisPostgresCheckpointer), C (ADR-017 Reranker), D (ADR-020 Hybrid BM25+Vector), E (тесты/CI), F (документация/метрика идеальности). Суммарно 16.5 чел-дн (14 ADR + 2.5 tests/CI/docs). Источники: `ROADMAP.md` v1.1.0, `TRIZ-ANALYSIS.md` v1.0.0, `ARCHITECT.md` v1.1.0. |
+| 1.1.0 | 2026-09-26 | Добавлены 2 новых блока: **G (UI-расширения Phase 2, 4 промпта — G-1 tool-call preview, G-2 RAG citations, G-3 web search results, G-4 settings panel extension)** и **H (AG-расширения Phase 2, 4 промпта — H-1=AG-5 web_search via Tavily, H-2=AG-6 rag_query + base RAG + rag_retriever нода, H-3 graph integration, H-4 SSE event protocol extension)**. Обновлён header: источники (`BACKLOG.md` v1.1.0, `AG-PROMPTS.md` v1.0.0, `UI-PROMPTS.md` v1.1.0, `ROADMAP.md` v1.2.0, `ARCHITECT.md` v1.2.0), предусловие (Phase 1 полностью завершена с UI-0..UI-3 + AG-0..AG-4), этап (23 чел-дн total). Обновлён §0 (диаграмма A→H, параллелизация 3 разработчика). Обновлён E-5 (CI pipeline — добавлены jobs для AG-5/AG-6 + UI тестов). Обновлён F-1 (ARCHITECT.md update — добавлены §5.2.4 Tool Layer rag_query, §5.2.2 Orchestration rag_retriever нода, §5.2.5 RAG Layer RagPipeline, §5.1 Presentation Layer tool-call previews + settings_panel; AG-5/AG-6 Approved). Обновлён §9 чек-лист (29 критериев: +13 для Блоков G/H). Обновлён §10 карта промптов (36 промптов total). Источник патча: `BACKLOG.md` v1.1.0 §3.4 (AG-5/AG-6 для Phase 2), `ROADMAP.md` v1.2.0 §6.2.4/§6.2.5. |
