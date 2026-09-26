@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     vault_token: str = "root"
     vault_transit_key: str = "forensic-aes256-gcm"
 
+    # LLM Provider (AG-2)
+    llm_provider: str = "openai"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    anthropic_api_key: str = ""  # Phase 3, placeholder
+    anthropic_model: str = "claude-3-5-sonnet-20241022"  # Phase 3
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")
@@ -54,7 +61,31 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"KMS_PROVIDER must be vault|local, got {self.kms_provider!r}"
             )
+        if self.llm_provider not in {"openai", "anthropic", "ollama"}:
+            raise ValueError(
+                f"LLM_PROVIDER must be openai|anthropic|ollama, got {self.llm_provider!r}"
+            )
+        if self.llm_provider == "openai" and not self.openai_api_key:
+            raise ValueError(
+                "OPENAI_API_KEY required when LLM_PROVIDER=openai"
+            )
         return self
 
 
-settings = Settings()
+settings: Settings
+
+
+def __getattr__(name: str) -> object:
+    """Build the ``settings`` singleton lazily (PEP 562).
+
+    ``Settings`` validates fail-fast (e.g. a missing ``OPENAI_API_KEY``), so the
+    singleton must not be constructed at import time — that would make every
+    ``import llm_client.config`` fail, breaking unrelated components and the
+    test suite. Instantiating on first attribute access keeps the fail-fast
+    behaviour where it belongs: at application startup.
+    """
+    if name == "settings":
+        global settings
+        settings = Settings()
+        return settings
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

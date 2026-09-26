@@ -1,8 +1,15 @@
 """Shared test fixtures for all test levels (unit + integration)."""
 
+import os
 import threading
 
 import pytest
+
+# Settings validates fail-fast: OPENAI_API_KEY is required when
+# LLM_PROVIDER=openai (the default). Most tests are unrelated to the LLM
+# provider, so provide a placeholder before any llm_client import happens.
+# `setdefault` keeps a real key from the environment authoritative.
+os.environ.setdefault("OPENAI_API_KEY", "sk-test-placeholder")
 
 from llm_client.observability.kms_provider import LocalDevKeyProvider
 from llm_client.security.pii_detector import PIIDetector
