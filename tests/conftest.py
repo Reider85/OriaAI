@@ -31,6 +31,8 @@ class InMemoryFileStorage(FileStorage):
 
     async def get(self, key: str) -> bytes:
         with self._lock:
+            if key not in self._store:
+                raise FileNotFoundError(key)
             return self._store[key]
 
     async def delete(self, key: str) -> None:

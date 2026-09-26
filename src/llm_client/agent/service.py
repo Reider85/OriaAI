@@ -1,13 +1,15 @@
-"""Agent-service — FastAPI app with SSE streaming and LangGraph agent (AG-0..AG-3).
+"""Agent-service — FastAPI app with SSE streaming and LangGraph agent (AG-0..AG-4).
 
 Provides the real backend for the UI (replaces mock_agent_service.py).
 Routes: /health, /chat (202 async graph launch), /stream (SSE token stream),
-/sessions/{id}/cancel (delegates to ADR-013 control-plane).
+/sessions/{id}/cancel (delegates to ADR-013 control-plane),
+/artifacts/{artifact_id} (file download, AG-4).
 
 AG-1 wires the LangGraph agent graph into /chat and /stream.
 AG-2 replaces the mock LLM with LLMProviderFactory.
 AG-3 implements the full SSE event protocol: token / metadata / artifact_ready /
 cancelled / error / done, plus an RFC 8895 heartbeat comment line.
+AG-4 adds the file_export tool and the artifact download endpoint.
 """
 
 import asyncio
@@ -17,20 +19,23 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from langchain_core.messages import HumanMessage, ToolMessage
 from pydantic import BaseModel, Field
 from redis import asyncio as aioredis
 
 from ..config import Settings
 from ..security.pii_detector import PIIDetectionResult, PIIDetector
+from ..storage.factory import create_file_storage
 from ..transport.cancel import CancellationTokenRegistry
 from ..transport.endpoint import build_cancel_router, get_session_state
 from ..transport.publisher import CancelPublisher
 from ..transport.subscriber import CancelSubscriber
+from .artifacts import load_artifact_meta
 from .cycle_detection import IterationMonitor
 from .graph import build_agent_graph
 from .provider import LLMProviderFactory
+from .tools import file_export
 
 logger = logging.getLogger(__name__)
 
@@ -196,8 +201,8 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         # Build iteration monitor for cycle detection
         monitor = IterationMonitor()
 
-        # Compile and build the graph
-        graph = build_agent_graph(llm, token=token, monitor=monitor)
+        # Compile and build the graph (AG-4: file_export tool wired in)
+        graph = build_agent_graph(llm, token=token, tools=[file_export], monitor=monitor)
 
         # Queue for streaming chunks from background task to SSE generator
         queue: asyncio.Queue[Any] = asyncio.Queue()
@@ -261,6 +266,52 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         return StreamingResponse(
             _stream_generator(session_id),
             media_type="text/event-stream",
+        )
+
+    # ── Artifact download (AG-4) ──────────────────────────────────────────────
+
+    _MIME_BY_EXT = {
+        ".md": "text/markdown",
+        ".txt": "text/plain",
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".odt": "application/vnd.oasis.opendocument.text",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+
+    @app.get("/artifacts/{artifact_id}")
+    async def get_artifact(artifact_id: str) -> Any:
+        storage = create_file_storage()
+        meta = await load_artifact_meta(storage, artifact_id)
+        if meta is None:
+            return JSONResponse({"error": "Artifact not found"}, status_code=404)
+
+        status = meta.get("status")
+        if status == "generating":
+            return JSONResponse(
+                {"error": "Artifact is still generating", "status": "generating"},
+                status_code=503,
+            )
+
+        s3_key = meta.get("s3_key", "")
+        if not s3_key:
+            return JSONResponse({"error": "Artifact metadata invalid"}, status_code=404)
+
+        try:
+            content = await storage.get(s3_key)
+        except FileNotFoundError:
+            return JSONResponse({"error": "Artifact data not found"}, status_code=404)
+
+        from pathlib import Path as _Path
+
+        ext = _Path(s3_key).suffix.lower()
+        media_type = _MIME_BY_EXT.get(ext, "application/octet-stream")
+        filename = meta.get("filename", _Path(s3_key).name)
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     # ── Lifecycle ────────────────────────────────────────────────────────────

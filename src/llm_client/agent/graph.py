@@ -1,15 +1,20 @@
-"""LangGraph agent graph for agent-service (AG-1).
+"""LangGraph agent graph for agent-service (AG-1 / AG-4).
 
-Minimal Phase 1 graph: planner + final_answer nodes, one conditional edge.
+Minimal Phase 1 graph: planner + tool_executor + final_answer nodes.
 Integrates IterationMonitor (cycle detection) and CancellationToken.
-No tools in Phase 1 — AG-4 will add file_export.
+AG-4 adds tool_executor node and bind_tools wiring.
 """
 
+from __future__ import annotations
+
+import json
 import logging
-from typing import Any
+from typing import Annotated, Any, TypedDict
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import ToolMessage
 from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
 
 from ..transport.cancel import CancellationToken
 from .cycle_detection import IterationMonitor
@@ -20,34 +25,34 @@ logger = logging.getLogger(__name__)
 # ── Agent state schema ────────────────────────────────────────────────────────
 
 
-class AgentState(dict):  # type: ignore[type-arg]
-    """TypedDict-compatible state for the LangGraph agent.
+class AgentState(TypedDict, total=False):
+    """State schema for the LangGraph agent.
 
-    Fields:
-        messages:      Conversation history (LangGraph add_messages reducer).
-        user_id:       Caller identifier (for observability, masked in logs).
-        session_id:    Unique session key.
-        provider:      LLM provider name ("openai" in Phase 1).
-        model_name:    Model identifier (e.g. "gpt-4o-mini").
-        iteration:     Current loop counter (starts at 0).
-        max_iterations: Circuit-breaker limit (default 10, ADR-001).
-        final_answer:  Extracted assistant text (None until terminal node).
-        streaming_tokens: Accumulated token strings for partial answer on cancel.
+    ``messages`` uses ``add_messages`` so successive nodes append rather than
+    replace — required for the planner ↔ tool_executor loop.
     """
 
-    # We subclass dict for simplicity; TypedDict is runtime-incompatible with
-    # StateGraph which expects a plain dict-like state.
+    messages: Annotated[list, add_messages]
+    user_id: str
+    session_id: str
+    provider: str
+    model_name: str
+    iteration: int
+    max_iterations: int
+    final_answer: str | None
 
 
 # ── Node functions ────────────────────────────────────────────────────────────
 
 
-async def _planner_node(state: dict[str, Any], llm: BaseChatModel) -> dict[str, Any]:
+async def _planner_node(
+    state: dict[str, Any], llm: BaseChatModel
+) -> dict[str, Any]:
     """Invoke the LLM and return the assistant message + incremented iteration."""
     response = await llm.ainvoke(state["messages"])
     return {
         "messages": [response],
-        "iteration": state["iteration"] + 1,
+        "iteration": state.get("iteration", 0) + 1,
     }
 
 
@@ -60,6 +65,36 @@ def _final_answer_node(state: dict[str, Any]) -> dict[str, Any]:
     else:
         content = ""
     return {"final_answer": content, "messages": []}
+
+
+async def _tool_executor_node(
+    state: dict[str, Any], tools: list[Any]
+) -> dict[str, Any]:
+    """Execute every tool_call in the last AIMessage and return ToolMessages."""
+    messages = state.get("messages") or []
+    if not messages:
+        return {"messages": []}
+
+    last = messages[-1]
+    tool_calls = getattr(last, "tool_calls", None)
+    if not tool_calls:
+        return {"messages": []}
+
+    tools_by_name = {getattr(t, "name", None): t for t in tools}
+    results: list[ToolMessage] = []
+    for tc in tool_calls:
+        name = tc["name"]
+        args = tc["args"]
+        matched = tools_by_name.get(name)
+        if matched is not None:
+            result = await matched.ainvoke(args)
+            result_str = json.dumps(result) if isinstance(result, dict) else str(result)
+        else:
+            result_str = json.dumps({"error": f"Unknown tool: {name}"})
+        results.append(
+            ToolMessage(content=result_str, tool_call_id=tc["id"], name=name)
+        )
+    return {"messages": results}
 
 
 # ── Graph builder ─────────────────────────────────────────────────────────────
@@ -77,24 +112,41 @@ def build_agent_graph(
     Args:
         llm:    LangChain chat model (from LLMProviderFactory or FakeListChatModel).
         token:  Optional CancellationToken — checked between nodes (C-4).
-        tools:  Reserved for AG-4+ (file_export). Ignored in Phase 1.
+        tools:  Optional tool list (e.g. ``[file_export]``).  When provided the
+                planner is bound via ``llm.bind_tools()`` and a ``tool_executor``
+                node is wired into the graph.
         monitor: Optional IterationMonitor — called after each planner iteration.
 
     Returns:
         Compiled LangGraph graph ready for ``graph.astream(state)``.
     """
-    graph = StateGraph(dict)
+    # ── Bind tools to LLM (AG-4) ─────────────────────────────────────────────
+    bound_llm = llm
+    if tools:
+        try:
+            bound_llm = llm.bind_tools(tools)
+        except (NotImplementedError, AttributeError) as exc:
+            logger.warning(
+                "LLM does not support bind_tools (%s); tool calls disabled", exc
+            )
+
+    graph = StateGraph(AgentState)
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
     async def planner(state: dict[str, Any]) -> dict[str, Any]:
-        return await _planner_node(state, llm)
+        return await _planner_node(state, bound_llm)
 
     def final_answer(state: dict[str, Any]) -> dict[str, Any]:
         return _final_answer_node(state)
 
+    async def tool_executor(state: dict[str, Any]) -> dict[str, Any]:
+        return await _tool_executor_node(state, tools or [])
+
     graph.add_node("planner", planner)
     graph.add_node("final_answer", final_answer)
+    if tools:
+        graph.add_node("tool_executor", tool_executor)
 
     # ── Edges ────────────────────────────────────────────────────────────────
 
@@ -107,7 +159,6 @@ def build_agent_graph(
         # Cycle detection via monitor
         if monitor is not None and monitor.check(state):
             logger.warning("Graph exiting — cycle detected by IterationMonitor")
-            # Write partial answer from last message before exiting
             messages = state.get("messages") or []
             if messages:
                 last = messages[-1]
@@ -123,17 +174,26 @@ def build_agent_graph(
             )
             return END
 
+        # Tool calls → tool_executor (AG-4)
+        if tools:
+            messages = state.get("messages") or []
+            if messages:
+                last = messages[-1]
+                if getattr(last, "tool_calls", None):
+                    return "tool_executor"
+
         return "final_answer"
 
     graph.set_entry_point("planner")
-    graph.add_conditional_edges(
-        "planner",
-        route_after_planner,
-        {
-            "final_answer": "final_answer",
-            END: END,
-        },
-    )
+
+    planner_routes: dict[str, Any] = {"final_answer": "final_answer", END: END}
+    if tools:
+        planner_routes["tool_executor"] = "tool_executor"
+    graph.add_conditional_edges("planner", route_after_planner, planner_routes)
+
+    if tools:
+        graph.add_edge("tool_executor", "planner")
+
     graph.add_edge("final_answer", END)
 
     return graph.compile()

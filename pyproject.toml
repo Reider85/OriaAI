@@ -51,7 +51,7 @@ dev = [
 packages = ["src/llm_client"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "src/llm_client/agent"]
 asyncio_mode = "auto"
 markers = [
     "integration: integration tests (needs docker-compose Redis/MinIO/Vault)",
