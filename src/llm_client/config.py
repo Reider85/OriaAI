@@ -21,6 +21,9 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://127.0.0.1:6379/0"
+    redis_checkpoint_url: str = "redis://127.0.0.1:6379/1"
+    redis_checkpoint_ttl_seconds: int = 86400
+    redis_checkpoint_maxmemory_policy: str = "noeviction"
 
     # MinIO / S3
     s3_endpoint: str = "http://127.0.0.1:9000"

@@ -65,6 +65,49 @@ docker-compose exec redis redis-cli PUBLISH test hello
 
 ---
 
+## Phase 1+2 — инфраструктура Redis
+
+Redis DB 0 — ADR-013 pub/sub; Redis DB 1 — ADR-010 checkpoint-WAL. Не переключай DB без необходимости — pub/sub не работает кросс-DB в одном connection.
+
+### Проверка Redis DB 1 (checkpoint-WAL)
+
+```powershell
+# Проверка доступности DB 1
+docker-compose exec redis redis-cli -n 1 ping
+# → PONG
+
+# Проверка памяти (должно быть 0 после старта)
+docker-compose exec redis redis-cli -n 1 INFO memory | grep used_memory_human
+# → 0K
+
+# Проверка eviction policy (должно быть 0)
+docker-compose exec redis redis-cli -n 1 INFO stats | grep evicted_keys
+# → 0
+
+# Проверка AOF-персистентности
+docker-compose exec redis redis-cli -n 1 INFO persistence | grep aof_enabled
+# → 1
+
+# Проверка appendfsync
+docker-compose exec redis redis-cli CONFIG GET appendfsync
+# → 1) "appendfsync"
+# → 2) "everysec"
+```
+
+При интеграции с Блоком B-1 AOF-файл `appendonly.aof` будет расти в volume `redis-data` по мере выполнения графов.
+
+### Проверка eviction (alert)
+
+Если `evicted_keys` > 0 — alert (checkpoint-теряется, OOM imminent):
+```powershell
+docker-compose exec redis redis-cli -n 1 INFO stats | grep evicted_keys
+# Если > 0 — проверяем maxmemory-policy:
+docker-compose exec redis redis-cli -n 1 INFO memory | grep maxmemory_policy
+# → noeviction (ожидаемо)
+```
+
+---
+
 ## MinIO — проверка bucket'ов
 
 После `docker-compose up minio minio-init`:
