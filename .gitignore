@@ -21,3 +21,7 @@ data/
 venv/
 
 scripts/.runtime/
+
+# ── ML model cache ────────────────────────────────────────
+# Local ML models downloaded by scripts/download_bge_reranker.py
+models/

@@ -65,6 +65,72 @@ docker-compose exec redis redis-cli PUBLISH test hello
 
 ---
 
+## Phase 2 ML models
+
+### BGE-reranker-base setup
+
+```bash
+# 1. Скачать BGE-reranker-base модель (требуется ~600MB)
+python scripts/download_bge_reranker.py
+# → Download completed in ~2-5 minutes
+# → Smoke test passed
+# → Model cached in models/bge-reranker-base/
+```
+
+**Модель**: `BAAI/bge-reranker-base` (278M параметров, ~600MB в памяти)  
+**Назначение**: Reranker в RAG pipeline (ADR-017)  
+**Latency**: ~150 мс CPU / ~30 мс GPU на 20 чанков (batch_size=8/32)  
+**RAM-профиль**: ~600MB после загрузки, ~1.2GB пиковая при inference  
+
+```bash
+# 2. Проверить работу модели (опционально)
+docker-compose up agent-service
+# → Agent service запускается с примонтированной моделью
+# → Reranker доступен через RERANKER_MODEL_NAME env var
+```
+
+**Настройки** (в `.env`):
+- `RERANKER_MODEL_NAME=BAAI/bge-reranker-base`
+- `RERANKER_MODEL_DIR=./models/bge-reranker-base`
+- `RERANKER_DEVICE=cpu` (или `cuda` если GPU доступен)
+- `RERANKER_MAX_LENGTH=512`
+- `RERANKER_BATCH_SIZE=8`
+
+---
+
+## Phase 2 ML models
+
+### BGE-reranker-base setup
+
+```bash
+# 1. Скачать BGE-reranker-base модель (требуется ~600MB)
+python scripts/download_bge_reranker.py
+# → Download completed in ~2-5 minutes
+# → Smoke test passed
+# → Model cached in models/bge-reranker-base/
+```
+
+**Модель**: `BAAI/bge-reranker-base` (278M параметров, ~600MB в памяти)  
+**Назначение**: Reranker в RAG pipeline (ADR-017)  
+**Latency**: ~150 мс CPU / ~30 мс GPU на 20 чанков (batch_size=8/32)  
+**RAM-профиль**: ~600MB после загрузки, ~1.2GB пиковая при inference  
+
+```bash
+# 2. Проверить работу модели (опционально)
+docker-compose up agent-service
+# → Agent service запускается с примонтированной моделью
+# → Reranker доступен через RERANKER_MODEL_NAME env var
+```
+
+**Настройки** (в `.env`):
+- `RERANKER_MODEL_NAME=BAAI/bge-reranker-base`
+- `RERANKER_MODEL_DIR=./models/bge-reranker-base`
+- `RERANKER_DEVICE=cpu` (или `cuda` если GPU доступен)
+- `RERANKER_MAX_LENGTH=512`
+- `RERANKER_BATCH_SIZE=8`
+
+---
+
 ## Phase 1+2 — инфраструктура Redis
 
 Redis DB 0 — ADR-013 pub/sub; Redis DB 1 — ADR-010 checkpoint-WAL. Не переключай DB без необходимости — pub/sub не работает кросс-DB в одном connection.

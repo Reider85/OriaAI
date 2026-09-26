@@ -145,6 +145,7 @@ services:
     volumes:
       - ./src:/repo/src:ro
       - ./pyproject.toml:/repo/pyproject.toml:ro
+      - ./models:/app/models:ro
     environment:
       - AGENT_SERVICE_PORT=8000
       - REDIS_URL=redis://redis:6379/0

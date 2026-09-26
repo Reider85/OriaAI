@@ -35,6 +35,9 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "prometheus-client>=0.20.0",
     "tenacity>=8.2.0",
+    "sentence-transformers>=2.7.0",
+    "torch>=2.2.0",
+    "transformers>=4.40.0",
 ]
 
 [project.optional-dependencies]
