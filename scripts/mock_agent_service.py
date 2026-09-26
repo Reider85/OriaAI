@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 """Mock agent-service for UI latency benchmarking (prompt 11).
 
+DEPRECATED: Phase 1 AG-0 replaces this with the real agent-service
+(src/llm_client/agent/service.py).  This mock is kept exclusively for the
+UI latency benchmark (prompt 11 UI-PROMPTS) where a deterministic 50 ms
+per-1000-token delay is needed.  Do NOT use as the main backend.
+
 Spins up a minimal FastAPI server that mimics the real agent-service SSE
 endpoints (POST /sessions/{id}/chat, GET /sessions/{id}/stream).  The mock
 emits exactly TOKEN_COUNT tokens with TOKEN_DELAY_MS between each so the

@@ -268,6 +268,21 @@ function Test-TcpPort {
     }
 }
 
+function Wait-ForAgentService {
+    param([int]$TimeoutSeconds = 30)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Test-HttpEndpoint -Uri "http://127.0.0.1:8000/health") {
+            return
+        }
+        Start-Sleep -Seconds 2
+    }
+
+    throw "Agent service did not become ready within $TimeoutSeconds seconds on port 8000."
+}
+
 function Wait-ForInfrastructure {
     param([int]$TimeoutSeconds)
 
@@ -445,12 +460,15 @@ Write-Host "Starting infrastructure..." -ForegroundColor Cyan
 Invoke-Compose -DockerPath $docker -Arguments @("up", "-d")
 Wait-ForInitContainers -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
 Wait-ForInfrastructure -TimeoutSeconds $StartupTimeoutSeconds
+Write-Host "Waiting for agent-service..." -ForegroundColor Cyan
+Wait-ForAgentService -TimeoutSeconds 30
 Write-Host "Starting Streamlit UI..." -ForegroundColor Cyan
 Start-Streamlit -Python $python -PortNumber $Port
 
 Write-Host ""
 Write-Host "OriaAI is running:" -ForegroundColor Green
 Write-Host "  UI:          http://127.0.0.1:$Port"
+Write-Host "  Agent:       http://127.0.0.1:8000"
 Write-Host "  MinIO:       http://127.0.0.1:9001"
 Write-Host "  Grafana:     http://127.0.0.1:3000"
 Write-Host "  Prometheus:  http://127.0.0.1:9090"

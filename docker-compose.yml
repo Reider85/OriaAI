@@ -130,6 +130,46 @@ services:
       - llm-network
     restart: "no"
 
+  # ── Agent Service (AG-0) ────────────────────────────────
+  agent-service:
+    image: python:3.11-slim
+    container_name: llm-agent-service
+    restart: unless-stopped
+    working_dir: /repo
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./src:/repo/src:ro
+      - ./pyproject.toml:/repo/pyproject.toml:ro
+    environment:
+      - AGENT_SERVICE_PORT=8000
+      - REDIS_URL=redis://redis:6379/0
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - S3_BUCKET=llm-client-files
+      - ENVIRONMENT=dev
+      - FORENSIC_STREAM_ENABLED=false
+      - OPERATIONAL_LOG_SINK=stdout
+      - KMS_PROVIDER=local
+      - PII_DETECTOR_ENABLED=false
+    command: >
+      sh -c "pip install --quiet -e . &&
+             exec python -m llm_client.agent"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - llm-network
+    ports:
+      - "127.0.0.1:8000:8000"
+
   # ── Prometheus (ideality metric, G-2) ────────────────────
   prometheus:
     image: prom/prometheus:v2.53.0
