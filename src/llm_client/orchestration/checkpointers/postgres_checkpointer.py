@@ -70,6 +70,14 @@ _SELECT_LIST_SQL = (
 
 _DELETE_THREAD_SQL = "DELETE FROM agent_checkpoints WHERE thread_id = $1"
 
+# B-5 recovery: which threads are still worth replaying. The window is bound as
+# a parameter multiplied into an interval rather than interpolated as text, so
+# the value can never alter the statement.
+_SELECT_ACTIVE_THREAD_IDS_SQL = (
+    "SELECT DISTINCT thread_id FROM agent_checkpoints "
+    "WHERE created_at > NOW() - ($1 * INTERVAL '1 second')"
+)
+
 # Placeholder period while a full buffer waits for the flusher to drain it.
 _BACKPRESSURE_POLL_SECONDS = 0.1
 
@@ -334,6 +342,60 @@ class PostgresCheckpointer(BaseCheckpointSaver):
             del self._writes_buffer[key]
 
         await self._pg_pool.execute(_DELETE_THREAD_SQL, _as_uuid(thread_id, "thread_id"))
+
+    async def list_active_thread_ids(self, within_seconds: int = 86400) -> list[str]:
+        """Return the threads that have durable checkpoints inside the recovery window.
+
+        B-5 seeds its recovery pass from this list: PostgreSQL is the durable
+        layer, so it is the only one that knows about threads whose Redis keys
+        have already expired. The window defaults to 24 h to match the Redis
+        checkpoint TTL — anything older exists only in PostgreSQL and needs no
+        delta replay.
+
+        Args:
+            within_seconds: Look-back window in seconds (default: 86400 = 24 h).
+
+        Returns:
+            Distinct thread ids as strings, oldest-agnostic (no ordering implied).
+        """
+        if within_seconds < 0:
+            raise ValueError("within_seconds must be >= 0")
+
+        rows = await self._pg_pool.fetch(_SELECT_ACTIVE_THREAD_IDS_SQL, within_seconds)
+        return [str(row["thread_id"]) for row in rows]
+
+    async def get_latest_checkpoint(self, thread_id: str) -> Checkpoint | None:
+        """Return the newest durable checkpoint for *thread_id*, buffer first.
+
+        ``aget`` already behaves this way, but recovery needs the value without
+        the thread-id validation and fallback chain that ``aget`` performs for
+        graph callers, and it reads better at the call site in ``composite.py``.
+        """
+        return await self.aget({"configurable": {"thread_id": thread_id}})
+
+    async def replay_checkpoint(
+        self,
+        thread_id: str,
+        checkpoint: Checkpoint,
+        metadata: CheckpointMetadata | None = None,
+    ) -> None:
+        """Buffer a recovered checkpoint for the next flush.
+
+        B-5 uses this to push a Redis delta back into PostgreSQL. It appends to
+        the same buffer as ``aput`` — it does not write through — so replaying a
+        delta costs the same as a normal node transition and lands in
+        ``agent_checkpoints`` on the next background flush.
+
+        Args:
+            thread_id: Thread the checkpoint belongs to.
+            checkpoint: Checkpoint recovered from the Redis layer.
+            metadata: Checkpoint metadata; defaults to an empty mapping.
+        """
+        await self.aput(
+            {"configurable": {"thread_id": thread_id}},
+            checkpoint,
+            metadata or {},
+        )
 
     # ------------------------------------------------------------------
     # Flushing

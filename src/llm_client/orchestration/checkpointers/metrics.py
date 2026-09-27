@@ -24,6 +24,7 @@ class CheckpointMetrics:
         - checkpoint_write_redis_error_count: Counter for Redis write errors
         - checkpoint_write_pg_error_count: Counter for PostgreSQL write errors
         - checkpoint_write_both_failed_count: Counter for both-layer write failures
+        - checkpoint_recovery_*: Counters/gauges for the B-5 recovery protocol
     """
     
     def __init__(
@@ -119,6 +120,72 @@ class CheckpointMetrics:
             "Current flush interval in seconds (adaptive)",
             registry=self.registry,
         )
+
+        # B-5 recovery protocol
+        self.recovery_threads_total = Gauge(
+            f"{prefix}_recovery_threads",
+            "Threads examined by the last recovery run",
+            registry=self.registry,
+        )
+        self.recovery_pg_recovered = Counter(
+            f"{prefix}_recovery_pg_recovered_count",
+            "Threads whose latest checkpoint came from the PostgreSQL snapshot",
+            registry=self.registry,
+        )
+        self.recovery_delta_replayed = Counter(
+            f"{prefix}_recovery_delta_replayed_count",
+            "Threads whose Redis delta was replayed into PostgreSQL",
+            registry=self.registry,
+        )
+        self.recovery_conflicts = Counter(
+            f"{prefix}_recovery_conflicts_count",
+            "Checkpoint conflicts resolved during recovery",
+            registry=self.registry,
+        )
+        self.recovery_corrupted = Counter(
+            f"{prefix}_recovery_corrupted_count",
+            "Threads whose state failed post-recovery validation (needs human review)",
+            registry=self.registry,
+        )
+        self.recovery_timeouts = Counter(
+            f"{prefix}_recovery_timeout_count",
+            "Recovery runs that hit the startup timeout and finished partially",
+            registry=self.registry,
+        )
+        self.recovery_duration_ms = Histogram(
+            f"{prefix}_recovery_duration_ms",
+            "Recovery protocol duration (milliseconds)",
+            buckets=[10, 50, 100, 500, 1000, 5000, 10000, 30000],
+            registry=self.registry,
+        )
+
+    def set_recovery_threads(self, count: int) -> None:
+        """Set the number of threads examined by the last recovery run."""
+        self.recovery_threads_total.set(count)
+
+    def increment_recovery_pg_recovered(self) -> None:
+        """Increment the PG-snapshot-only recovery counter."""
+        self.recovery_pg_recovered.inc()
+
+    def increment_recovery_delta_replayed(self) -> None:
+        """Increment the Redis-delta-replayed counter."""
+        self.recovery_delta_replayed.inc()
+
+    def increment_recovery_conflict(self) -> None:
+        """Increment the checkpoint conflict counter."""
+        self.recovery_conflicts.inc()
+
+    def increment_recovery_corrupted(self) -> None:
+        """Increment the corrupted-state counter."""
+        self.recovery_corrupted.inc()
+
+    def increment_recovery_timeout(self) -> None:
+        """Increment the recovery timeout counter."""
+        self.recovery_timeouts.inc()
+
+    def record_recovery_duration(self, duration_ms: float) -> None:
+        """Record recovery duration in milliseconds."""
+        self.recovery_duration_ms.observe(duration_ms)
     
     def record_redis_write_latency(self, latency_ms: float) -> None:
         """Record Redis write latency.
@@ -238,6 +305,27 @@ class NullCheckpointMetrics(CheckpointMetrics):
         pass
     
     def set_flush_interval(self, interval_seconds: float) -> None:
+        pass
+
+    def set_recovery_threads(self, count: int) -> None:
+        pass
+
+    def increment_recovery_pg_recovered(self) -> None:
+        pass
+
+    def increment_recovery_delta_replayed(self) -> None:
+        pass
+
+    def increment_recovery_conflict(self) -> None:
+        pass
+
+    def increment_recovery_corrupted(self) -> None:
+        pass
+
+    def increment_recovery_timeout(self) -> None:
+        pass
+
+    def record_recovery_duration(self, duration_ms: float) -> None:
         pass
 
 

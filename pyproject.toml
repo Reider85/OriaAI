@@ -38,6 +38,7 @@ dependencies = [
     "sentence-transformers>=2.7.0",
     "torch>=2.2.0",
     "transformers>=4.40.0",
+    "cohere>=5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -72,3 +73,4 @@ typeCheckingMode = "basic"
 [project.entry-points."llm_client.rerankers"]
 identity = "llm_client.rag.rerankers.identity:IdentityReranker"
 bge = "llm_client.rag.rerankers.bge:BgeRerankerAdapter"
+cohere = "llm_client.rag.rerankers.cohere:CohereRerankAdapter"

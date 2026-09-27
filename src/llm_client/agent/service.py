@@ -347,6 +347,12 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             await checkpointer_bundle.postgres_checkpointer.start_flush_loop()
             logger.info("PostgreSQL checkpointer flusher started")
 
+        # Recovery protocol (B-5): restore the PG snapshot, then replay the
+        # newer Redis delta. Runs *before* the first request is accepted —
+        # a request arriving first would append to a thread whose earlier
+        # checkpoints have not been reconciled yet.
+        await _run_checkpoint_recovery(checkpointer_bundle)
+
     @app.on_event("shutdown")
     async def _shutdown() -> None:
         # Stop flusher for PostgreSQL checkpointer (B-4)
@@ -358,6 +364,58 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         await redis_client.aclose()
 
     return app
+
+
+# ── Checkpoint recovery on startup (B-5) ────────────────────────────────────
+
+#: Wall-clock budget for the recovery pass. Matches
+#: ``composite.RECOVERY_TIMEOUT_SECONDS``; a partial recovery is preferred over
+#: blocking the service start indefinitely.
+RECOVERY_TIMEOUT_SECONDS = 30.0
+
+
+async def _run_checkpoint_recovery(bundle: Any) -> dict[str, int] | None:
+    """Restore checkpoint state at startup, never failing the boot.
+
+    Only the composite checkpointer implements ``recover()``; single-layer
+    backends (``redis_only`` / ``postgres_only``) have no cross-layer delta to
+    reconcile, so they start without one. A checkpointer that failed to build
+    at all (``checkpointer is None``) is likewise a no-op.
+
+    Exceptions from recovery are logged and swallowed: an unavailable
+    PostgreSQL or Redis layer degrades the service to partial session history,
+    which is recoverable, whereas refusing to start is not.
+    """
+    checkpointer = getattr(bundle, "checkpointer", None)
+    recover = getattr(checkpointer, "recover", None)
+    if recover is None:
+        logger.info("Checkpoint recovery skipped: backend has no recover() (backend=%s)",
+                    getattr(bundle, "backend", "none"))
+        return None
+
+    try:
+        stats = await recover(timeout_seconds=RECOVERY_TIMEOUT_SECONDS)
+    except Exception:
+        logger.exception("Checkpoint recovery failed; starting with whatever state is on disk")
+        return None
+
+    logger.info(
+        "checkpoint_recovery_done pg_checkpoints_recovered=%d redis_delta_replayed=%d "
+        "conflicts_resolved=%d corrupted_states=%d threads_skipped=%d",
+        stats.get("pg_checkpoints_recovered", 0),
+        stats.get("redis_delta_replayed", 0),
+        stats.get("conflicts_resolved", 0),
+        stats.get("corrupted_states", 0),
+        stats.get("threads_skipped", 0),
+    )
+    if stats.get("threads_skipped"):
+        logger.warning(
+            "Checkpoint recovery incomplete: %d thread(s) not reached within %.0fs; "
+            "they will recover from the PostgreSQL snapshot only",
+            stats["threads_skipped"],
+            RECOVERY_TIMEOUT_SECONDS,
+        )
+    return stats
 
 
 # ── SSE stream generator (AG-3: full event protocol) ──────────────────────────

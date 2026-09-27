@@ -322,6 +322,44 @@ class RedisCheckpointer(BaseCheckpointSaver):
         latest_key = f"checkpoint:{thread_id}:latest"
         await self._redis_client.delete(latest_key)
 
+    async def list_all_thread_ids(self) -> list[str]:
+        """Return every thread_id that currently has a checkpoint in Redis.
+
+        B-5 recovery uses this to find threads that PostgreSQL has not seen yet:
+        a checkpoint written to the hot layer within the last flush interval is
+        absent from ``agent_checkpoints`` until the next batched flush, so the
+        PG-driven seed list alone would miss it.
+
+        Scans for the ``checkpoint:{thread_id}:latest`` index keys rather than
+        the per-checkpoint keys — one key per thread instead of one per
+        checkpoint, and the index is exactly "this thread has state".
+
+        Returns:
+            Distinct thread ids as strings, in unspecified order.
+        """
+        thread_ids: list[str] = []
+        seen: set[str] = set()
+
+        cursor = 0
+        while True:
+            cursor, keys = await self._redis_client.scan(
+                cursor=cursor, match="checkpoint:*:latest", count=100
+            )
+            for key in keys:
+                key_str = key.decode() if isinstance(key, bytes) else key
+                # "checkpoint:{thread_id}:latest" -> thread_id is the middle segment
+                parts = key_str.split(":")
+                if len(parts) != 3 or parts[0] != "checkpoint" or parts[2] != "latest":
+                    continue
+                thread_id = parts[1]
+                if thread_id and thread_id not in seen:
+                    seen.add(thread_id)
+                    thread_ids.append(thread_id)
+            if cursor == 0:
+                break
+
+        return thread_ids
+
     async def _store_checkpoint_with_ttl(self, key: str, value: str) -> None:
         """Store checkpoint with TTL using Redis SET command."""
         await self._redis_client.set(key, value, ex=self._ttl_seconds)
