@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""  # Phase 3, placeholder
     anthropic_model: str = "claude-3-5-sonnet-20241022"  # Phase 3
 
+    # RAG Pipeline (ADR-017/020, Phase 2)
+    reranker_enabled: bool = True  # Enable/disable reranking in RAG pipeline
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")
