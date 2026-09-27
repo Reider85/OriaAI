@@ -7,4 +7,9 @@ RUN_STAGING_LOAD=1 (as the F-4 nightly job does) to collect them.
 import os
 
 if os.getenv("RUN_STAGING_LOAD") != "1":
-    collect_ignore = ["test_cancel_latency.py"]
+    collect_ignore = [
+        "test_cancel_latency.py",
+        "test_checkpoint_latency.py",
+        "test_checkpoint_recovery.py",
+        "test_checkpoint_durability.py",
+    ]

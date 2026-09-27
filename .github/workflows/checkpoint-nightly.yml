@@ -1,0 +1,273 @@
+name: Checkpoint Staging Tests
+
+on:
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Allow manual runs
+    inputs:
+      test_type:
+        description: 'Which test to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - latency
+          - recovery
+          - durability
+
+env:
+  # Use staging environment
+  NODE_ENV: staging
+  RUN_STAGING_LOAD: 1
+
+jobs:
+  checkpoint-latency:
+    name: Checkpoint Latency Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.inputs.test_type == 'latency' || github.event.inputs.test_type == 'all'
+    
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: llm_client
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+    
+    - name: Wait for services
+      run: |
+        # Wait for PostgreSQL
+        until python -c "import asyncpg; import asyncio; asyncio.run(asyncpg.connect('postgresql://postgres:postgres@localhost:5432/llm_client'))" 2>/dev/null; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+        # Wait for Redis
+        until python -c "import redis.asyncio; import asyncio; asyncio.run(redis.asyncio.from_url('redis://localhost:6379/1').ping())" 2>/dev/null; do
+          echo "Waiting for Redis..."
+          sleep 2
+        done
+    
+    - name: Run checkpoint latency test
+      run: |
+        cd tests/staging_load
+        python -m pytest test_checkpoint_latency.py -v --tb=short
+      env:
+        REDIS_URL: redis://localhost:6379/0
+        REDIS_CHECKPOINT_URL: redis://localhost:6379/1
+        DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client
+    
+    - name: Upload latency results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: checkpoint-latency-results
+        path: |
+          tests/staging_load/*.json
+        retention-days: 7
+
+  checkpoint-recovery:
+    name: Checkpoint Recovery Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.inputs.test_type == 'recovery' || github.event.inputs.test_type == 'all'
+    
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: llm_client
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+    
+    - name: Wait for services
+      run: |
+        # Wait for PostgreSQL
+        until python -c "import asyncpg; import asyncio; asyncio.run(asyncpg.connect('postgresql://postgres:postgres@localhost:5432/llm_client'))" 2>/dev/null; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+        # Wait for Redis
+        until python -c "import redis.asyncio; import asyncio; asyncio.run(redis.asyncio.from_url('redis://localhost:6379/1').ping())" 2>/dev/null; do
+          echo "Waiting for Redis..."
+          sleep 2
+        done
+    
+    - name: Run checkpoint recovery test
+      run: |
+        cd tests/staging_load
+        python -m pytest test_checkpoint_recovery.py -v --tb=short
+      env:
+        REDIS_URL: redis://localhost:6379/0
+        REDIS_CHECKPOINT_URL: redis://localhost:6379/1
+        DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client
+    
+    - name: Upload recovery results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: checkpoint-recovery-results
+        path: |
+          tests/staging_load/*.json
+        retention-days: 7
+
+  checkpoint-durability:
+    name: Checkpoint Durability Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.inputs.test_type == 'durability' || github.event.inputs.test_type == 'all'
+    
+    # Only run weekly on Sundays at 2 AM UTC
+    if: github.event_name == 'workflow_dispatch' || github.schedule == '0 2 * * 0'
+    
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: llm_client
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+    
+    - name: Wait for services
+      run: |
+        # Wait for PostgreSQL
+        until python -c "import asyncpg; import asyncio; asyncio.run(asyncpg.connect('postgresql://postgres:postgres@localhost:5432/llm_client'))" 2>/dev/null; do
+          echo "Waiting for PostgreSQL..."
+          sleep 2
+        done
+        # Wait for Redis
+        until python -c "import redis.asyncio; import asyncio; asyncio.run(redis.asyncio.from_url('redis://localhost:6379/1').ping())" 2>/dev/null; do
+          echo "Waiting for Redis..."
+          sleep 2
+        done
+    
+    - name: Run checkpoint durability test
+      run: |
+        cd tests/staging_load
+        python -m pytest test_checkpoint_durability.py -v --tb=short -s
+      env:
+        REDIS_URL: redis://localhost:6379/0
+        REDIS_CHECKPOINT_URL: redis://localhost:6379/1
+        DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client
+        DURABILITY_SPEEDUP: "50"  # Use 50x speedup for CI to reduce time
+    
+    - name: Upload durability results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: checkpoint-durability-results
+        path: |
+          tests/staging_load/*.json
+        retention-days: 7
+
+  alert:
+    name: Alert on Failure
+    needs: [checkpoint-latency, checkpoint-recovery, checkpoint-durability]
+    runs-on: ubuntu-latest
+    if: always() && (needs.checkpoint-latency.result == 'failure' || needs.checkpoint-recovery.result == 'failure' || needs.checkpoint-durability.result == 'failure')
+    
+    steps:
+    - name: Send failure alert
+      run: |
+        echo "🚨 Checkpoint staging tests failed!"
+        echo "Please check the artifacts for details."
+        echo ""
+        echo "Failed jobs:"
+        - if: needs.checkpoint-latency.result == 'failure'
+          echo "- checkpoint-latency"
+        - if: needs.checkpoint-recovery.result == 'failure'
+          echo "- checkpoint-recovery"
+        - if: needs.checkpoint-durability.result == 'failure'
+          echo "- checkpoint-durability"
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
