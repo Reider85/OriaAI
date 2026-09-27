@@ -18,6 +18,15 @@ from langgraph.checkpoint.base import (
 from .errors import CheckpointWriteError
 
 
+def _get_thread_id(config: RunnableConfig) -> str:
+    """Extract thread_id from RunnableConfig, with fallback to 'default'.
+    
+    LangGraph passes thread_id in config["configurable"]["thread_id"].
+    Falls back to 'default' if not found.
+    """
+    return config.get("configurable", {}).get("thread_id", "default")
+
+
 class RedisCheckpointer(BaseCheckpointSaver):
     """Synchronous Redis-based checkpoint saver with TTL.
     
@@ -63,7 +72,7 @@ class RedisCheckpointer(BaseCheckpointSaver):
         Raises:
             CheckpointWriteError: If Redis write fails after 3 retries
         """
-        thread_id = config.get("thread_id", "default")
+        thread_id = _get_thread_id(config)
         checkpoint_id = checkpoint.get("id", "unknown")
         
         # Serialize checkpoint using LangGraph's serde
@@ -73,12 +82,11 @@ class RedisCheckpointer(BaseCheckpointSaver):
         key = f"checkpoint:{thread_id}:{checkpoint_id}"
         
         # Store checkpoint with TTL and update latest index
-        # The serialized_checkpoint is a tuple of (type, bytes), we need to store both
-        # Store as JSON string containing both type and data
-        import json
+        # Include metadata for parity with postgres_checkpointer
         stored_value = json.dumps({
             'type': serialized_checkpoint[0],  # Already a string
-            'data': serialized_checkpoint[1].hex()  # Convert bytes to hex string
+            'data': serialized_checkpoint[1].hex(),  # Convert bytes to hex string
+            'metadata': metadata,
         })
         await self._retry_redis_operation(
             lambda: self._store_checkpoint_with_ttl(key, stored_value)
@@ -104,7 +112,7 @@ class RedisCheckpointer(BaseCheckpointSaver):
         Returns:
             Checkpoint data or None if not found
         """
-        thread_id = config.get("thread_id", "default")
+        thread_id = _get_thread_id(config)
         latest_key = f"checkpoint:{thread_id}:latest"
         
         latest_checkpoint_id = await self._redis_client.get(latest_key)
@@ -122,8 +130,7 @@ class RedisCheckpointer(BaseCheckpointSaver):
             return None
             
         # Deserialize checkpoint using LangGraph's serde
-        # The stored data is a JSON string with type and data
-        import json
+        # The stored data is a JSON string with type and data (and metadata)
         stored_data = json.loads(serialized_checkpoint)
         serialization_type = stored_data['type']
         checkpoint_bytes = bytes.fromhex(stored_data['data'])
@@ -142,16 +149,35 @@ class RedisCheckpointer(BaseCheckpointSaver):
         Returns:
             CheckpointTuple or None if not found
         """
-        checkpoint = await self.aget(config)
-        if not checkpoint:
+        thread_id = _get_thread_id(config)
+        latest_key = f"checkpoint:{thread_id}:latest"
+        
+        latest_checkpoint_id = await self._redis_client.get(latest_key)
+        if not latest_checkpoint_id:
             return None
             
-        # For now, create a minimal tuple (metadata would be empty in this implementation)
-        # In a real implementation, you might want to store metadata separately
+        # Ensure we're working with string
+        if isinstance(latest_checkpoint_id, bytes):
+            latest_checkpoint_id = latest_checkpoint_id.decode()
+            
+        checkpoint_key = f"checkpoint:{thread_id}:{latest_checkpoint_id}"
+        serialized_checkpoint = await self._redis_client.get(checkpoint_key)
+        
+        if not serialized_checkpoint:
+            return None
+            
+        # Deserialize checkpoint using LangGraph's serde
+        stored_data = json.loads(serialized_checkpoint)
+        serialization_type = stored_data['type']
+        checkpoint_bytes = bytes.fromhex(stored_data['data'])
+        metadata = stored_data.get('metadata', {})  # Include stored metadata
+        
+        checkpoint = self.serde.loads_typed((serialization_type, checkpoint_bytes))
+        
         return CheckpointTuple(
             config=config,
             checkpoint=checkpoint,
-            metadata={},
+            metadata=metadata,
             parent_config=None,
             pending_writes=None,
         )
@@ -246,7 +272,7 @@ class RedisCheckpointer(BaseCheckpointSaver):
             task_id: Task identifier
             task_path: Optional task path (not used in this implementation)
         """
-        thread_id = config.get("thread_id", "default")
+        thread_id = _get_thread_id(config)
         
         # Store writes in a separate key with TTL
         writes_key = f"writes:{thread_id}:{task_id}"

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     redis_checkpoint_url: str = "redis://127.0.0.1:6379/1"
     redis_checkpoint_ttl_seconds: int = 86400
     redis_checkpoint_maxmemory_policy: str = "noeviction"
+    checkpoint_backend: str = "redis_postgres"
 
     # MinIO / S3
     s3_endpoint: str = "http://127.0.0.1:9000"
@@ -31,6 +32,9 @@ class Settings(BaseSettings):
     s3_secret_key: str = "minioadmin"
     s3_bucket: str = "llm-client-files"
     s3_forensic_bucket: str = "llm-client-forensic"
+
+    # PostgreSQL (for ADR-010)
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client"
 
     # Vault
     vault_addr: str = "http://127.0.0.1:8200"
@@ -71,6 +75,10 @@ class Settings(BaseSettings):
         if self.llm_provider == "openai" and not self.openai_api_key:
             raise ValueError(
                 "OPENAI_API_KEY required when LLM_PROVIDER=openai"
+            )
+        if self.checkpoint_backend not in {"redis_postgres", "redis_only", "postgres_only"}:
+            raise ValueError(
+                f"CHECKPOINT_BACKEND must be redis_postgres|redis_only|postgres_only, got {self.checkpoint_backend!r}"
             )
         return self
 

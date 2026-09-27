@@ -106,6 +106,7 @@ def build_agent_graph(
     tools: list[Any] | None = None,
     *,
     monitor: IterationMonitor | None = None,
+    checkpointer: Any | None = None,
 ) -> Any:
     """Construct and compile the Phase 1 agent graph.
 
@@ -116,6 +117,7 @@ def build_agent_graph(
                 planner is bound via ``llm.bind_tools()`` and a ``tool_executor``
                 node is wired into the graph.
         monitor: Optional IterationMonitor — called after each planner iteration.
+        checkpointer: Optional LangGraph checkpointer (e.g. RedisPostgresCheckpointer).
 
     Returns:
         Compiled LangGraph graph ready for ``graph.astream(state)``.
@@ -196,4 +198,4 @@ def build_agent_graph(
 
     graph.add_edge("final_answer", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

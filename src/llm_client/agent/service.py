@@ -36,6 +36,7 @@ from .cycle_detection import IterationMonitor
 from .graph import build_agent_graph
 from .provider import LLMProviderFactory
 from .tools import file_export
+from ..orchestration.checkpointers.factory import generate_thread_id
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,13 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     state = get_session_state()
     subscriber = CancelSubscriber(redis_client, registry)
 
+    # Build checkpointer for ADR-010
+    from ..orchestration.checkpointers.factory import build_checkpointer
+    checkpointer_bundle = build_checkpointer(settings, operational_writer=None)
+    
+    # Store checkpointer resources for lifecycle management
+    app.state.checkpointer_bundle = checkpointer_bundle
+
     # ── PII detection (AG-3: metadata event source, ADR-014 D-1) ──────────────
     pii_detector = PIIDetector(
         spacy_model=settings.pii_detector_spacy_model,
@@ -202,7 +210,14 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         monitor = IterationMonitor()
 
         # Compile and build the graph (AG-4: file_export tool wired in)
-        graph = build_agent_graph(llm, token=token, tools=[file_export], monitor=monitor)
+        # Use checkpointer if available, otherwise None (Phase 1 behavior)
+        graph = build_agent_graph(
+            llm, 
+            token=token, 
+            tools=[file_export], 
+            monitor=monitor,
+            checkpointer=checkpointer_bundle.checkpointer
+        )
 
         # Queue for streaming chunks from background task to SSE generator
         queue: asyncio.Queue[Any] = asyncio.Queue()
@@ -238,7 +253,14 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         async def _run_graph() -> None:
             """Execute graph.astream in background, push chunks to queue."""
             try:
-                async for chunk in graph.astream(initial_state):
+                # Use thread_id for checkpointing if checkpointer is available
+                config = (
+                    {"configurable": {"thread_id": generate_thread_id(session_id)}}
+                    if checkpointer_bundle.checkpointer
+                    else None
+                )
+                
+                async for chunk in graph.astream(initial_state, config=config):
                     await queue.put(chunk)
             except Exception as exc:
                 logger.exception("Graph execution failed for session %s", session_id)
