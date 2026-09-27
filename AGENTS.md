@@ -59,7 +59,7 @@ pytest tests/unit/test_cancel_token.py::test_function_name -v
 pytest tests --cov=src/llm_client --cov-report=term-missing
 ```
 
-**Test markers:** `integration` (needs docker-compose services), `staging_load` (nightly)
+**Test markers:** `integration` (needs docker-compose services), `staging_load` (nightly), `eval` (A/B test framework)
 
 ### Lint & Typecheck
 
@@ -82,6 +82,21 @@ CI runs: `ruff check` → `ruff format --check` → `mypy` → `pytest tests/uni
 alembic upgrade head
 alembic current
 ```
+
+### RAG Evaluation (Phase 2)
+
+```bash
+# A/B test for reranker evaluation (C6)
+python scripts/ab_test_reranker.py
+
+# Run evaluation tests
+pytest tests/unit -m eval -v
+
+# Run evaluation tests with coverage
+pytest tests/unit -m eval --cov=src/llm_client/rag/eval --cov-report=term-missing
+```
+
+**Evaluation framework:** A/B test framework for RAG quality metrics (recall@5). Compares baseline (no reranker) vs treatment (with reranker) configurations. PASS if recall@5 improvement ≥15% AND latency overhead <100ms.
 
 ### Start/Stop Full Stack (PowerShell)
 

@@ -33,6 +33,14 @@ def upgrade() -> None:
         )
     )
     
+    # Update existing rows to compute search_vector
+    op.execute("""
+        UPDATE documents 
+        SET search_vector = setweight(to_tsvector('english', coalesce(content, '')), 'A') || 
+                          setweight(to_tsvector('english', coalesce(metadata->>'title', '')), 'B')
+        WHERE search_vector IS NULL OR search_vector = ''
+    """)
+    
     # Create GIN index for fast tsvector queries
     op.create_index(
         "idx_documents_search_vector",

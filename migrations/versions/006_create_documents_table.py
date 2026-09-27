@@ -21,7 +21,7 @@ def upgrade() -> None:
     op.create_table(
         "users",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.TIMESTAMPTZ(), nullable=False, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.PrimaryKeyConstraint("id"),
     )
     
@@ -35,7 +35,7 @@ def upgrade() -> None:
         sa.Column("content_hash", sa.Text(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),  # Full text for search
         sa.Column("metadata", postgresql.JSONB(), nullable=True, server_default=sa.text("'{}'")),
-        sa.Column("created_at", sa.TIMESTAMPTZ(), nullable=False, server_default=sa.text("now()")),
+        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.ForeignKeyConstraint(["user_id"], ["users(id)"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )

@@ -91,3 +91,9 @@ def file_storage():
 @pytest.fixture
 def capturing_sink():
     return CapturingSink()
+
+
+@pytest.fixture
+def database_url():
+    """Database URL for integration tests."""
+    return "postgresql://postgres:postgres@localhost:5432/llm_client"

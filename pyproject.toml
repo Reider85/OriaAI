@@ -60,6 +60,7 @@ asyncio_mode = "auto"
 markers = [
     "integration: integration tests (needs docker-compose Redis/MinIO/Vault)",
     "staging_load: staging load tests (nightly)",
+    "eval: evaluation tests (A/B test framework)",
 ]
 
 [tool.ruff]
