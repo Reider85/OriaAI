@@ -68,3 +68,6 @@ line-length = 100
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
+
+[project.entry-points."llm_client.rerankers"]
+identity = "llm_client.rag.rerankers.identity:IdentityReranker"
