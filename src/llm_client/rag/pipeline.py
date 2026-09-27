@@ -7,6 +7,7 @@ from llm_client.observability.forensic_writer import ForensicStreamWriter
 from llm_client.observability.operational_writer import OperationalStreamWriter
 from llm_client.rag.config import RetrieverConfig
 from llm_client.rag.metrics import RerankerMetrics, default_reranker_metrics
+from llm_client.rag.rerankers.chain import RerankerChain
 from llm_client.rag.rerankers.registry import RerankerRegistry
 
 logger = logging.getLogger(__name__)
@@ -54,12 +55,32 @@ async def rerank_after_fusion(
     start_time = time.time()
     
     try:
-        # Get the reranker from registry
-        reranker = registry.get(config.reranker_name)
+        # Check if we should use a fallback chain
+        if config.reranker_fallback_chain:
+            # Build reranker chain from registry
+            chain_rerankers = []
+            for reranker_name in config.reranker_fallback_chain:
+                try:
+                    chain_rerankers.append(registry.get(reranker_name))
+                except Exception as e:
+                    logger.warning(
+                        "Failed to load reranker '%s' from fallback chain: %s", 
+                        reranker_name, str(e)
+                    )
+                    continue
+            
+            if not chain_rerankers:
+                logger.error("No valid rerankers found in fallback chain")
+                return _identity_fallback(fused_docs, config.reranker_top_k)
+            
+            reranker = RerankerChain(chain_rerankers)
+        else:
+            # Use single reranker (existing behavior)
+            reranker = registry.get(config.reranker_name)
         
         # Validate reranker health
         if not await reranker.health_check():
-            logger.warning("Reranker '%s' failed health check, falling back to identity", config.reranker_name)
+            logger.warning("Reranker '%s' failed health check, falling back to identity", reranker.name)
             # Log error to operational stream
             if operational_writer:
                 await operational_writer.write({

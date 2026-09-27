@@ -24,6 +24,7 @@ class RetrieverConfig:
     reranker_name: str = "bge"          # name from RerankerRegistry
     reranker_top_k: int = 5             # final chunks for LLM context
     reranker_enabled: bool = True        # toggle (False = skip rerank)
+    reranker_fallback_chain: list[str] | None = None  # fallback chain (e.g., ["cohere", "bge", "identity"])
     
     # Retrieval strategy (D-1 placeholder, not yet implemented)
     retrieval_strategy: RetrievalStrategy = RetrievalStrategy.HYBRID
@@ -47,10 +48,17 @@ class RetrieverConfig:
     @classmethod
     def from_env(cls) -> "RetrieverConfig":
         """Create config from environment variables with sensible defaults."""
+        # Parse fallback chain from env (comma-separated list)
+        fallback_chain_env = os.getenv("RERANKER_FALLBACK_CHAIN")
+        fallback_chain = None
+        if fallback_chain_env:
+            fallback_chain = [name.strip() for name in fallback_chain_env.split(",")]
+        
         return cls(
             reranker_name=os.getenv("RERANKER_NAME", "bge"),
             reranker_top_k=int(os.getenv("RERANKER_TOP_K", "5")),
             reranker_enabled=os.getenv("RERANKER_ENABLED", "true").lower() == "true",
+            reranker_fallback_chain=fallback_chain,
             retrieval_strategy=RetrievalStrategy(os.getenv("RETRIEVAL_STRATEGY", "hybrid")),
             vector_top_k=int(os.getenv("VECTOR_TOP_K", "20")),
             vector_fetch_k=int(os.getenv("VECTOR_FETCH_K", "40")),
@@ -79,3 +87,15 @@ class RetrieverConfig:
             raise ValueError("bm25_weight must be between 0 and 1")
         if self.vector_weight + self.bm25_weight != 1.0:
             raise ValueError("vector_weight + bm25_weight must equal 1.0")
+        
+        # Validate fallback chain (if specified)
+        if self.reranker_fallback_chain is not None:
+            if len(self.reranker_fallback_chain) == 0:
+                raise ValueError("reranker_fallback_chain cannot be empty")
+            if len(self.reranker_fallback_chain) > 3:
+                raise ValueError("reranker_fallback_chain cannot have more than 3 rerankers")
+            
+            # Check that all names are strings
+            for name in self.reranker_fallback_chain:
+                if not isinstance(name, str) or not name.strip():
+                    raise ValueError("reranker_fallback_chain must contain non-empty strings")

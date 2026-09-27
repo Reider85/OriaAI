@@ -73,4 +73,5 @@ typeCheckingMode = "basic"
 [project.entry-points."llm_client.rerankers"]
 identity = "llm_client.rag.rerankers.identity:IdentityReranker"
 bge = "llm_client.rag.rerankers.bge:BgeRerankerAdapter"
-cohere = "llm_client.rag.rerankers.cohere:CohereRerankAdapter"
+cohere = "llm_client.rag.rerankers.cohere:CohereRerankerAdapter"
+chain = "llm_client.rag.rerankers.chain:RerankerChain"
