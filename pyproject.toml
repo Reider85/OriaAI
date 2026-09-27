@@ -71,3 +71,4 @@ typeCheckingMode = "basic"
 
 [project.entry-points."llm_client.rerankers"]
 identity = "llm_client.rag.rerankers.identity:IdentityReranker"
+bge = "llm_client.rag.rerankers.bge:BgeRerankerAdapter"
