@@ -26,7 +26,7 @@ class RetrieverConfig:
     reranker_enabled: bool = True        # toggle (False = skip rerank)
     reranker_fallback_chain: list[str] | None = None  # fallback chain (e.g., ["cohere", "bge", "identity"])
     
-    # Retrieval strategy (D-1 placeholder, not yet implemented)
+    # Retrieval strategy (ADR-020)
     retrieval_strategy: RetrievalStrategy = RetrievalStrategy.HYBRID
     
     # Vector retrieval settings
@@ -59,16 +59,16 @@ class RetrieverConfig:
             reranker_top_k=int(os.getenv("RERANKER_TOP_K", "5")),
             reranker_enabled=os.getenv("RERANKER_ENABLED", "true").lower() == "true",
             reranker_fallback_chain=fallback_chain,
-            retrieval_strategy=RetrievalStrategy(os.getenv("RETRIEVAL_STRATEGY", "hybrid")),
+            retrieval_strategy=RetrievalStrategy(os.getenv("RAG_RETRIEVAL_STRATEGY", "hybrid")),
             vector_top_k=int(os.getenv("VECTOR_TOP_K", "20")),
             vector_fetch_k=int(os.getenv("VECTOR_FETCH_K", "40")),
             vector_search_type=os.getenv("VECTOR_SEARCH_TYPE", "mmr"),
             vector_lambda_mult=float(os.getenv("VECTOR_LAMBDA_MULT", "0.5")),
             vector_score_threshold=float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.0")),
             bm25_top_k=int(os.getenv("BM25_TOP_K", "20")),
-            bm25_weight=float(os.getenv("BM25_WEIGHT", "0.5")),
-            vector_weight=float(os.getenv("VECTOR_WEIGHT", "0.5")),
-            hybrid_top_k=int(os.getenv("HYBRID_TOP_K", "50")),
+            bm25_weight=float(os.getenv("RAG_BM25_WEIGHT", "0.5")),
+            vector_weight=float(os.getenv("RAG_VECTOR_WEIGHT", "0.5")),
+            hybrid_top_k=int(os.getenv("RAG_HYBRID_TOP_K", "50")),
         )
     
     def __post_init__(self) -> None:
