@@ -140,9 +140,6 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     # Build checkpointer for ADR-010
     from ..orchestration.checkpointers.factory import build_checkpointer
     checkpointer_bundle = build_checkpointer(settings, operational_writer=None)
-    
-    # Store checkpointer resources for lifecycle management
-    app.state.checkpointer_bundle = checkpointer_bundle
 
     # ── PII detection (AG-3: metadata event source, ADR-014 D-1) ──────────────
     pii_detector = PIIDetector(
@@ -155,6 +152,8 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     app.state.registry = registry
     app.state.subscriber = subscriber
     app.state.pii_detector = pii_detector
+    # Store checkpointer resources for lifecycle management
+    app.state.checkpointer_bundle = checkpointer_bundle
 
     # ── Cancel endpoint (ADR-013) ────────────────────────────────────────────
     app.include_router(build_cancel_router(publisher, state))
@@ -342,9 +341,19 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     async def _startup() -> None:
         await redis_client.ping()
         logger.info("agent-service connected to Redis at %s", redis_url)
+        
+        # Start flusher for PostgreSQL checkpointer (B-4)
+        if hasattr(checkpointer_bundle, 'postgres_checkpointer') and checkpointer_bundle.postgres_checkpointer:
+            await checkpointer_bundle.postgres_checkpointer.start_flush_loop()
+            logger.info("PostgreSQL checkpointer flusher started")
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
+        # Stop flusher for PostgreSQL checkpointer (B-4)
+        if hasattr(checkpointer_bundle, 'postgres_checkpointer') and checkpointer_bundle.postgres_checkpointer:
+            await checkpointer_bundle.postgres_checkpointer.stop_flush_loop()
+            logger.info("PostgreSQL checkpointer flusher stopped")
+        
         await subscriber.unsubscribe_all()
         await redis_client.aclose()
 

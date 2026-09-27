@@ -93,6 +93,32 @@ class CheckpointMetrics:
             "PostgreSQL checkpoint buffer size (if available)",
             registry=self.registry,
         )
+        
+        # Flusher-specific metrics
+        self.flush_count = Counter(
+            f"{prefix}_flush_count",
+            "Number of flush operations performed",
+            registry=self.registry,
+        )
+        
+        self.flush_duration_ms = Histogram(
+            f"{prefix}_flush_duration_ms",
+            "PostgreSQL flush operation duration (milliseconds)",
+            buckets=[1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
+            registry=self.registry,
+        )
+        
+        self.flush_error_count = Counter(
+            f"{prefix}_flush_error_count",
+            "Number of flush errors (consecutive failures)",
+            registry=self.registry,
+        )
+        
+        self.flush_interval_seconds = Gauge(
+            f"{prefix}_flush_interval_seconds",
+            "Current flush interval in seconds (adaptive)",
+            registry=self.registry,
+        )
     
     def record_redis_write_latency(self, latency_ms: float) -> None:
         """Record Redis write latency.
@@ -138,6 +164,30 @@ class CheckpointMetrics:
         """
         self.buffer_size.set(size)
     
+    def increment_flush_count(self) -> None:
+        """Increment flush operation counter."""
+        self.flush_count.inc()
+    
+    def record_flush_duration(self, duration_ms: float) -> None:
+        """Record flush operation duration.
+        
+        Args:
+            duration_ms: Duration in milliseconds
+        """
+        self.flush_duration_ms.observe(duration_ms)
+    
+    def increment_flush_error(self) -> None:
+        """Increment flush error counter."""
+        self.flush_error_count.inc()
+    
+    def set_flush_interval(self, interval_seconds: float) -> None:
+        """Set current flush interval gauge.
+        
+        Args:
+            interval_seconds: Current flush interval in seconds
+        """
+        self.flush_interval_seconds.set(interval_seconds)
+    
     def reset(self) -> None:
         """Reset all counters and gauges (useful for testing)."""
         for collector in self.registry._collector_to_names:
@@ -176,6 +226,18 @@ class NullCheckpointMetrics(CheckpointMetrics):
         pass
     
     def set_buffer_size(self, size: int) -> None:
+        pass
+    
+    def increment_flush_count(self) -> None:
+        pass
+    
+    def record_flush_duration(self, duration_ms: float) -> None:
+        pass
+    
+    def increment_flush_error(self) -> None:
+        pass
+    
+    def set_flush_interval(self, interval_seconds: float) -> None:
         pass
 
 

@@ -11,6 +11,7 @@ import redis.asyncio as aioredis
 from .composite import RedisPostgresCheckpointer
 from .postgres_checkpointer import PostgresCheckpointer
 from .redis_checkpointer import RedisCheckpointer
+from .metrics import CheckpointMetrics, NullCheckpointMetrics
 from ...config import Settings
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,9 @@ def build_checkpointer(
     pg_pool = None
     postgres_checkpointer = None
     
+    # Create metrics
+    metrics = CheckpointMetrics() if settings.environment != "test" else NullCheckpointMetrics()
+
     try:
         if backend in {"redis_postgres", "redis_only"}:
             # Create Redis client for checkpoint DB
@@ -108,13 +112,14 @@ def build_checkpointer(
             )
             pg_cp = PostgresCheckpointer(
                 pg_pool=pg_pool,
-                flush_interval_seconds=5,  # B-4 will start the flusher
-                flush_batch_size=50,
+                flush_interval_seconds=settings.checkpoint_flush_interval_seconds,
+                flush_batch_size=settings.checkpoint_flush_batch_size,
+                metrics=metrics,
             )
             checkpointer = RedisPostgresCheckpointer(
                 redis_checkpointer=redis_cp,
                 postgres_checkpointer=pg_cp,
-                metrics=None,  # Will be set by the checkpointer itself
+                metrics=metrics,
                 operational_writer=operational_writer,
                 on_total_failure=on_total_failure,
             )
@@ -125,6 +130,7 @@ def build_checkpointer(
             checkpointer = RedisCheckpointer(
                 redis_client=redis_client,
                 ttl_seconds=settings.redis_checkpoint_ttl_seconds,
+                metrics=metrics,
             )
             logger.info("Created RedisCheckpointer (redis_only)")
             
@@ -132,8 +138,9 @@ def build_checkpointer(
             # PostgreSQL-only checkpointer
             postgres_checkpointer = PostgresCheckpointer(
                 pg_pool=pg_pool,
-                flush_interval_seconds=5,
-                flush_batch_size=50,
+                flush_interval_seconds=settings.checkpoint_flush_interval_seconds,
+                flush_batch_size=settings.checkpoint_flush_batch_size,
+                metrics=metrics,
             )
             checkpointer = postgres_checkpointer
             logger.info("Created PostgresCheckpointer (postgres_only)")

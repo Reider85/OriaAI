@@ -33,7 +33,8 @@ from langgraph.checkpoint.base import (
     SerializerProtocol,
 )
 
-from .errors import CheckpointWriteError
+from .errors import CheckpointFatalError, CheckpointWriteError
+from .metrics import CheckpointMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,7 @@ class PostgresCheckpointer(BaseCheckpointSaver):
         *,
         max_buffer_multiplier: int = 10,
         backpressure_timeout_seconds: float = 30.0,
+        metrics: CheckpointMetrics | None = None,
     ) -> None:
         super().__init__(serde=serde)
         if flush_interval_seconds <= 0:
@@ -130,6 +132,7 @@ class PostgresCheckpointer(BaseCheckpointSaver):
         self.flush_batch_size = flush_batch_size
         self._max_buffer_size = flush_batch_size * max_buffer_multiplier
         self._backpressure_timeout = backpressure_timeout_seconds
+        self._metrics = metrics
 
         # Pending writes only. Read path is served by RedisCheckpointer (B-1).
         self._buffer: dict[str, _PendingCheckpoint] = {}
@@ -140,6 +143,11 @@ class PostgresCheckpointer(BaseCheckpointSaver):
         self._stopping = False
         # Guards _flush() against concurrent time-based and size-based triggers.
         self._flush_lock = asyncio.Lock()
+
+        # B-4 flusher state
+        self._consecutive_failures = 0
+        self._flush_task: asyncio.Task | None = None
+        self._current_flush_interval: float = float(flush_interval_seconds)
 
     # ------------------------------------------------------------------
     # BaseCheckpointSaver interface
@@ -189,6 +197,9 @@ class PostgresCheckpointer(BaseCheckpointSaver):
                 self._max_buffer_size,
             )
             self._panic_mode = True
+
+        if self._metrics:
+            self._metrics.set_buffer_size(len(self._buffer))
 
         if self._panic_mode or len(self._buffer) >= self.flush_batch_size:
             # Fire-and-forget: aput stays non-blocking on the happy path. The
@@ -328,11 +339,106 @@ class PostgresCheckpointer(BaseCheckpointSaver):
     # Flushing
     # ------------------------------------------------------------------
 
+    async def start_flush_loop(self) -> None:
+        """Start the background flush loop.
+
+        Creates an asyncio task that periodically calls _flush() every
+        flush_interval_seconds or flush_batch_size checkpoints.
+        """
+        if self._flush_task is not None and not self._flush_task.done():
+            logger.warning("Flush loop already running, not starting duplicate")
+            return
+
+        self._flush_task = asyncio.create_task(self._flush_loop())
+        logger.info(
+            "PostgresCheckpointer flush loop started, "
+            "interval=%ds, batch_size=%d, current_interval=%ds",
+            self.flush_interval_seconds,
+            self.flush_batch_size,
+            self._current_flush_interval,
+        )
+
+    async def stop_flush_loop(self) -> None:
+        """Stop the background flush loop gracefully.
+
+        Cancels the flush task and performs a final flush of whatever is still
+        buffered. The final flush is issued here rather than relying solely on
+        the task's own shutdown branch: a task cancelled before its first
+        scheduling never reaches that branch, and a task that already died
+        (fatal error) would skip it too.
+        """
+        self._stopping = True
+        task = self._flush_task
+        try:
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await asyncio.wait_for(task, timeout=10.0)
+                except (TimeoutError, asyncio.CancelledError):
+                    logger.warning(
+                        "Flush loop did not finish within 10s, "
+                        "final flush will be retried directly"
+                    )
+
+            try:
+                await self._flush()
+            except Exception as exc:
+                logger.error("Final flush failed during shutdown: %s", exc)
+
+            logger.info(
+                "PostgresCheckpointer flush loop stopped, %d pending in buffer",
+                len(self._buffer),
+            )
+        finally:
+            self._flush_task = None
+            self._stopping = False
+
     async def _flush_loop(self) -> None:
-        """Periodic drain loop. Started by B-4 via ``start_flush_loop()``."""
+        """Periodic drain loop with adaptive backoff and graceful shutdown.
+
+        Handles CancelledError for shutdown, tracks consecutive failures,
+        adjusts flush interval based on performance, and raises CheckpointFatalError
+        after 10 consecutive failures.
+        """
         while not self._stopping:
-            await asyncio.sleep(self.flush_interval_seconds)
-            await self._flush()
+            try:
+                # Check for work immediately, then sleep
+                if self._buffer:
+                    await self._flush()
+
+                # Sleep until next check (or until cancelled)
+                await asyncio.wait_for(
+                    asyncio.sleep(self._current_flush_interval),
+                    timeout=self._current_flush_interval + 1
+                )
+            except asyncio.CancelledError:
+                # Shutdown signal — perform final flush before exiting
+                logger.info("Received shutdown signal, performing final flush")
+                try:
+                    await self._flush()
+                except Exception as final_exc:
+                    logger.error("Final flush failed during shutdown: %s", final_exc)
+                break
+            except Exception as e:
+                # Log error, continue loop (flusher is critical, never dies)
+                self._consecutive_failures += 1
+                if self._metrics:
+                    self._metrics.increment_flush_error()
+                logger.error(
+                    "checkpoint_flush_failed attempt %d: %s",
+                    self._consecutive_failures,
+                    e,
+                )
+
+                # Check for fatal error after 10 consecutive failures
+                if self._consecutive_failures >= 10:
+                    raise CheckpointFatalError(
+                        f"PostgreSQL flush failed {self._consecutive_failures} times consecutively",
+                        self._consecutive_failures,
+                    )
+
+                # Backoff before retry
+                await asyncio.sleep(1)
 
     async def _flush(self) -> None:
         """Upsert buffered checkpoints into ``agent_checkpoints`` in batches.
@@ -345,6 +451,9 @@ class PostgresCheckpointer(BaseCheckpointSaver):
 
         On failure the buffer is left untouched so the next flush retries — losing
         a pending checkpoint silently is worse than a retry.
+
+        Implements adaptive backoff: if flush latency >500ms → interval=1s,
+        if <50ms → interval=5s (reset to default).
         """
         async with self._flush_lock:
             if not self._buffer:
@@ -374,11 +483,48 @@ class PostgresCheckpointer(BaseCheckpointSaver):
                 self._buffer_not_full.notify_all()
 
         duration_ms = (time.perf_counter() - started) * 1000
+
+        # A completed flush breaks the failure streak the flusher counts.
+        self._consecutive_failures = 0
+
+        # Record metrics
+        if self._metrics:
+            self._metrics.increment_flush_count()
+            self._metrics.record_flush_duration(duration_ms)
+            self._metrics.set_buffer_size(len(self._buffer))
+
+        # Adaptive backoff based on flush performance
+        if duration_ms > 500:
+            # Slow flush → reduce interval to 1 second
+            self._current_flush_interval = 1.0
+            logger.warning(
+                "Flush took %.1fms, reducing interval to %.1fs",
+                duration_ms,
+                self._current_flush_interval,
+            )
+        elif duration_ms < 50:
+            # Fast flush → reset to default interval
+            if self._current_flush_interval != self.flush_interval_seconds:
+                self._current_flush_interval = self.flush_interval_seconds
+                logger.info(
+                    "Flush took %.1fms, resetting interval to default %.1fs",
+                    duration_ms,
+                    self._current_flush_interval,
+                )
+
+        # Update metrics with current interval
+        if self._metrics:
+            self._metrics.set_flush_interval(self._current_flush_interval)
+
+        # Log flush event
         logger.info(
-            '{"event": "checkpoint_flush", "count": %d, "duration_ms": %.1f}',
+            '{"event": "checkpoint_flush", "count": %d, "duration_ms": %.1f, "interval": %.1f}',
             total,
             duration_ms,
+            self._current_flush_interval,
         )
+
+        # Leave panic mode if buffer drained sufficiently
         if self._panic_mode and len(self._buffer) < self._max_buffer_size // 2:
             logger.info("checkpoint buffer drained, leaving panic mode")
             self._panic_mode = False

@@ -35,6 +35,8 @@ class Settings(BaseSettings):
 
     # PostgreSQL (for ADR-010)
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client"
+    checkpoint_flush_interval_seconds: int = 5
+    checkpoint_flush_batch_size: int = 50
 
     # Vault
     vault_addr: str = "http://127.0.0.1:8200"

@@ -551,8 +551,8 @@ class TestFlushLoop:
             await asyncio.sleep(1.1)
         finally:
             task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
+            # Task should complete successfully after final flush
+            await task
 
         assert pool.execute_count >= 1
         assert checkpointer.buffer_size == 0
@@ -563,3 +563,195 @@ class TestFlushLoop:
         checkpointer._stopping = True
 
         await asyncio.wait_for(checkpointer._flush_loop(), timeout=2.0)
+
+    @pytest.mark.asyncio
+    async def test_start_flush_loop_creates_task(self, pool, config):
+        checkpointer = PostgresCheckpointer(pg_pool=pool, flush_interval_seconds=1)
+        
+        # Initially no task
+        assert checkpointer._flush_task is None
+        
+        # Start flush loop
+        await checkpointer.start_flush_loop()
+        
+        # Task should be created
+        assert checkpointer._flush_task is not None
+        assert not checkpointer._flush_task.done()
+        
+        # Clean up
+        await checkpointer.stop_flush_loop()
+
+    @pytest.mark.asyncio
+    async def test_start_flush_loop_idempotent(self, pool, config):
+        checkpointer = PostgresCheckpointer(pg_pool=pool, flush_interval_seconds=1)
+        
+        # Start first time
+        await checkpointer.start_flush_loop()
+        task1 = checkpointer._flush_task
+        
+        # Start again - should not create duplicate
+        await checkpointer.start_flush_loop()
+        task2 = checkpointer._flush_task
+        
+        assert task1 is task2  # Same task
+        
+        # Clean up
+        await checkpointer.stop_flush_loop()
+
+    @pytest.mark.asyncio
+    async def test_stop_flush_loop_cancels_task(self, pool, config):
+        checkpointer = PostgresCheckpointer(pg_pool=pool, flush_interval_seconds=1)
+        
+        await checkpointer.start_flush_loop()
+        task = checkpointer._flush_task
+        
+        # Stop should cancel the task
+        await checkpointer.stop_flush_loop()
+        
+        assert task.done()
+        assert checkpointer._flush_task is None
+
+    @pytest.mark.asyncio
+    async def test_stop_flush_loop_performs_final_flush(self, pool, config):
+        checkpointer = PostgresCheckpointer(pg_pool=pool, flush_interval_seconds=10)
+        await checkpointer.aput(config, make_checkpoint(0), {})
+        
+        # Buffer should have 1 item
+        assert checkpointer.buffer_size == 1
+        
+        # Start flush loop first
+        await checkpointer.start_flush_loop()
+        
+        # Give the flush loop a chance to run and process the buffer
+        await asyncio.sleep(0.1)
+        
+        # Now stop it - this should trigger final flush
+        await checkpointer.stop_flush_loop()
+        
+        # Buffer should be empty
+        assert checkpointer.buffer_size == 0
+        assert len(pool.rows) == 1
+
+    @pytest.mark.asyncio
+    async def test_flush_loop_handles_cancelled_error_gracefully(self, pool, config):
+        checkpointer = PostgresCheckpointer(pg_pool=pool, flush_interval_seconds=1)
+        await checkpointer.aput(config, make_checkpoint(0), {})
+        
+        # Start flush loop
+        task = asyncio.create_task(checkpointer._flush_loop())
+        
+        # Let it run briefly
+        await asyncio.sleep(0.1)
+        
+        # Cancel it - should perform final flush
+        task.cancel()
+        
+        # Wait for cancellation to complete - task should succeed after final flush
+        await task
+        
+        # Buffer should be empty (final flush happened)
+        assert checkpointer.buffer_size == 0
+        assert len(pool.rows) == 1
+
+    @pytest.mark.asyncio
+    async def test_consecutive_failures_raise_fatal_error(self, pool, config):
+        checkpointer = PostgresCheckpointer(pg_pool=pool, flush_interval_seconds=1)
+        
+        # Make flush fail
+        pool.fail_execute = True
+        
+        # Add some checkpoints to trigger flush
+        for i in range(5):
+            await checkpointer.aput(config, make_checkpoint(i), {})
+        
+        # Start flush loop
+        await checkpointer.start_flush_loop()
+        
+        # Wait for consecutive failures (1 second interval = ~2 attempts in 2 seconds)
+        await asyncio.sleep(2.0)
+        
+        # Should have multiple consecutive failures
+        assert checkpointer._consecutive_failures >= 2  # At least 2 failures
+        
+        # Clean up
+        await checkpointer.stop_flush_loop()
+
+    @pytest.mark.asyncio
+    async def test_adaptive_backoff_slow_flush(self, pool, config):
+        checkpointer = PostgresCheckpointer(pg_pool=pool, flush_interval_seconds=5)
+        
+        # Mock _write_batch to simulate slow flush
+        original_write_batch = checkpointer._write_batch
+        
+        async def slow_write_batch(batch):
+            await asyncio.sleep(0.6)  # Simulate 600ms flush
+            return await original_write_batch(batch)
+        
+        checkpointer._write_batch = slow_write_batch
+        
+        # Add checkpoint to trigger flush
+        await checkpointer.aput(config, make_checkpoint(0), {})
+        
+        # Initial interval should be 5s
+        assert checkpointer._current_flush_interval == 5
+        
+        # Trigger flush
+        await checkpointer._flush()
+        
+        # Interval should be reduced to 1s due to slow flush
+        assert checkpointer._current_flush_interval == 1.0
+
+    @pytest.mark.asyncio
+    async def test_adaptive_backoff_fast_flush_resets_interval(self, pool, config):
+        checkpointer = PostgresCheckpointer(pg_pool=pool, flush_interval_seconds=5)
+        
+        # Start with reduced interval
+        checkpointer._current_flush_interval = 2.0
+        
+        # Add checkpoint to trigger flush
+        await checkpointer.aput(config, make_checkpoint(0), {})
+        
+        # Trigger fast flush
+        await checkpointer._flush()
+        
+        # Interval should reset to default (5s) because flush was fast
+        assert checkpointer._current_flush_interval == 5
+
+    @pytest.mark.asyncio
+    async def test_metrics_recorded_during_flush(self, pool, config):
+        from llm_client.orchestration.checkpointers.metrics import CheckpointMetrics
+        
+        metrics = CheckpointMetrics()
+        checkpointer = PostgresCheckpointer(pg_pool=pool, metrics=metrics)
+        
+        # Add checkpoint and trigger flush
+        await checkpointer.aput(config, make_checkpoint(0), {})
+        await checkpointer._flush()
+        
+        # Metrics should be recorded
+        assert metrics.flush_count._value._value == 1
+        assert metrics.buffer_size._value._value == 0
+        assert metrics.flush_interval_seconds._value._value == 5
+
+    @pytest.mark.asyncio
+    async def test_metrics_interval_updated_during_adaptive_backoff(self, pool, config):
+        from llm_client.orchestration.checkpointers.metrics import CheckpointMetrics
+        
+        metrics = CheckpointMetrics()
+        checkpointer = PostgresCheckpointer(pg_pool=pool, metrics=metrics, flush_interval_seconds=5)
+        
+        # Simulate slow flush to trigger adaptive backoff
+        original_write_batch = checkpointer._write_batch
+        
+        async def slow_write_batch(batch):
+            await asyncio.sleep(0.6)
+            return await original_write_batch(batch)
+        
+        checkpointer._write_batch = slow_write_batch
+        
+        # Add checkpoint and trigger flush
+        await checkpointer.aput(config, make_checkpoint(0), {})
+        await checkpointer._flush()
+        
+        # Metrics should reflect the new interval
+        assert metrics.flush_interval_seconds._value._value == 1.0

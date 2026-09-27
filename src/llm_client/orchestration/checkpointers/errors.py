@@ -2,9 +2,10 @@
 
 __all__ = [
     "CheckpointError",
+    "CheckpointFatalError",
     "CheckpointWriteError",
-    "RedisCheckpointWriteError",
     "PostgresCheckpointWriteError",
+    "RedisCheckpointWriteError",
 ]
 
 
@@ -29,3 +30,11 @@ class RedisCheckpointWriteError(CheckpointWriteError):
 class PostgresCheckpointWriteError(CheckpointWriteError):
     """Raised when PostgreSQL checkpoint write fails after retries."""
     pass
+
+
+class CheckpointFatalError(CheckpointError):
+    """Raised when the flusher fails consecutively and cannot recover."""
+    
+    def __init__(self, message: str, consecutive_failures: int) -> None:
+        super().__init__(message)
+        self.consecutive_failures = consecutive_failures

@@ -20,11 +20,15 @@ from .errors import CheckpointWriteError
 
 def _get_thread_id(config: RunnableConfig) -> str:
     """Extract thread_id from RunnableConfig, with fallback to 'default'.
-    
+
     LangGraph passes thread_id in config["configurable"]["thread_id"].
-    Falls back to 'default' if not found.
+    Falls back to a top-level config["thread_id"] or 'default' if not found.
     """
-    return config.get("configurable", {}).get("thread_id", "default")
+    configurable = config.get("configurable") or {}
+    if "thread_id" in configurable:
+        return configurable["thread_id"]
+    thread_id = config.get("thread_id")
+    return str(thread_id) if thread_id else "default"
 
 
 class RedisCheckpointer(BaseCheckpointSaver):
@@ -39,6 +43,7 @@ class RedisCheckpointer(BaseCheckpointSaver):
         redis_client: aioredis.Redis,
         ttl_seconds: int = 86400,
         serde: SerializerProtocol | None = None,
+        metrics: Any = None,
     ) -> None:
         """Initialize Redis checkpointer.
         
@@ -50,6 +55,7 @@ class RedisCheckpointer(BaseCheckpointSaver):
         super().__init__(serde=serde)
         self._redis_client = redis_client
         self._ttl_seconds = ttl_seconds
+        self._metrics = metrics
 
     async def aput(
         self,
@@ -75,6 +81,9 @@ class RedisCheckpointer(BaseCheckpointSaver):
         thread_id = _get_thread_id(config)
         checkpoint_id = checkpoint.get("id", "unknown")
         
+        # Record write latency
+        start_time = asyncio.get_event_loop().time()
+        
         # Serialize checkpoint using LangGraph's serde
         serialized_checkpoint = self.serde.dumps_typed(checkpoint)
         
@@ -98,6 +107,11 @@ class RedisCheckpointer(BaseCheckpointSaver):
             lambda: self._redis_client.set(latest_key, checkpoint_id, ex=self._ttl_seconds)
         )
         
+        # Record write latency metrics
+        duration_ms = (asyncio.get_event_loop().time() - start_time) * 1000
+        if self._metrics:
+            self._metrics.record_redis_write_latency(duration_ms)
+        
         return config
 
     async def aget(
@@ -114,7 +128,7 @@ class RedisCheckpointer(BaseCheckpointSaver):
         """
         thread_id = _get_thread_id(config)
         latest_key = f"checkpoint:{thread_id}:latest"
-        
+
         latest_checkpoint_id = await self._redis_client.get(latest_key)
         if not latest_checkpoint_id:
             return None
@@ -134,6 +148,10 @@ class RedisCheckpointer(BaseCheckpointSaver):
         stored_data = json.loads(serialized_checkpoint)
         serialization_type = stored_data['type']
         checkpoint_bytes = bytes.fromhex(stored_data['data'])
+        
+        # Record read metrics
+        if self._metrics:
+            self._metrics.increment_redis_hit()
         
         return self.serde.loads_typed((serialization_type, checkpoint_bytes))
 
