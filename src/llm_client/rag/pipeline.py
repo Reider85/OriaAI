@@ -1,16 +1,13 @@
 """RAG (Retrieval-Augmented Generation) pipeline with reranking after fusion."""
 
-import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Sequence
 
-from llm_client.rag.config import RetrieverConfig
-from llm_client.rag.rerankers.base import Reranker, RerankResult
-from llm_client.rag.rerankers.registry import RerankerRegistry
-from llm_client.rag.metrics import RerankerMetrics, default_reranker_metrics
 from llm_client.observability.forensic_writer import ForensicStreamWriter
 from llm_client.observability.operational_writer import OperationalStreamWriter
+from llm_client.rag.config import RetrieverConfig
+from llm_client.rag.metrics import RerankerMetrics, default_reranker_metrics
+from llm_client.rag.rerankers.registry import RerankerRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +17,10 @@ async def rerank_after_fusion(
     fused_docs: list[dict],  # top-50 after RRF fusion
     config: RetrieverConfig,
     *,
-    reranker_registry: Optional[RerankerRegistry] = None,
-    metrics: Optional[RerankerMetrics] = None,
-    operational_writer: Optional[OperationalStreamWriter] = None,
-    forensic_writer: Optional[ForensicStreamWriter] = None,
+    reranker_registry: RerankerRegistry | None = None,
+    metrics: RerankerMetrics | None = None,
+    operational_writer: OperationalStreamWriter | None = None,
+    forensic_writer: ForensicStreamWriter | None = None,
 ) -> list[dict]:
     """Apply reranking to documents after fusion in the RAG pipeline.
     
@@ -133,7 +130,7 @@ async def rerank_after_fusion(
         
         return reranked_docs
         
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — intentional catch-all for graceful fallback
         # Log error and increment error counter
         logger.error("Reranking failed for query='%s', error=%s", query, str(e))
         metrics.increment_error_count()

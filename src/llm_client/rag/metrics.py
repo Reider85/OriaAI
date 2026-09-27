@@ -1,13 +1,12 @@
 """RAG (Retrieval-Augmented Generation) reranking metrics using Prometheus client."""
 
 import logging
-from typing import Optional
 
 from prometheus_client import (
+    CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
-    CollectorRegistry,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,7 +24,7 @@ class RerankerMetrics:
     
     def __init__(
         self,
-        registry: Optional[CollectorRegistry] = None,
+        registry: CollectorRegistry | None = None,
         *,
         prefix: str = "llm_client_reranker",
     ) -> None:
