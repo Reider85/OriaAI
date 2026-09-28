@@ -10,6 +10,9 @@ from llm_client.rag.metrics import RerankerMetrics, default_reranker_metrics
 from llm_client.rag.rerankers.chain import RerankerChain
 from llm_client.rag.rerankers.registry import RerankerRegistry
 
+# Real RRF fusion function available in: from llm_client.rag.retrieval import rrf_fusion
+# This _mock_rrf_fusion is kept for test isolation and backward compatibility
+
 logger = logging.getLogger(__name__)
 
 
