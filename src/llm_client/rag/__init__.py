@@ -3,11 +3,13 @@
 from .config import RetrieverConfig
 from .indexing.models import Document
 from .pipeline import rerank_after_fusion
-from .retrieval import BM25Retriever
+from .retrieval import BM25Retriever, HybridRetriever, RetrievalError
 
 __all__ = [
     "RetrieverConfig",
     "Document",
     "rerank_after_fusion",
     "BM25Retriever",
+    "HybridRetriever",
+    "RetrievalError",
 ]
