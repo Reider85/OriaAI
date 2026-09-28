@@ -1,23 +1,23 @@
-{"query": "Redis connection configuration", "relevant_doc_ids": ["doc_1"], "category": "exact_term"}
-{"query": "Redis pub/sub message routing", "relevant_doc_ids": ["doc_8"], "category": "exact_term"}
-{"query": "Docker Compose setup", "relevant_doc_ids": ["doc_2"], "category": "exact_term"}
-{"query": "Python async await patterns", "relevant_doc_ids": ["doc_3"], "category": "exact_term"}
-{"query": "PostgreSQL connection pool", "relevant_doc_ids": ["doc_4"], "category": "exact_term"}
-{"query": "Prometheus metrics monitoring", "relevant_doc_ids": ["doc_5"], "category": "exact_term"}
-{"query": "LangChain agent workflow", "relevant_doc_ids": ["doc_6"], "category": "exact_term"}
-{"query": "Streamlit UI performance optimization", "relevant_doc_ids": ["doc_7"], "category": "exact_term"}
-{"query": "MinIO S3 storage integration", "relevant_doc_ids": ["doc_9"], "category": "exact_term"}
-{"query": "Vault secret management", "relevant_doc_ids": ["doc_10"], "category": "exact_term"}
-{"query": "Presidio PII detection", "relevant_doc_ids": ["doc_11"], "category": "exact_term"}
-{"query": "spaCy natural language processing", "relevant_doc_ids": ["doc_12"], "category": "exact_term"}
-{"query": "Message queuing with RabbitMQ", "relevant_doc_ids": ["doc_19"], "category": "exact_term"}
-{"query": "GraphQL API design", "relevant_doc_ids": ["doc_35"], "category": "exact_term"}
-{"query": "WebSockets real-time communication", "relevant_doc_ids": ["doc_36"], "category": "exact_term"}
-{"query": "Serverless architecture patterns", "relevant_doc_ids": ["doc_37"], "category": "exact_term"}
-{"query": "Infrastructure as code with Terraform", "relevant_doc_ids": ["doc_27"], "category": "exact_term"}
-{"query": "Distributed transaction management", "relevant_doc_ids": ["doc_34"], "category": "exact_term"}
-{"query": "Service mesh configuration and management", "relevant_doc_ids": ["doc_28"], "category": "exact_term"}
-{"query": "Content delivery network configuration", "relevant_doc_ids": ["doc_42"], "category": "exact_term"}
+{"query": "Redis connection configuration", "relevant_doc_ids": ["doc_1"], "category": "exact_term", "subtype": "error_code"}
+{"query": "Redis pub/sub message routing", "relevant_doc_ids": ["doc_8"], "category": "exact_term", "subtype": "error_code"}
+{"query": "Docker Compose setup", "relevant_doc_ids": ["doc_2"], "category": "exact_term", "subtype": "error_code"}
+{"query": "Python async await patterns", "relevant_doc_ids": ["doc_3"], "category": "exact_term", "subtype": "error_code"}
+{"query": "PostgreSQL connection pool", "relevant_doc_ids": ["doc_4"], "category": "exact_term", "subtype": "error_code"}
+{"query": "Prometheus metrics monitoring", "relevant_doc_ids": ["doc_5"], "category": "exact_term", "subtype": "error_code"}
+{"query": "LangChain agent workflow", "relevant_doc_ids": ["doc_6"], "category": "exact_term", "subtype": "error_code"}
+{"query": "Streamlit UI performance optimization", "relevant_doc_ids": ["doc_7"], "category": "exact_term", "subtype": "error_code"}
+{"query": "MinIO S3 storage integration", "relevant_doc_ids": ["doc_9"], "category": "exact_term", "subtype": "error_code"}
+{"query": "Vault secret management", "relevant_doc_ids": ["doc_10"], "category": "exact_term", "subtype": "error_code"}
+{"query": "Presidio PII detection", "relevant_doc_ids": ["doc_11"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "spaCy natural language processing", "relevant_doc_ids": ["doc_12"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "Message queuing with RabbitMQ", "relevant_doc_ids": ["doc_19"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "GraphQL API design", "relevant_doc_ids": ["doc_35"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "WebSockets real-time communication", "relevant_doc_ids": ["doc_36"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "Serverless architecture patterns", "relevant_doc_ids": ["doc_37"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "Infrastructure as code with Terraform", "relevant_doc_ids": ["doc_27"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "Distributed transaction management", "relevant_doc_ids": ["doc_34"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "Service mesh configuration and management", "relevant_doc_ids": ["doc_28"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "Content delivery network configuration", "relevant_doc_ids": ["doc_42"], "category": "exact_term", "subtype": "employee_id"}
 {"query": "why does the application slow down when many users connect at once", "relevant_doc_ids": ["doc_4", "doc_15"], "category": "semantic"}
 {"query": "how do containers talk to each other across a cluster", "relevant_doc_ids": ["doc_32", "doc_72"], "category": "semantic"}
 {"query": "where should I keep secrets so they stay out of source code", "relevant_doc_ids": ["doc_10"], "category": "semantic"}
@@ -58,3 +58,36 @@
 {"query": "content delivry network", "relevant_doc_ids": ["doc_42"], "category": "fuzzy"}
 {"query": "postgresql connetcion pooling", "relevant_doc_ids": ["doc_15"], "category": "fuzzy"}
 {"query": "mointoring contaner logs", "relevant_doc_ids": ["doc_48"], "category": "fuzzy"}
+
+{"query": "SKU12345 product inventory", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+{"query": "SKU67890 stock level", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+{"query": "SKU24680 warehouse location", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+{"query": "SKU13579 product details", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+{"query": "SKU112233 pricing", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+{"query": "SKU445566 order status", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+{"query": "SKU778899 tracking", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+{"query": "SKU009988 returns", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+{"query": "SKU554433 backorder", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+{"query": "SKU772211 fulfillment", "relevant_doc_ids": ["doc_50"], "category": "exact_term", "subtype": "sku"}
+
+{"query": "ERR500 internal server error", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+{"query": "ERR404 not found", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+{"query": "ERR503 service unavailable", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+{"query": "ERR400 bad request", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+{"query": "ERR401 unauthorized", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+{"query": "ERR403 forbidden", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+{"query": "ERR502 gateway timeout", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+{"query": "ERR504 gateway timeout", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+{"query": "ERR429 too many requests", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+{"query": "ERR501 not implemented", "relevant_doc_ids": ["doc_13"], "category": "exact_term", "subtype": "error_code"}
+
+{"query": "EMP1001 john.doe", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "EMP1002 jane.smith", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "EMP1003 bob.wilson", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "EMP1004 alice.brown", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "EMP1005 charlie.davis", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "EMP1006 diana.miller", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "EMP1007 edward.taylor", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "EMP1008 fiona.anderson", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "EMP1009 george.thomas", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}
+{"query": "EMP1010 harris.jackson", "relevant_doc_ids": ["doc_14"], "category": "exact_term", "subtype": "employee_id"}

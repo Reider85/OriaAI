@@ -53,8 +53,166 @@ groups:
                   query:
                     params:
                       - A
+reducer:
+                    type: max
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+  - orgId: 1
+    name: hybrid-rag-recall
+    folder: Architecture
+    interval: 1m
+    rules:
+      - uid: hybrid-rag-recall-improvement-low
+        title: Hybrid RAG recall improvement low
+        condition: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Hybrid RAG exact_term recall improvement {{ $values.A.Value }}% < 30%
+            over the last 7 days. This fails the E-4 A/B test criteria.
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 604800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: min(hybrid_recall_improvement_percentage)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 30
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
                   reducer:
                     type: min
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+      - uid: hybrid-rag-latency-overhead-high
+        title: Hybrid RAG latency overhead high
+        condition: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Hybrid RAG latency overhead {{ $values.A.Value }}% > 50%
+            over the last 7 days. This fails the E-4 latency criteria.
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 604800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: max(hybrid_recall_latency_overhead_percentage)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 50
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: max
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+      - uid: hybrid-rag-subtype-threshold-fail
+        title: Hybrid RAG subtype threshold failure
+        condition: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Hybrid RAG subtype threshold failed: {{ $values.A.Value }} ({{ $values.B.Value }})
+            improvement below threshold. SKU: >=40%, error_code: >=40%, employee_id: >=25%.
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 604800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: hybrid_recall_subtype_compliance
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - true
+                    type: eq
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: all
                   type: query
               data:
                 source: A

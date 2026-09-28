@@ -171,3 +171,54 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           REDIS_CHECKPOINT_URL: redis://localhost:6379/1
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client
+
+  # E-4 hybrid RAG quick test (PR-pipeline) — quick feedback on merge/PR.
+  hybrid-rag-quick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install package + dev deps
+        run: pip install -e '.[dev]'
+      - name: E-4 hybrid RAG A/B test (quick mode)
+        run: python scripts/ab_test_hybrid_rag.py --quick
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hybrid-rag-results
+          path: reports/
+          retention-days: 30
+
+  # E-4 BM25 indexing regression test — ensure document retrieval in <1 sec.
+  bm25-indexing-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install package + dev deps
+        run: pip install -e '.[dev]'
+      - name: BM25 indexing performance test
+        run: |
+          python -c "
+          import time
+          from llm_client.rag.eval.corpus import build_eval_corpus
+          from llm_client.rag.eval.mock_pipeline import MockRetrievalPipeline
+          
+          print('Testing BM25 indexing performance...')
+          corpus = build_eval_corpus()
+          
+          start_time = time.time()
+          pipeline = MockRetrievalPipeline(corpus)
+          indexing_time = time.time() - start_time
+          
+          print(f'BM25 indexing time: {indexing_time:.3f} seconds')
+          assert indexing_time < 1.0, f'BM25 indexing took {indexing_time:.3f}s, expected <1.0s'
+          print('✅ BM25 indexing regression test passed')
+          "
