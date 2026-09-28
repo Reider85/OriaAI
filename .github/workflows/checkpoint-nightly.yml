@@ -258,16 +258,22 @@ jobs:
     
     steps:
     - name: Send failure alert
+      if: needs.checkpoint-latency.result == 'failure'
       run: |
-        echo "🚨 Checkpoint staging tests failed!"
-        echo "Please check the artifacts for details."
-        echo ""
-        echo "Failed jobs:"
-        - if: needs.checkpoint-latency.result == 'failure'
-          echo "- checkpoint-latency"
-        - if: needs.checkpoint-recovery.result == 'failure'
-          echo "- checkpoint-recovery"
-        - if: needs.checkpoint-durability.result == 'failure'
-          echo "- checkpoint-durability"
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"🚨 Checkpoint staging test failed: checkpoint-latency. Please check the artifacts for details.\"}" \
+          "${{ secrets.SLACK_WEBHOOK_URL }}"
+    
+    - name: Send recovery failure alert
+      if: needs.checkpoint-recovery.result == 'failure'
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"🚨 Checkpoint staging test failed: checkpoint-recovery. Please check the artifacts for details.\"}" \
+          "${{ secrets.SLACK_WEBHOOK_URL }}"
+    
+    - name: Send durability failure alert
+      if: needs.checkpoint-durability.result == 'failure'
+      run: |
+        curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\":\"🚨 Checkpoint staging test failed: checkpoint-durability. Please check the artifacts for details.\"}" \
+          "${{ secrets.SLACK_WEBHOOK_URL }}"

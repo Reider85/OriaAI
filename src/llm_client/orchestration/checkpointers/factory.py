@@ -3,16 +3,16 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import asyncpg
 import redis.asyncio as aioredis
 
+from ...config import Settings
 from .composite import RedisPostgresCheckpointer
+from .metrics import CheckpointMetrics, NullCheckpointMetrics
 from .postgres_checkpointer import PostgresCheckpointer
 from .redis_checkpointer import RedisCheckpointer
-from .metrics import CheckpointMetrics, NullCheckpointMetrics
-from ...config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,17 +32,17 @@ class CheckpointerBundle:
         backend: The backend that was actually created
     """
     checkpointer: Any
-    redis_client: Optional[aioredis.Redis]
-    pg_pool: Optional[asyncpg.Pool]
-    postgres_checkpointer: Optional[PostgresCheckpointer]
+    redis_client: aioredis.Redis | None
+    pg_pool: asyncpg.Pool | None
+    postgres_checkpointer: PostgresCheckpointer | None
     backend: str
 
 
 def build_checkpointer(
     settings: Settings,
     *,
-    operational_writer: Optional[Any] = None,
-    on_total_failure: Optional[Any] = None,
+    operational_writer: Any | None = None,
+    on_total_failure: Any | None = None,
 ) -> CheckpointerBundle:
     """Build a checkpointer based on the configured backend.
     
@@ -79,7 +79,7 @@ def build_checkpointer(
             loop = asyncio.get_event_loop()
             try:
                 loop.run_until_complete(redis_client.ping())
-            except Exception as exc:
+            except (aioredis.RedisError, Exception) as exc:
                 logger.warning("Redis checkpoint connection failed: %s", exc)
                 redis_client = None  # Fall through to postgres_only if available
         
@@ -99,7 +99,7 @@ def build_checkpointer(
             try:
                 loop.run_until_complete(pg_pool.acquire())
                 loop.run_until_complete(pg_pool.release())
-            except Exception as exc:
+            except (asyncpg.PostgresError, Exception) as exc:
                 logger.warning("PostgreSQL checkpoint connection failed: %s", exc)
                 pg_pool = None  # Fall through to redis_only if available
         

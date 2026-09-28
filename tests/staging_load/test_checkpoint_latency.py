@@ -25,6 +25,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 import asyncpg
 import httpx
@@ -43,7 +44,7 @@ SESSIONS_CONCURRENT = int(os.getenv("CHECKPOINT_SESSIONS_CONCURRENT", "50"))
 SESSION_START_RPS = float(os.getenv("CHECKPOINT_SESSION_START_RPS", "10"))
 NODES_PER_SESSION = int(os.getenv("CHECKPOINT_NODES_PER_SESSION", "10"))
 NODE_DELAY_S = float(os.getenv("CHECKPOINT_NODE_DELAY_S", "0.1"))
-P99_BUDGET_MS = 2.0
+P99_BUDGET_MS = float(os.getenv("P99_BUDGET_MS", "2.0"))
 
 
 @dataclass
@@ -207,6 +208,7 @@ async def test_checkpoint_latency_p99_below_2ms(test_handle):
 
     # Report shape for CI artifacts (B-6 DoD: p50/p95/p99 reported).
     report = {
+        "date": datetime.now().isoformat(),
         "samples": len(samples),
         "spawned": spawned,
         "load": {"concurrent": SESSIONS_CONCURRENT, "start_rps": SESSION_START_RPS},
@@ -218,6 +220,12 @@ async def test_checkpoint_latency_p99_below_2ms(test_handle):
         "wall_s": round(time.monotonic() - started_at, 1),
     }
     print(f"[checkpoint-latency] {json.dumps(report, sort_keys=True)}")
+    
+    # Save report to file for trend tracking
+    os.makedirs("reports", exist_ok=True)
+    report_file = f"reports/checkpoint_latency_{datetime.now().strftime('%Y-%m-%d')}.json"
+    with open(report_file, "w") as f:
+        json.dump(report, f, indent=2)
 
     assert p99 < P99_BUDGET_MS, (
         f"checkpoint p99 latency {p99:.2f} ms exceeds the {P99_BUDGET_MS:.0f} ms budget "

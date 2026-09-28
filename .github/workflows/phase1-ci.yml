@@ -115,3 +115,59 @@ jobs:
         run: pip install -e '.[dev]'
       - name: F-1 cancel latency (dev sample, Redis pub/sub)
         run: pytest -s tests/staging_load/test_cancel_latency.py --maxfail=1
+
+  # E-1 checkpoint latency quick test (PR-pipeline) — quick feedback on merge/PR.
+  checkpoint-latency-quick:
+    runs-on: ubuntu-latest
+    env:
+      RUN_STAGING_LOAD: '1'
+      CHECKPOINT_LATENCY_SAMPLES: '100'
+      CHECKPOINT_SESSIONS_CONCURRENT: '10'
+      CHECKPOINT_SESSION_START_RPS: '10'
+      CHECKPOINT_NODE_DELAY_S: '0.05'
+      P99_BUDGET_MS: '5.0'  # Looser budget for quick test
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: llm_client
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6380:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install package + dev deps
+        run: pip install -e '.[dev]'
+      - name: Wait for services
+        run: |
+          # Wait for PostgreSQL
+          until python -c "import asyncpg; import asyncio; asyncio.run(asyncpg.connect('postgresql://postgres:postgres@localhost:5432/llm_client'))" 2>/dev/null; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          # Wait for Redis
+          until python -c "import redis.asyncio; import asyncio; asyncio.run(redis.asyncio.from_url('redis://localhost:6379/1').ping())" 2>/dev/null; do
+            echo "Waiting for Redis..."
+            sleep 2
+          done
+      - name: E-1 checkpoint latency (quick sample)
+        run: |
+          cd tests/staging_load
+          python -m pytest test_checkpoint_latency.py::test_checkpoint_latency_p99_below_2ms -v --tb=short
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          REDIS_CHECKPOINT_URL: redis://localhost:6379/1
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client

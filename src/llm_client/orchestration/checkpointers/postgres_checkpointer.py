@@ -444,7 +444,7 @@ class PostgresCheckpointer(BaseCheckpointSaver):
 
             try:
                 await self._flush()
-            except Exception as exc:
+            except (asyncpg.PostgresError, Exception) as exc:
                 logger.error("Final flush failed during shutdown: %s", exc)
 
             logger.info(
@@ -478,10 +478,10 @@ class PostgresCheckpointer(BaseCheckpointSaver):
                 logger.info("Received shutdown signal, performing final flush")
                 try:
                     await self._flush()
-                except Exception as final_exc:
+                except (asyncpg.PostgresError, Exception) as final_exc:
                     logger.error("Final flush failed during shutdown: %s", final_exc)
                 break
-            except Exception as e:
+            except (asyncpg.PostgresError, Exception) as e:
                 # Log error, continue loop (flusher is critical, never dies)
                 self._consecutive_failures += 1
                 if self._metrics:
@@ -529,7 +529,7 @@ class PostgresCheckpointer(BaseCheckpointSaver):
                     break
                 try:
                     await self._write_batch(batch)
-                except Exception as exc:
+                except (asyncpg.PostgresError, Exception) as exc:
                     logger.error(
                         '{"event": "checkpoint_flush_failed", "count": %d, "error": %r}',
                         len(batch),

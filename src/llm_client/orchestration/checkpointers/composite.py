@@ -3,24 +3,21 @@
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, Callable
+from typing import Any
 
+import asyncpg
+import redis.asyncio as aioredis
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
     Checkpoint,
     CheckpointMetadata,
     CheckpointTuple,
     RunnableConfig,
-    SerializerProtocol,
 )
 
-from .errors import (
-    CheckpointError,
-    RedisCheckpointWriteError,
-    PostgresCheckpointWriteError,
-)
+from .errors import CheckpointError
 from .metrics import CheckpointMetrics, NullCheckpointMetrics
 
 logger = logging.getLogger(__name__)
@@ -57,9 +54,9 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         redis_checkpointer: BaseCheckpointSaver,
         postgres_checkpointer: BaseCheckpointSaver,
         *,
-        metrics: Optional[CheckpointMetrics] = None,
-        operational_writer: Optional[Any] = None,
-        on_total_failure: Optional[Callable[[str, str], None]] = None,
+        metrics: CheckpointMetrics | None = None,
+        operational_writer: Any | None = None,
+        on_total_failure: Callable[[str, str], None] | None = None,
     ) -> None:
         """Initialize composite checkpointer.
         
@@ -108,7 +105,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             redis_latency = (time.perf_counter() - redis_start) * 1000
             self._metrics.record_redis_write_latency(redis_latency)
             redis_success = True
-        except Exception as exc:
+        except (aioredis.RedisError, Exception) as exc:
             redis_latency = (time.perf_counter() - redis_start) * 1000
             self._metrics.record_redis_write_latency(redis_latency)
             self._metrics.increment_redis_error()
@@ -130,7 +127,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             pg_latency = (time.perf_counter() - pg_start) * 1000
             self._metrics.record_pg_buffer_latency(pg_latency)
             pg_success = True
-        except Exception as exc:
+        except (asyncpg.PostgresError, Exception) as exc:
             pg_latency = (time.perf_counter() - pg_start) * 1000
             self._metrics.record_pg_buffer_latency(pg_latency)
             self._metrics.increment_pg_error()
@@ -181,7 +178,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
                 self._metrics.increment_redis_hit()
                 logger.debug("Redis read hit for thread %s", thread_id)
                 return checkpoint
-        except Exception as exc:
+        except (aioredis.RedisError, Exception) as exc:
             logger.warning("Redis read failed, trying PostgreSQL: %s", exc)
             self._metrics.increment_redis_error()
         
@@ -192,7 +189,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
                 self._metrics.increment_pg_fallback()
                 logger.debug("PostgreSQL read fallback for thread %s", thread_id)
             return checkpoint
-        except Exception as exc:
+        except (asyncpg.PostgresError, Exception) as exc:
             logger.warning("PostgreSQL read failed: %s", exc)
             self._metrics.increment_pg_error()
             return None
@@ -215,7 +212,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             if checkpoint_tuple is not None:
                 self._metrics.increment_redis_hit()
                 return checkpoint_tuple
-        except Exception as exc:
+        except (aioredis.RedisError, Exception) as exc:
             logger.warning("Redis read failed, trying PostgreSQL: %s", exc)
             self._metrics.increment_redis_error()
         
@@ -225,7 +222,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             if checkpoint_tuple is not None:
                 self._metrics.increment_pg_fallback()
             return checkpoint_tuple
-        except Exception as exc:
+        except (asyncpg.PostgresError, Exception) as exc:
             logger.warning("PostgreSQL read failed: %s", exc)
             self._metrics.increment_pg_error()
             return None
@@ -258,7 +255,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             try:
                 async for checkpoint in self._redis.alist(config, filter=filter, before=before, limit=limit):
                     redis_checkpoints.append(checkpoint)
-            except Exception as exc:
+            except (aioredis.RedisError, Exception) as exc:
                 logger.warning("Redis list failed: %s", exc)
                 self._metrics.increment_redis_error()
         
@@ -267,7 +264,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             try:
                 async for checkpoint in self._postgres.alist(config, filter=filter, before=before, limit=limit):
                     postgres_checkpoints.append(checkpoint)
-            except Exception as exc:
+            except (asyncpg.PostgresError, Exception) as exc:
                 logger.warning("PostgreSQL list failed: %s", exc)
                 self._metrics.increment_pg_error()
         
@@ -322,13 +319,13 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         # Delegate to both layers
         try:
             await self._redis.aput_writes(config, writes, task_id, task_path)
-        except Exception as exc:
+        except (aioredis.RedisError, Exception) as exc:
             logger.warning("Redis writes failed: %s", exc)
             self._metrics.increment_redis_error()
         
         try:
             await self._postgres.aput_writes(config, writes, task_id, task_path)
-        except Exception as exc:
+        except (asyncpg.PostgresError, Exception) as exc:
             logger.warning("PostgreSQL writes failed: %s", exc)
             self._metrics.increment_pg_error()
     
@@ -341,13 +338,13 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         # Delegate to both layers
         try:
             await self._redis.adelete_thread(thread_id)
-        except Exception as exc:
+        except (aioredis.RedisError, Exception) as exc:
             logger.warning("Redis thread deletion failed: %s", exc)
             self._metrics.increment_redis_error()
         
         try:
             await self._postgres.adelete_thread(thread_id)
-        except Exception as exc:
+        except (asyncpg.PostgresError, Exception) as exc:
             logger.warning("PostgreSQL thread deletion failed: %s", exc)
             self._metrics.increment_pg_error()
     
@@ -478,7 +475,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         try:
             pg_threads = await self._postgres.list_active_thread_ids(window_seconds)
             thread_ids.extend(pg_threads)
-        except Exception as exc:
+        except (asyncpg.PostgresError, Exception) as exc:
             # Without the durable layer there is no snapshot to restore from;
             # Redis alone still holds the last writes, so try it and log.
             logger.warning(
@@ -488,7 +485,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         try:
             redis_threads = await self._redis.list_all_thread_ids()
             thread_ids.extend(redis_threads)
-        except Exception as exc:
+        except (aioredis.RedisError, Exception) as exc:
             logger.warning(
                 '{"event": "checkpoint_recovery_redis_unavailable", "error": %r}', exc
             )
@@ -513,7 +510,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
 
         try:
             pg_tuple = await self._postgres.aget_tuple(config)
-        except Exception as exc:
+        except (asyncpg.PostgresError, Exception) as exc:
             # Scenario 3: PG is down/restarting. Redis still has the recent
             # writes, so report the thread as unreconciled and move on — the
             # snapshot arrives on the next restart.
@@ -529,7 +526,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         if redis_reachable:
             try:
                 redis_tuple = await self._redis.aget_tuple(config)
-            except Exception as exc:
+            except (aioredis.RedisError, Exception) as exc:
                 logger.warning(
                     '{"event": "checkpoint_recovery_redis_read_failed", "thread_id": "%s", '
                     '"error": %r}',
@@ -603,7 +600,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
                 await self._redis.aput(
                     config, pg_tuple.checkpoint, pg_tuple.metadata
                 )
-            except Exception as exc:
+            except (aioredis.RedisError, Exception) as exc:
                 logger.warning(
                     '{"event": "checkpoint_conflict_rewrite_failed", "thread_id": "%s", '
                     '"error": %r}',
@@ -641,7 +638,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             await self._postgres.replay_checkpoint(
                 thread_id, redis_tuple.checkpoint, redis_tuple.metadata
             )
-        except Exception as exc:
+        except (asyncpg.PostgresError, Exception) as exc:
             logger.warning(
                 '{"event": "checkpoint_recovery_replay_failed", "thread_id": "%s", '
                 '"error": %r}',
