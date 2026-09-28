@@ -1,4 +1,3 @@
-from typing import Dict, Optional, List
 import os
 from importlib.metadata import entry_points
 
@@ -7,17 +6,16 @@ from llm_client.rag.rerankers.base import Reranker
 
 class RerankerNotFoundError(Exception):
     """Raised when requested reranker is not found in registry."""
-    pass
 
 
 class RerankerRegistry:
     """Registry for pluggable reranker implementations via entry points."""
     
     def __init__(self) -> None:
-        self._instances: Dict[str, Reranker] = {}
-        self._available: Optional[List[str]] = None
+        self._instances: dict[str, Reranker] = {}
+        self._available: list[str] | None = None
 
-    def _load_available(self) -> List[str]:
+    def _load_available(self) -> list[str]:
         """Load available rerankers from entry points (cached)."""
         if self._available is None:
             try:
@@ -43,7 +41,7 @@ class RerankerRegistry:
                     break
         return self._instances[name]
 
-    def list_available(self) -> List[str]:
+    def list_available(self) -> list[str]:
         """List all available reranker names."""
         return self._load_available()
 
@@ -61,7 +59,7 @@ def get_reranker(name: str) -> Reranker:
     """Get reranker by name."""
     return registry.get(name)
 
-def list_available_rerankers() -> List[str]:
+def list_available_rerankers() -> list[str]:
     """List available reranker names."""
     return registry.list_available()
 

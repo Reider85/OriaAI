@@ -8,7 +8,7 @@ from llm_client.observability.operational_writer import OperationalStreamWriter
 from llm_client.rag.config import RetrieverConfig
 from llm_client.rag.metrics import RerankerMetrics, default_reranker_metrics
 from llm_client.rag.rerankers.chain import RerankerChain
-from llm_client.rag.rerankers.registry import RerankerRegistry
+from llm_client.rag.rerankers.registry import registry as default_reranker_registry
 
 # Real RRF fusion function available in: from llm_client.rag.retrieval import rrf_fusion
 # This _mock_rrf_fusion is kept for test isolation and backward compatibility
@@ -45,7 +45,7 @@ async def rerank_after_fusion(
         RuntimeError: If all rerankers fail and fallback is not possible
     """
     # Use global instances if not provided
-    registry = reranker_registry or RerankerRegistry.registry
+    registry = reranker_registry or default_reranker_registry
     metrics = metrics or default_reranker_metrics
     
     # Early return if reranking is disabled or input is small enough
@@ -183,14 +183,19 @@ def _identity_fallback(fused_docs: list[dict], top_k: int) -> list[dict]:
     Returns:
         First top_k documents from the input list with score=1.0
     """
-    return [
-        {
+    fallback_docs = []
+    for doc in fused_docs[:top_k]:
+        # The document id is preserved so the fallback keeps the same output
+        # contract as the reranked path.
+        fallback_doc = {
             "content": doc["content"],
             "metadata": doc.get("metadata", {}),
             "score": 1.0,  # Identity fallback gives neutral score
         }
-        for i, doc in enumerate(fused_docs[:top_k])
-    ]
+        if "id" in doc:
+            fallback_doc["id"] = doc["id"]
+        fallback_docs.append(fallback_doc)
+    return fallback_docs
 
 
 async def _mock_rrf_fusion(

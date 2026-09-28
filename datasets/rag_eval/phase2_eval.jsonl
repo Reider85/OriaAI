@@ -1,0 +1,60 @@
+{"query": "Redis connection configuration", "relevant_doc_ids": ["doc_1"], "category": "exact_term"}
+{"query": "Redis pub/sub message routing", "relevant_doc_ids": ["doc_8"], "category": "exact_term"}
+{"query": "Docker Compose setup", "relevant_doc_ids": ["doc_2"], "category": "exact_term"}
+{"query": "Python async await patterns", "relevant_doc_ids": ["doc_3"], "category": "exact_term"}
+{"query": "PostgreSQL connection pool", "relevant_doc_ids": ["doc_4"], "category": "exact_term"}
+{"query": "Prometheus metrics monitoring", "relevant_doc_ids": ["doc_5"], "category": "exact_term"}
+{"query": "LangChain agent workflow", "relevant_doc_ids": ["doc_6"], "category": "exact_term"}
+{"query": "Streamlit UI performance optimization", "relevant_doc_ids": ["doc_7"], "category": "exact_term"}
+{"query": "MinIO S3 storage integration", "relevant_doc_ids": ["doc_9"], "category": "exact_term"}
+{"query": "Vault secret management", "relevant_doc_ids": ["doc_10"], "category": "exact_term"}
+{"query": "Presidio PII detection", "relevant_doc_ids": ["doc_11"], "category": "exact_term"}
+{"query": "spaCy natural language processing", "relevant_doc_ids": ["doc_12"], "category": "exact_term"}
+{"query": "Message queuing with RabbitMQ", "relevant_doc_ids": ["doc_19"], "category": "exact_term"}
+{"query": "GraphQL API design", "relevant_doc_ids": ["doc_35"], "category": "exact_term"}
+{"query": "WebSockets real-time communication", "relevant_doc_ids": ["doc_36"], "category": "exact_term"}
+{"query": "Serverless architecture patterns", "relevant_doc_ids": ["doc_37"], "category": "exact_term"}
+{"query": "Infrastructure as code with Terraform", "relevant_doc_ids": ["doc_27"], "category": "exact_term"}
+{"query": "Distributed transaction management", "relevant_doc_ids": ["doc_34"], "category": "exact_term"}
+{"query": "Service mesh configuration and management", "relevant_doc_ids": ["doc_28"], "category": "exact_term"}
+{"query": "Content delivery network configuration", "relevant_doc_ids": ["doc_42"], "category": "exact_term"}
+{"query": "why does the application slow down when many users connect at once", "relevant_doc_ids": ["doc_4", "doc_15"], "category": "semantic"}
+{"query": "how do containers talk to each other across a cluster", "relevant_doc_ids": ["doc_32", "doc_72"], "category": "semantic"}
+{"query": "where should I keep secrets so they stay out of source code", "relevant_doc_ids": ["doc_10"], "category": "semantic"}
+{"query": "detect personal data in text before storing it", "relevant_doc_ids": ["doc_11"], "category": "semantic"}
+{"query": "split one large table across several machines", "relevant_doc_ids": ["doc_31"], "category": "semantic"}
+{"query": "copy the database to another machine as a safety net", "relevant_doc_ids": ["doc_40", "doc_43"], "category": "semantic"}
+{"query": "make the results grid feel snappier for the user", "relevant_doc_ids": ["doc_7"], "category": "semantic"}
+{"query": "limit how often each caller may hit the service", "relevant_doc_ids": ["doc_30", "doc_59", "doc_79"], "category": "semantic"}
+{"query": "block unwanted automated traffic before it reaches the app", "relevant_doc_ids": ["doc_29", "doc_49"], "category": "semantic"}
+{"query": "run code without managing any servers myself", "relevant_doc_ids": ["doc_37"], "category": "semantic"}
+{"query": "run automated checks on every commit", "relevant_doc_ids": ["doc_26"], "category": "semantic"}
+{"query": "describe the whole infrastructure in a versioned file", "relevant_doc_ids": ["doc_27"], "category": "semantic"}
+{"query": "coordinate work between separately deployable units", "relevant_doc_ids": ["doc_24"], "category": "semantic"}
+{"query": "read free-form text and pull meaning out of it", "relevant_doc_ids": ["doc_12"], "category": "semantic"}
+{"query": "spread incoming requests across several backends", "relevant_doc_ids": ["doc_17"], "category": "semantic"}
+{"query": "hold frequently used results in memory to avoid recomputation", "relevant_doc_ids": ["doc_18", "doc_54", "doc_90"], "category": "semantic"}
+{"query": "find memory and CPU trouble in a running system", "relevant_doc_ids": ["doc_33"], "category": "semantic"}
+{"query": "produce readable technical documentation from the code", "relevant_doc_ids": ["doc_41", "doc_63", "doc_83", "doc_95"], "category": "semantic"}
+{"query": "find vulnerabilities inside deployed container images", "relevant_doc_ids": ["doc_25", "doc_80", "doc_88"], "category": "semantic"}
+{"query": "check whether the system survives heavy traffic", "relevant_doc_ids": ["doc_58", "doc_70"], "category": "semantic"}
+{"query": "reddis connection configuraton", "relevant_doc_ids": ["doc_1"], "category": "fuzzy"}
+{"query": "postgress connection pool", "relevant_doc_ids": ["doc_4"], "category": "fuzzy"}
+{"query": "dockr compose setp", "relevant_doc_ids": ["doc_2"], "category": "fuzzy"}
+{"query": "promethues metrics montoring", "relevant_doc_ids": ["doc_5"], "category": "fuzzy"}
+{"query": "pythn async await", "relevant_doc_ids": ["doc_3"], "category": "fuzzy"}
+{"query": "stramlit ui perfomance", "relevant_doc_ids": ["doc_7"], "category": "fuzzy"}
+{"query": "minio s3 storag", "relevant_doc_ids": ["doc_9"], "category": "fuzzy"}
+{"query": "vualt secret managment", "relevant_doc_ids": ["doc_10"], "category": "fuzzy"}
+{"query": "presidio pii detction", "relevant_doc_ids": ["doc_11"], "category": "fuzzy"}
+{"query": "spacy naturall language", "relevant_doc_ids": ["doc_12"], "category": "fuzzy"}
+{"query": "kubernets container orchestraton", "relevant_doc_ids": ["doc_16"], "category": "fuzzy"}
+{"query": "rabitmq message queing", "relevant_doc_ids": ["doc_19"], "category": "fuzzy"}
+{"query": "graphl api desgin", "relevant_doc_ids": ["doc_35"], "category": "fuzzy"}
+{"query": "websockts real time", "relevant_doc_ids": ["doc_36"], "category": "fuzzy"}
+{"query": "serverles architecture pattern", "relevant_doc_ids": ["doc_37"], "category": "fuzzy"}
+{"query": "terrafrom infrastructre code", "relevant_doc_ids": ["doc_27"], "category": "fuzzy"}
+{"query": "service meshe confguration", "relevant_doc_ids": ["doc_28"], "category": "fuzzy"}
+{"query": "content delivry network", "relevant_doc_ids": ["doc_42"], "category": "fuzzy"}
+{"query": "postgresql connetcion pooling", "relevant_doc_ids": ["doc_15"], "category": "fuzzy"}
+{"query": "mointoring contaner logs", "relevant_doc_ids": ["doc_48"], "category": "fuzzy"}
