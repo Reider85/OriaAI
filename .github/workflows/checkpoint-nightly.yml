@@ -27,7 +27,10 @@ jobs:
   checkpoint-latency:
     name: Checkpoint Latency Test
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.inputs.test_type == 'latency' || github.event.inputs.test_type == 'all'
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.test_type == 'latency' || github.event.inputs.test_type == 'all'))
     
     services:
       postgres:
@@ -99,10 +102,26 @@ jobs:
         retention-days: 7
 
   checkpoint-recovery:
-    name: Checkpoint Recovery Test
+    name: Checkpoint Recovery (${{ matrix.scenario.name }})
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.inputs.test_type == 'recovery' || github.event.inputs.test_type == 'all'
-    
+    timeout-minutes: 30
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.test_type == 'recovery' || github.event.inputs.test_type == 'all'))
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - name: planned-restart
+            select: test_recovery_planned_restart
+          - name: redis-crash
+            select: test_recovery_redis_crash
+          - name: pg-crash
+            select: test_recovery_pg_crash
+          - name: simultaneous-crash
+            select: test_recovery_simultaneous_crash or test_recovery_multiple_threads or test_recovery_performance
+
     services:
       postgres:
         image: postgres:16-alpine
@@ -117,7 +136,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      
+
       redis:
         image: redis:7-alpine
         ports:
@@ -130,17 +149,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .
-    
+
     - name: Wait for services
       run: |
         # Wait for PostgreSQL
@@ -153,32 +172,33 @@ jobs:
           echo "Waiting for Redis..."
           sleep 2
         done
-    
-    - name: Run checkpoint recovery test
+
+    - name: Run checkpoint recovery test (${{ matrix.scenario.name }})
       run: |
         cd tests/staging_load
-        python -m pytest test_checkpoint_recovery.py -v --tb=short
+        python -m pytest test_checkpoint_recovery.py -k "${{ matrix.scenario.select }}" -v --tb=short -s
       env:
         REDIS_URL: redis://localhost:6379/0
         REDIS_CHECKPOINT_URL: redis://localhost:6379/1
         DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client
-    
-    - name: Upload recovery results
+
+    - name: Upload recovery results (${{ matrix.scenario.name }})
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: checkpoint-recovery-results
+        name: checkpoint-recovery-${{ matrix.scenario.name }}-results
         path: |
+          reports/*.json
           tests/staging_load/*.json
         retention-days: 7
 
   checkpoint-durability:
     name: Checkpoint Durability Test
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.inputs.test_type == 'durability' || github.event.inputs.test_type == 'all'
-    
-    # Only run weekly on Sundays at 2 AM UTC
-    if: github.event_name == 'workflow_dispatch' || github.schedule == '0 2 * * 0'
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.test_type == 'durability' || github.event.inputs.test_type == 'all'))
     
     services:
       postgres:
@@ -255,25 +275,24 @@ jobs:
     needs: [checkpoint-latency, checkpoint-recovery, checkpoint-durability]
     runs-on: ubuntu-latest
     if: always() && (needs.checkpoint-latency.result == 'failure' || needs.checkpoint-recovery.result == 'failure' || needs.checkpoint-durability.result == 'failure')
-    
     steps:
     - name: Send failure alert
       if: needs.checkpoint-latency.result == 'failure'
       run: |
         curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\":\"🚨 Checkpoint staging test failed: checkpoint-latency. Please check the artifacts for details.\"}" \
+          --data "{\"text\":\"🚨 Checkpoint staging test failed: checkpoint-latency. See ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for details.\"}" \
           "${{ secrets.SLACK_WEBHOOK_URL }}"
-    
+
     - name: Send recovery failure alert
       if: needs.checkpoint-recovery.result == 'failure'
       run: |
         curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\":\"🚨 Checkpoint staging test failed: checkpoint-recovery. Please check the artifacts for details.\"}" \
+          --data "{\"text\":\"🚨 Checkpoint recovery scenario failed (planned restart / redis crash / pg crash / simultaneous crash). See ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for failed scenarios.\"}" \
           "${{ secrets.SLACK_WEBHOOK_URL }}"
-    
+
     - name: Send durability failure alert
       if: needs.checkpoint-durability.result == 'failure'
       run: |
         curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\":\"🚨 Checkpoint staging test failed: checkpoint-durability. Please check the artifacts for details.\"}" \
+          --data "{\"text\":\"🚨 Checkpoint staging test failed: checkpoint-durability. See ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} for details.\"}" \
           "${{ secrets.SLACK_WEBHOOK_URL }}"
