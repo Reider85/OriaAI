@@ -74,14 +74,17 @@ def agent_service_url() -> str:
     return os.getenv(AGENT_SERVICE_URL_ENV, AGENT_SERVICE_URL_DEFAULT).rstrip("/")
 
 
-def send_message(session_id: str, message: str) -> httpx.Response:
-    """POST ``{"message": ...}`` to start generation for a session.
+def send_message(session_id: str, message: str, settings: dict | None = None) -> httpx.Response:
+    """POST ``{"message": ..., "settings": ...}`` to start generation for a session.
 
     Raises ``httpx.HTTPError`` on transport-level failures; non-2xx statuses
     are returned as-is so the caller can decide how to surface them.
     """
     url = f"{agent_service_url()}/sessions/{session_id}/chat"
-    return httpx.post(url, json={"message": message}, timeout=_REQUEST_TIMEOUT)
+    body = {"message": message}
+    if settings:
+        body["settings"] = settings
+    return httpx.post(url, json=body, timeout=_REQUEST_TIMEOUT)
 
 
 def stream_tokens(

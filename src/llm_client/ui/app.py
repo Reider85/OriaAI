@@ -22,6 +22,7 @@ from llm_client.types import ArtifactRef, MessageRole
 from llm_client.ui import session, sidebar
 from llm_client.ui.auto_cancel import inject_auto_cancel
 from llm_client.ui.client import get_ui_client
+from llm_client.ui.render import render_settings_panel
 
 APP_PORT_ENV = "APP_PORT"
 APP_PORT_DEFAULT = "8501"
@@ -59,6 +60,7 @@ session_id = session.init_state()
 
 # Streamlit-specific, not in UIClient interface.
 selected = sidebar.render_sidebar()
+settings = render_settings_panel(st.session_state)
 if selected is None:
     session.new_session()
     st.session_state[PENDING_ARTIFACTS_KEY] = []
@@ -85,7 +87,7 @@ if prompt:
     pii_badge_area = client.render_user_message(prompt)
     # Streaming handled inside @st.fragment — sidebar clicks do not interrupt.
     client.render_streaming_fragment(
-        session_id, prompt, user_message, pii_badge_area
+        session_id, prompt, user_message, pii_badge_area, settings=settings
     )
 
 

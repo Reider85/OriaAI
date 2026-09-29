@@ -104,6 +104,7 @@ class UIClient(ABC):
         user_message: dict[str, Any],
         pii_badge_area: Any,
         on_pii_metadata: Callable[[Any], None] | None = None,
+        settings: dict | None = None,
     ) -> None:
         """Handle the full streaming lifecycle inside ``@st.fragment``.
 

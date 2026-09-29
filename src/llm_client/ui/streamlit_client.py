@@ -143,6 +143,7 @@ class StreamlitClient(UIClient):
         user_message: dict[str, Any],
         pii_badge_area: Any,
         on_pii_metadata: Callable[[Any], None] | None = None,
+        settings: dict | None = None,
     ) -> None:
         """Handle the full streaming lifecycle inside ``@st.fragment`` (prompt 9).
 
@@ -181,7 +182,7 @@ class StreamlitClient(UIClient):
             answer = ""
 
             try:
-                response = chat.send_message(session_id, prompt)
+                response = chat.send_message(session_id, prompt, settings=settings)
                 response.raise_for_status()
             except httpx.HTTPError as exc:
                 render.render_error(
@@ -340,6 +341,6 @@ __all__ = [
     "_STATE_PREFIX",
     "_STREAMING_DONE_KEY",
     "_STREAMING_PLACEHOLDER_KEY",
-    "_TOKEN_BUFFER_KEY",
+"_TOKEN_BUFFER_KEY",
     "StreamlitClient",
 ]

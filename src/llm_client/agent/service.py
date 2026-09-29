@@ -22,9 +22,11 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from langchain_core.messages import HumanMessage, ToolMessage
 from pydantic import BaseModel, Field
+
 from redis import asyncio as aioredis
 
 from ..config import Settings
+from ..orchestration.checkpointers.factory import generate_thread_id
 from ..security.pii_detector import PIIDetectionResult, PIIDetector
 from ..storage.factory import create_file_storage
 from ..transport.cancel import CancellationTokenRegistry
@@ -36,7 +38,6 @@ from .cycle_detection import IterationMonitor
 from .graph import build_agent_graph
 from .provider import LLMProviderFactory
 from .tools import file_export
-from ..orchestration.checkpointers.factory import generate_thread_id
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ def format_metadata_payload(
 class ChatRequest(BaseModel):
     message: str
     user_id: str | None = Field(default=None)
+    settings: dict | None = Field(default=None)
 
 
 class ChatResponse(BaseModel):
@@ -211,9 +213,9 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         # Compile and build the graph (AG-4: file_export tool wired in)
         # Use checkpointer if available, otherwise None (Phase 1 behavior)
         graph = build_agent_graph(
-            llm, 
-            token=token, 
-            tools=[file_export], 
+            llm,
+            token=token,
+            tools=[file_export],
             monitor=monitor,
             checkpointer=checkpointer_bundle.checkpointer
         )
@@ -258,7 +260,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     if checkpointer_bundle.checkpointer
                     else None
                 )
-                
+
                 async for chunk in graph.astream(initial_state, config=config):
                     await queue.put(chunk)
             except Exception as exc:
@@ -341,7 +343,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     async def _startup() -> None:
         await redis_client.ping()
         logger.info("agent-service connected to Redis at %s", redis_url)
-        
+
         # Start flusher for PostgreSQL checkpointer (B-4)
         if hasattr(checkpointer_bundle, 'postgres_checkpointer') and checkpointer_bundle.postgres_checkpointer:
             await checkpointer_bundle.postgres_checkpointer.start_flush_loop()
@@ -359,7 +361,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         if hasattr(checkpointer_bundle, 'postgres_checkpointer') and checkpointer_bundle.postgres_checkpointer:
             await checkpointer_bundle.postgres_checkpointer.stop_flush_loop()
             logger.info("PostgreSQL checkpointer flusher stopped")
-        
+
         await subscriber.unsubscribe_all()
         await redis_client.aclose()
 

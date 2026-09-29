@@ -112,7 +112,9 @@ def _render_artifact_button(artifact: dict[str, Any]) -> None:
     if status_code == 503:
         st.warning("Still generating")
     disabled_label = f"{label} (Generating...)"
-    st.download_button(disabled_label, data=b"", file_name=None, mime=mime, disabled=True)  # Streamlit-specific, not in UIClient interface.
+    st.download_button(
+            disabled_label, data=b"", file_name=None, mime=mime, disabled=True
+        )  # Streamlit-specific, not in UIClient interface.
     if st.button(f"Retry {filename}"):
         st.rerun()
 
@@ -562,6 +564,101 @@ __all__ = [
     "render_message",
     "render_pii_badge",
     "render_rag_citations",
+    "render_settings_panel",
     "render_status_badge",
     "render_web_search_results",
 ]
+
+
+def render_settings_panel(session_state: dict) -> dict:
+    """Рендерит settings panel в sidebar (collapsible). Возвращает
+    обновлённый dict с настройками для передачи в agent-service.
+
+    Args:
+        session_state: текущий st.session_state dict (читает
+            предыдущие значения).
+
+    Returns:
+        dict с fields:
+            - tools_enabled: list[str] — subset of ["web_search",
+                "rag_query", "file_export"] (default: all 3).
+            - retrieval_strategy: "vector" | "bm25" | "hybrid"
+                (default: "hybrid", ADR-020).
+            - reranker: "bge" | "cohere" | "none" (default: "bge",
+                ADR-017).
+            - max_results: int (web_search max_results, default 5,
+                range 1-20).
+            - top_k: int (rag_query top_k, default 5, range 1-20).
+    """
+    import streamlit as st
+
+    with st.sidebar.expander("⚙️ Settings", expanded=False):
+        # Sub-section: Tools:
+        st.markdown("**Tools**")
+        tools_enabled = []
+        if st.checkbox("Web search (Tavily)", value=True,
+                        key="settings_tool_web_search"):
+            tools_enabled.append("web_search")
+        if st.checkbox("RAG query (documents)", value=True,
+                        key="settings_tool_rag_query"):
+            tools_enabled.append("rag_query")
+        if st.checkbox("File export", value=True,
+                        key="settings_tool_file_export"):
+            tools_enabled.append("file_export")
+
+        # Sub-section: Retrieval (only relevant if rag_query enabled):
+        if "rag_query" in tools_enabled:
+            st.markdown("**Retrieval**")
+            retrieval_strategy = st.selectbox(
+                "Strategy",
+                options=["hybrid", "vector", "bm25"],
+                index=0,  # ADR-020 default
+                key="settings_retrieval_strategy",
+                help="hybrid = BM25 + vector (ADR-020 default); "
+                     "vector = semantic only; bm25 = exact-term only",
+            )
+            top_k = st.slider(
+                "top_k (chunks to return)",
+                min_value=1, max_value=20, value=5, step=1,
+                key="settings_top_k",
+                help="After reranker (ADR-017); 5 is recommended",
+            )
+
+            st.markdown("**Reranker**")
+            reranker = st.radio(
+                "Model",
+                options=["bge", "cohere", "none"],
+                index=0,  # ADR-017 default
+                key="settings_reranker",
+                help="bge = local in-process (ADR-017 default); "
+                     "cohere = external API (optional); "
+                     "none = disable reranking (A/B baseline)",
+            )
+        else:
+            # Defaults if rag_query disabled:
+            retrieval_strategy = "hybrid"
+            top_k = 5
+            reranker = "bge"
+
+        # Sub-section: Web search (only if web_search enabled):
+        if "web_search" in tools_enabled:
+            st.markdown("**Web search**")
+            max_results = st.slider(
+                "max_results",
+                min_value=1, max_value=20, value=5, step=1,
+                key="settings_max_results",
+                help="Tavily API max results per query",
+            )
+        else:
+            max_results = 5
+
+    # Persist in session_state для следующего re-run:
+    settings = {
+        "tools_enabled": tools_enabled,
+        "retrieval_strategy": retrieval_strategy,
+        "reranker": reranker,
+        "max_results": max_results,
+        "top_k": top_k,
+    }
+    session_state["settings"] = settings
+    return settings

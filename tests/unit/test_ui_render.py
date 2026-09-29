@@ -955,3 +955,153 @@ def test_handle_tool_event_non_web_search_does_not_render_web_panel(fake_streaml
     render.handle_tool_event("tool_result", data, client, pending_tool_calls)
 
     assert fake_streamlit.expander_calls == []
+
+
+# ── Settings Panel Tests (G-4) ─────────────────────────────────────────────────────
+
+
+def test_render_settings_panel_defaults():
+    """Test render_settings_panel with default values (all tools enabled)."""
+    session_state = {}
+    settings = render.render_settings_panel(session_state)
+    
+    # Check default values
+    assert settings["tools_enabled"] == ["web_search", "rag_query", "file_export"]
+    assert settings["retrieval_strategy"] == "hybrid"
+    assert settings["reranker"] == "bge"
+    assert settings["max_results"] == 5
+    assert settings["top_k"] == 5
+    
+    # Check session_state persistence
+    assert session_state["settings"] == settings
+
+
+def test_render_settings_panel_disable_web_search():
+    """Test render_settings_panel with web_search disabled."""
+    session_state = {}
+    
+    # Mock st.checkbox to return False for web_search
+    import streamlit as st
+    original_checkbox = st.checkbox
+    
+    def mock_checkbox(label, value=True, key=None):
+        if key == "settings_tool_web_search":
+            return False  # Disable web_search
+        return original_checkbox(label, value, key)
+    
+    st.checkbox = mock_checkbox
+    
+    try:
+        settings = render.render_settings_panel(session_state)
+        
+        # Check web_search is disabled
+        assert "web_search" not in settings["tools_enabled"]
+        assert settings["tools_enabled"] == ["rag_query", "file_export"]
+        assert settings["max_results"] == 5  # Default even when disabled
+    finally:
+        st.checkbox = original_checkbox
+
+
+def test_render_settings_panel_disable_rag_query():
+    """Test render_settings_panel with rag_query disabled (retrieval section hidden)."""
+    session_state = {}
+    
+    # Mock st.checkbox to return False for rag_query
+    import streamlit as st
+    original_checkbox = st.checkbox
+    
+    def mock_checkbox(label, value=True, key=None):
+        if key == "settings_tool_rag_query":
+            return False  # Disable rag_query
+        return original_checkbox(label, value, key)
+    
+    st.checkbox = mock_checkbox
+    
+    try:
+        settings = render.render_settings_panel(session_state)
+        
+        # Check rag_query is disabled
+        assert "rag_query" not in settings["tools_enabled"]
+        assert settings["tools_enabled"] == ["web_search", "file_export"]
+        
+        # Check defaults when rag_query is disabled
+        assert settings["retrieval_strategy"] == "hybrid"
+        assert settings["reranker"] == "bge"
+        assert settings["top_k"] == 5
+    finally:
+        st.checkbox = original_checkbox
+
+
+def test_render_settings_panel_choose_vector():
+    """Test render_settings_panel with vector retrieval strategy."""
+    session_state = {}
+    
+    # Mock st.selectbox to return "vector"
+    import streamlit as st
+    original_selectbox = st.selectbox
+    
+    def mock_selectbox(label, options=None, index=0, key=None, help=None):
+        if key == "settings_retrieval_strategy":
+            return "vector"  # Choose vector strategy
+        return original_selectbox(label, options, index, key, help)
+    
+    st.selectbox = mock_selectbox
+    
+    try:
+        settings = render.render_settings_panel(session_state)
+        
+        # Check vector strategy is selected
+        assert settings["retrieval_strategy"] == "vector"
+        assert settings["top_k"] == 5  # Default slider value
+    finally:
+        st.selectbox = original_selectbox
+
+
+def test_render_settings_panel_choose_cohere():
+    """Test render_settings_panel with Cohere reranker."""
+    session_state = {}
+    
+    # Mock st.radio to return "cohere"
+    import streamlit as st
+    original_radio = st.radio
+    
+    def mock_radio(label, options=None, index=0, key=None, help=None):
+        if key == "settings_reranker":
+            return "cohere"  # Choose Cohere reranker
+        return original_radio(label, options, index, key, help)
+    
+    st.radio = mock_radio
+    
+    try:
+        settings = render.render_settings_panel(session_state)
+        
+        # Check Cohere reranker is selected
+        assert settings["reranker"] == "cohere"
+        assert settings["top_k"] == 5  # Default slider value
+    finally:
+        st.radio = original_radio
+
+
+def test_render_settings_panel_choose_none_reranker():
+    """Test render_settings_panel with no reranker (A/B baseline mode)."""
+    session_state = {}
+    
+    # Mock st.radio to return "none"
+    import streamlit as st
+    original_radio = st.radio
+    
+    def mock_radio(label, options=None, index=0, key=None, help=None):
+        if key == "settings_reranker":
+            return "none"  # Disable reranker (A/B baseline)
+        return original_radio(label, options, index, key, help)
+    
+    st.radio = mock_radio
+    
+    try:
+        settings = render.render_settings_panel(session_state)
+        
+        # Check no reranker is selected
+        assert settings["reranker"] == "none"
+        assert settings["top_k"] == 5  # Default slider value
+    finally:
+        st.radio = original_radio
