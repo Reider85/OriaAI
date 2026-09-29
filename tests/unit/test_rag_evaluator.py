@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from llm_client.rag.config import RetrieverConfig
+from llm_client.rag.eval.evaluator import RAGEvaluator
 from llm_client.rag.eval.mock_pipeline import MockRetrievalPipeline
 from llm_client.rag.eval.models import EvalReport
 

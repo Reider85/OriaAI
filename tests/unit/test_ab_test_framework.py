@@ -47,7 +47,7 @@ class TestABTestFramework:
         
         # Check improvement calculation
         expected_improvement = (0.6 - 0.4) / 0.4 * 100  # 50%
-        assert results["improvement_percent"] == expected_improvement
+        assert results["improvement_percent"] == pytest.approx(expected_improvement, rel=1e-9)
         assert results["improvement_percent"] > 15.0  # Passes threshold
         assert results["latency_overhead_ms"] < 100.0  # Passes latency threshold
         assert results["passes"] is True
