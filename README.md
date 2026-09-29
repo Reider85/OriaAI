@@ -498,3 +498,137 @@ alembic current
 | Порт 6379 занят | Наш Redis смонтирован на `6380:6379`, `REDIS_URL` в `.env` обновлён |
 | MinIO Console 403 | Проверить `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` в `.env` |
 | `pytest` не распознаётся в PowerShell | Активировать окружение: `.\.venv\Scripts\Activate.ps1`, либо запускать `.\.venv\Scripts\python.exe -m pytest tests -v` |
+
+---
+
+## Phase 2 CI Pipeline
+
+### GitHub Actions Workflows
+
+#### PR Pipeline (`.github/workflows/phase2-ci.yml`)
+
+**Trigger**: `push` (main), `pull_request`  
+**Jobs** (parallel execution):
+
+| Job | Description | Timeout | Dependencies |
+|-----|-------------|---------|--------------|
+| `lint` | Code linting with ruff | - | - |
+| `typecheck` | Type checking with mypy | - | - |
+| `unit-tests` | Unit tests with coverage | - | - |
+| `integration-dev` | Integration tests (Redis+PG+MinIO+Vault) | 120s | Services |
+| `checkpoint-quick` | Checkpoint latency quick test (100 samples) | 120s | Services |
+| `bm25-indexing-regression` | BM25 indexer unit test | 30s | - |
+| `reranker-quick` | Reranker quick test (10 queries) | 180s | - |
+| `hybrid-rag-quick` | Hybrid RAG quick test (15 queries) | 300s | - |
+| `web-search-quick` | Web search quick test (mock Tavily) | 60s | - |
+| `rag-query-quick` | RAG query quick test (mock pipeline) | 120s | - |
+| `ui-render-phase2-quick` | UI tests (G-1..G-4) | 60s | - |
+
+**Quick tests**: All external APIs (Tavily, OpenAI, Cohere) are mocked in PR pipeline.
+
+#### Nightly Pipeline (`.github/workflows/phase2-nightly.yml`)
+
+**Trigger**: `schedule` (2 AM UTC daily), `workflow_dispatch`  
+**Services**: Full docker-compose stack  
+**Jobs** (sequential execution, staggered):
+
+| Job | Description | Timeout | Requirements |
+|-----|-------------|---------|--------------|
+| `checkpoint-latency-staging` | 1000 samples, p99 <2ms | 600s | Redis+PG |
+| `checkpoint-recovery-staging` | 4 recovery scenarios (B-5) | 1200s | Redis+PG+app |
+| `reranker-ab-test-staging` | 50+ queries, A/B test | 600s | bge model |
+| `hybrid-rag-ab-test-staging` | 30 queries, A/B test | 600s | PG tsvector + bge |
+| `web-search-integration-staging` | 5 queries, real Tavily | 180s | `STAGING_TAVILY_API_KEY` |
+| `rag-query-integration-staging` | 10 queries, real PGVector | 300s | Staging PG |
+| `sse-tool-events-staging` | Full SSE flow test | 120s | Agent service |
+| `idealidad-metric` | Phase 2 metrics update | 300s | Prometheus |
+
+**Caching**: HuggingFace models (`~/.cache/huggingface`) cached between runs  
+**Artifacts**: 30-day retention for all test reports  
+**Notifications**: Slack webhook on failure
+
+### Local CI Scripts
+
+#### Quick Pipeline (PR simulation)
+
+```powershell
+# Run all PR pipeline jobs locally
+powershell -ExecutionPolicy Bypass -File scripts\ci-local-quick.ps1
+
+# Run specific test categories
+powershell -ExecutionPolicy Bypass -File scripts\ci-local-quick.ps1 -Target "lint,typecheck,unit,checkpoint,reranker"
+```
+
+**Options**:
+- `-Target`: Specific test categories (`lint`, `typecheck`, `unit`, `integration`, `checkpoint`, `bm25`, `reranker`, `hybrid-rag`, `web-search`, `rag-query`, `ui`, `all`)
+- `-TimeoutSeconds`: Default 300 seconds per test
+- `-Port`: Streamlit port (default 8501)
+
+#### Staging Pipeline (Nightly simulation)
+
+```powershell
+# Run all nightly tests locally
+powershell -ExecutionPolicy Bypass -File scripts\ci-local-staging.ps1
+
+# Run specific staging tests
+powershell -ExecutionPolicy Bypass -File scripts\ci-local-staging.ps1 -Target "checkpoint-latency,reranker-ab-test,web-search-integration"
+```
+
+**Options**:
+- `-Target`: Specific test categories (`checkpoint-latency`, `checkpoint-recovery`, `reranker-ab-test`, `hybrid-rag-ab-test`, `web-search-integration`, `rag-query-integration`, `sse-tool-events`, `idealidad`, `all`)
+- `-TimeoutSeconds`: Default 1800 seconds per test
+- `-Port`: Streamlit port (default 8501)
+
+### Test Results
+
+All test results are saved to `test-results/` directory:
+- `test-results/checkpoint-latency/` - Checkpoint latency reports
+- `test-results/reranker-ab-test/` - Reranker A/B test results
+- `test-results/web-search-integration/` - Web search integration reports
+- `test-results/idealidad/` - Ideality metrics
+
+### Required Secrets for Nightly Pipeline
+
+Configure these GitHub repository secrets for nightly pipeline:
+
+| Secret | Purpose | Required for |
+|-------|---------|--------------|
+| `STAGING_TAVILY_API_KEY` | Real Tavily API calls | `web-search-integration-staging` |
+| `COHERE_API_KEY` | Cohere reranker API | `reranker-ab-test-staging`, `hybrid-rag-ab-test-staging` |
+| `OPENAI_API_KEY` | OpenAI API for RAG | `rag-query-integration-staging` |
+| `SLACK_WEBHOOK_URL` | Failure notifications | All jobs |
+
+### Local Development Setup
+
+For local CI testing, ensure environment variables are set in `.env`:
+
+```bash
+# Required for integration tests
+REDIS_URL=redis://localhost:6379/0
+REDIS_CHECKPOINT_URL=redis://localhost:6379/1
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client
+S3_ENDPOINT=http://localhost:9000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_BUCKET=llm-client-files
+
+# Optional for nightly tests
+STAGING_TAVILY_API_KEY=your_tavily_key_here
+COHERE_API_KEY=your_cohere_key_here
+OPENAI_API_KEY=your_openai_key_here
+```
+
+### Pipeline Architecture
+
+**Phase 2 CI extends Phase 1 baseline** with:
+- **PR pipeline**: Quick tests only, no real API calls
+- **Nightly pipeline**: Full staging tests with real APIs
+- **Local scripts**: Mirror CI behavior for local development
+- **Artifact management**: JUnit XML + JSON reports with 30-day retention
+- **Caching**: Pip packages and HuggingFace models for faster builds
+
+**Anti-patterns avoided**:
+- No real API calls in PR pipeline (mocked only)
+- No Phase 2 jobs in Phase 1 CI (separate files)
+- Nightly jobs sequential (not parallel) to avoid staging overload
+- Secrets never hardcoded in workflow files

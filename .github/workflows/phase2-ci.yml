@@ -1,0 +1,343 @@
+name: Phase 2 CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PYTHON_VERSION: '3.11'
+  CACHE_KEY: 'pip-v1-{{ hashFiles("pyproject.toml") }}'
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run ruff check
+        run: ruff check src tests
+
+  typecheck:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run mypy
+        run: mypy src/llm_client
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run unit tests
+        run: pytest tests/unit -v --cov=src/llm_client --cov-report=term-missing
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unit
+          name: codecov-unit
+
+  integration-dev:
+    name: Integration Tests (dev)
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: llm_client
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready -U postgres -d llm_client --health-interval 10s --health-timeout 5s --health-retries 5
+      minio:
+        image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+        command: server /data --console-address ":9001"
+        options: --health-cmd "curl -f http://localhost:9000/minio/health/ready" --health-interval 10s --health-timeout 5s --health-retries 5
+      vault:
+        image: hashicorp/vault:latest
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: root
+        ports:
+          - 8200:8200
+        options: --health-cmd "vault status" --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run integration tests
+        run: pytest tests/integration -v -m integration --timeout=120
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: integration-test-results
+          path: test-results/integration/
+
+  checkpoint-quick:
+    name: Checkpoint Quick (E-1)
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: llm_client
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready -U postgres -d llm_client --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run checkpoint quick test
+        run: pytest tests/staging_load/test_checkpoint_latency.py::test_checkpoint_latency_quick -v -x --timeout=120
+      - name: Upload checkpoint results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: checkpoint-quick-results
+          path: test-results/checkpoint-quick/
+
+  bm25-indexing-regression:
+    name: BM25 Indexing Regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run BM25 indexer test
+        run: pytest tests/unit/test_bm25_indexer.py -v -x --timeout=30
+      - name: Upload BM25 results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: bm25-indexing-results
+          path: test-results/bm25-indexing/
+
+  reranker-quick:
+    name: Reranker Quick (E-3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run reranker quick test
+        run: pytest tests/unit/test_ab_test_reranker.py::test_reranker_quick -v -x --timeout=180
+      - name: Upload reranker results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: reranker-quick-results
+          path: test-results/reranker-quick/
+
+  hybrid-rag-quick:
+    name: Hybrid RAG Quick (E-4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run hybrid RAG quick test
+        run: pytest tests/unit/test_ab_test_hybrid_rag.py::test_hybrid_rag_quick -v -x --timeout=300
+      - name: Upload hybrid RAG results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: hybrid-rag-quick-results
+          path: test-results/hybrid-rag-quick/
+
+  web-search-quick:
+    name: Web Search Quick (AG-5)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run web search quick test
+        run: pytest tests/unit/test_web_search.py::test_web_search_mock -v -x --timeout=60
+      - name: Upload web search results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: web-search-quick-results
+          path: test-results/web-search-quick/
+
+  rag-query-quick:
+    name: RAG Query Quick (AG-6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run RAG query quick test
+        run: pytest tests/unit/test_rag_pipeline.py::test_rag_pipeline_mock -v -x --timeout=120
+      - name: Upload RAG query results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: rag-query-quick-results
+          path: test-results/rag-query-quick/
+
+  ui-render-phase2-quick:
+    name: UI Render Phase 2 Quick (G-1..G-4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ env.CACHE_KEY }}
+          restore-keys: |
+            pip-v1-
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Run UI tests
+        run: pytest tests/unit/test_ui_render.py tests/unit/test_ui_streamlit_client.py tests/unit/test_ui_sidebar.py tests/unit/test_ui_session.py tests/unit/test_ui_client.py tests/unit/test_ui_chat.py -v -x --timeout=60
+      - name: Upload UI test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: ui-render-phase2-quick-results
+          path: test-results/ui-render-phase2-quick/
