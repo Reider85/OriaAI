@@ -118,10 +118,6 @@ class _FakeStreamlit:
         """Mock st.success method."""
         self.success_calls = text
 
-    def error(self, text):
-        """Mock st.error method."""
-        self.errors.append(text)
-
 
 class _FakeStatus:
     def __enter__(self):
@@ -1105,3 +1101,116 @@ def test_render_settings_panel_choose_none_reranker():
         assert settings["top_k"] == 5  # Default slider value
     finally:
         st.radio = original_radio
+
+
+# ── G-1..G-3: result payloads are recorded so panels survive a fragment rerun ──
+def test_handle_tool_event_tool_result_records_full_results(fake_streamlit):
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "web_search",
+            "args": {"query": "python"},
+            "status": "running",
+            "result_preview": None,
+        }
+    }
+    data = {
+        "tool_call_id": "tc1",
+        "preview": {"snippet_count": 2},
+        "full_results": [
+            {"title": "asyncio", "url": "https://docs.python.org", "snippet": "..."}
+        ],
+    }
+
+    render.handle_tool_event("tool_result", data, fake_streamlit, pending_tool_calls)
+    assert pending_tool_calls["tc1"]["full_results"] == data["full_results"]
+
+
+def test_handle_tool_event_tool_result_without_full_results_omits_key(fake_streamlit):
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "file_export",
+            "args": {},
+            "status": "running",
+            "result_preview": None,
+        }
+    }
+    data = {"tool_call_id": "tc1", "preview": {"artifact_id": "a1"}}
+
+    render.handle_tool_event("tool_result", data, fake_streamlit, pending_tool_calls)
+    assert "full_results" not in pending_tool_calls["tc1"]
+
+
+def test_handle_tool_event_retrieved_docs_records_chunks(fake_streamlit):
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "rag_query",
+            "args": {"query": "error"},
+            "status": "running",
+            "result_preview": None,
+        }
+    }
+    chunks = [{"source_uri": "s3://docs/a.pdf", "score": 0.9}]
+    data = {
+        "tool_call_id": "tc1",
+        "chunk_count": 1,
+        "top_score": 0.9,
+        "source_uris": ["s3://docs/a.pdf"],
+        "chunks": chunks,
+    }
+
+    render.handle_tool_event("retrieved_docs", data, fake_streamlit, pending_tool_calls)
+    assert pending_tool_calls["tc1"]["chunks"] == chunks
+
+
+def test_render_tool_calls_empty_renders_nothing(fake_streamlit):
+    render.render_tool_calls({})
+    assert fake_streamlit.expander_calls == []
+
+
+def test_render_tool_calls_rebuilds_preview_and_panels(fake_streamlit):
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "rag_query",
+            "args": {"query": "error"},
+            "status": "done",
+            "result_preview": {"chunk_count": 1, "top_score": 0.9},
+            "chunks": [{"source_uri": "s3://docs/a.pdf", "score": 0.9}],
+        },
+        "tc2": {
+            "tool_name": "web_search",
+            "args": {"query": "python"},
+            "status": "done",
+            "result_preview": {"snippet_count": 1},
+            "full_results": [
+                {"title": "asyncio", "url": "https://docs.python.org", "snippet": "..."}
+            ],
+        },
+    }
+
+    render.render_tool_calls(pending_tool_calls)
+
+    labels = [call["label"] for call in fake_streamlit.expander_calls]
+    assert labels == [
+        "🔧 rag_query — done",
+        "📚 RAG citations (1 chunks)",
+        "🔧 web_search — done",
+        "\U0001f310 Web search results (1)",
+    ]
+
+
+def test_render_tool_calls_renders_running_preview_without_panels(fake_streamlit):
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "web_search",
+            "args": {"query": "python"},
+            "status": "running",
+            "result_preview": None,
+        }
+    }
+
+    render.render_tool_calls(pending_tool_calls)
+
+    assert fake_streamlit.expander_calls == [
+        {"label": "🔧 web_search — running", "expanded": False}
+    ]
+    assert fake_streamlit.spinner_calls == ["Running..."]

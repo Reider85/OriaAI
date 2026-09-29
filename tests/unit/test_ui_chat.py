@@ -421,3 +421,102 @@ def test_clear_pending_tool_events_resets_buffer(monkeypatch):
     assert len(chat.get_pending_tool_events()) == 1
     chat.clear_pending_tool_events()
     assert chat.get_pending_tool_events() == []
+
+
+def test_stream_tokens_forwards_tool_events_to_callback(monkeypatch):
+    lines = [
+        "event: tool_call",
+        'data: {"tool_call_id": "tc1", "tool_name": "web_search", "args": {"query": "python"}}',
+        "",
+        "event: tool_result",
+        'data: {"tool_call_id": "tc1", "preview": {"snippet_count": 3}}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    seen: list[tuple[str, dict]] = []
+    list(chat.stream_tokens("sid-1", on_tool_event=lambda t, d: seen.append((t, d))))
+    assert [event_type for event_type, _ in seen] == ["tool_call", "tool_result"]
+    assert seen[0][1]["tool_name"] == "web_search"
+    assert seen[1][1]["preview"]["snippet_count"] == 3
+
+
+def test_stream_tokens_dispatches_tool_event_before_later_tokens(monkeypatch):
+    """G-1: the preview must be dispatched while the agent is still running.
+
+    Buffering until end of stream would hide the whole point of the preview, so
+    the callback has to fire in arrival order relative to token yields.
+    """
+    lines = [
+        "event: tool_call",
+        'data: {"tool_call_id": "tc1", "tool_name": "rag_query", "args": {}}',
+        "",
+        "event: token",
+        'data: {"token": "hi"}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    order: list[str] = []
+    tokens = [
+        token
+        for token in chat.stream_tokens(
+            "sid-1", on_tool_event=lambda t, d: order.append("tool")
+        )
+    ]
+    order.append("token")
+    assert tokens == ["hi"]
+    assert order == ["tool", "token"]
+
+
+def test_stream_tokens_tool_callback_skips_non_dict_payload(monkeypatch):
+    lines = [
+        "event: tool_call",
+        "data: not-json",
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    seen: list[str] = []
+    list(chat.stream_tokens("sid-1", on_tool_event=lambda t, d: seen.append(t)))
+    assert seen == []
+
+
+def test_stream_tokens_tool_callback_ignores_other_events(monkeypatch):
+    lines = [
+        "event: token",
+        'data: {"token": "a"}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    seen: list[str] = []
+    tokens = list(
+        chat.stream_tokens("sid-1", on_tool_event=lambda t, d: seen.append(t))
+    )
+    assert tokens == ["a"]
+    assert seen == []
+
+
+def test_stream_tokens_tool_callback_still_buffers_events(monkeypatch):
+    """The live callback must not replace the pending buffer."""
+    lines = [
+        "event: tool_call",
+        'data: {"tool_call_id": "tc1", "tool_name": "web_search", "args": {}}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_tool_events()
+    list(chat.stream_tokens("sid-1", on_tool_event=lambda t, d: None))
+    assert len(chat.get_pending_tool_events()) == 1

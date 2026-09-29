@@ -27,6 +27,7 @@ _CHAT_INPUT_KEY = _STATE_PREFIX + "chat_input_"
 _STREAMING_DONE_KEY = _STATE_PREFIX + "streaming_done"
 _ANSWER_KEY = _STATE_PREFIX + "answer"
 _STREAMING_PLACEHOLDER_KEY = _STATE_PREFIX + "streaming_placeholder"
+PENDING_TOOL_CALLS_KEY = _STATE_PREFIX + "pending_tool_calls"
 
 
 def _session_state() -> dict[str, Any]:
@@ -148,10 +149,11 @@ class StreamlitClient(UIClient):
         """Handle the full streaming lifecycle inside ``@st.fragment`` (prompt 9).
 
         The fragment owns: POST to agent-service, SSE token loop, status badge,
-        PII badge updates, answer storage, and artifact rendering.  Because it
-        is a fragment, sidebar clicks do not interrupt an active stream — the
-        fragment re-executes on page rerun but its internal state (stored in
-        ``session_state``) tells it whether streaming is already complete.
+        PII badge updates, tool-call previews (G-1..G-3), answer storage, and
+        artifact rendering.  Because it is a fragment, sidebar clicks do not
+        interrupt an active stream — the fragment re-executes on page rerun but
+        its internal state (stored in ``session_state``) tells it whether
+        streaming is already complete.
 
         ``on_pii_metadata`` is an optional callback for live PII badge updates
         during streaming (ADR-014).  It receives the raw ``metadata`` event
@@ -173,6 +175,12 @@ class StreamlitClient(UIClient):
                 answer = st_state.get(_ANSWER_KEY, "")
                 if placeholder is not None and answer:
                     placeholder.markdown(answer)
+                # Streamlit drops the live element tree on every fragment run, so
+                # the tool previews recorded during the stream (G-1..G-3) have to
+                # be rebuilt from state or they would vanish on rerun.
+                pending = st_state.get(PENDING_TOOL_CALLS_KEY) or {}
+                if pending:
+                    render.render_tool_calls(dict(pending))
                 return
 
             st_state[_STREAMING_DONE_KEY] = False
@@ -193,9 +201,30 @@ class StreamlitClient(UIClient):
 
             chat.clear_pending_artifacts()
             chat.clear_pending_metadata()
+            chat.clear_pending_tool_events()
 
             streaming_ph = st.empty()
             st_state[_STREAMING_PLACEHOLDER_KEY] = streaming_ph
+
+            # Tool events (G-1..G-3) are rendered live into a dedicated area:
+            # one placeholder per tool_call_id so the running -> done transition
+            # replaces its own panel instead of stacking a second expander, and
+            # so token streaming in the main answer is never re-rendered.
+            tool_area = st.empty()
+            tool_areas: dict[str, Any] = {}
+            pending_tool_calls: dict[str, dict[str, Any]] = {}
+            st_state[PENDING_TOOL_CALLS_KEY] = pending_tool_calls
+
+            def _on_tool_event(event_type: str, data: dict) -> None:
+                tc_id = str(data.get("tool_call_id") or "")
+                if not tc_id:
+                    return
+                area = tool_areas.get(tc_id)
+                if area is None:
+                    area = tool_area.empty()
+                    tool_areas[tc_id] = area
+                with area.container():
+                    render.handle_tool_event(event_type, data, self, pending_tool_calls)
 
             def _on_metadata(data: Any) -> None:
                 if not isinstance(data, dict):
@@ -222,6 +251,7 @@ class StreamlitClient(UIClient):
                 for token in chat.stream_tokens(
                     session_id,
                     on_metadata=on_pii_metadata if on_pii_metadata is not None else _on_metadata,
+                    on_tool_event=_on_tool_event,
                 ):
                     answer += token
                     streaming_ph.markdown(answer)
@@ -335,12 +365,13 @@ class StreamlitClient(UIClient):
 
 
 __all__ = [
+    "PENDING_TOOL_CALLS_KEY",
     "_ANSWER_KEY",
     "_CHAT_INPUT_KEY",
     "_PLACEHOLDER_KEY",
     "_STATE_PREFIX",
     "_STREAMING_DONE_KEY",
     "_STREAMING_PLACEHOLDER_KEY",
-"_TOKEN_BUFFER_KEY",
+    "_TOKEN_BUFFER_KEY",
     "StreamlitClient",
 ]

@@ -28,7 +28,7 @@ from __future__ import annotations
 import html
 import math
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any, Literal, cast
 
 import httpx
@@ -518,6 +518,10 @@ def handle_tool_event(
             pending_tool_calls[tc_id]["result_preview"] = (
                 data.get("preview") or {}
             )
+            # Kept so the panel can be re-rendered after the stream ends
+            # (Streamlit drops the live tree on the next fragment run).
+            if data.get("full_results"):
+                pending_tool_calls[tc_id]["full_results"] = list(data["full_results"])
             tc = pending_tool_calls[tc_id]
             client.render_tool_call(
                 tool_name=tc["tool_name"],
@@ -539,6 +543,8 @@ def handle_tool_event(
                 "top_score": data.get("top_score", 0.0),
                 "source_uris": data.get("source_uris", []),
             }
+            if data.get("chunks"):
+                pending_tool_calls[tc_id]["chunks"] = list(data["chunks"])
             tc = pending_tool_calls[tc_id]
             client.render_tool_call(
                 tool_name=tc["tool_name"],
@@ -548,6 +554,33 @@ def handle_tool_event(
             )
             # G-2 additionally renders citations panel:
             _render_rag_citations_fragment(data.get("chunks", []))
+
+
+def render_tool_calls(pending_tool_calls: dict[str, dict]) -> None:
+    """Re-render every recorded tool-call preview and its results panel (G-1..G-3).
+
+    ``handle_tool_event`` renders into the live Streamlit tree, which Streamlit
+    discards whenever the enclosing fragment re-runs.  After a stream finishes
+    the fragment returns early, so the previews would otherwise disappear.  This
+    helper rebuilds the whole set from the recorded ``pending_tool_calls`` state,
+    which also keeps the event handlers free of rendering concerns.
+
+    Args:
+        pending_tool_calls: mapping produced by ``handle_tool_event`` —
+            ``{tool_call_id: {tool_name, args, status, result_preview,
+            chunks?, full_results?}}``.
+    """
+    for entry in pending_tool_calls.values():
+        _render_tool_call_fragment(
+            entry["tool_name"],
+            entry.get("args") or {},
+            entry.get("status", "running"),
+            entry.get("result_preview"),
+        )
+        if entry.get("chunks"):
+            _render_rag_citations_fragment(list(entry["chunks"]))
+        if entry.get("full_results"):
+            _render_web_search_results_fragment(list(entry["full_results"]))
 
 
 __all__ = [
@@ -566,17 +599,19 @@ __all__ = [
     "render_rag_citations",
     "render_settings_panel",
     "render_status_badge",
+    "render_tool_calls",
     "render_web_search_results",
 ]
 
 
-def render_settings_panel(session_state: dict) -> dict:
+def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
     """Рендерит settings panel в sidebar (collapsible). Возвращает
     обновлённый dict с настройками для передачи в agent-service.
 
     Args:
-        session_state: текущий st.session_state dict (читает
-            предыдущие значения).
+        session_state: текущий ``st.session_state`` (или любой
+            MutableMapping — Streamlit отдаёт ``SessionStateProxy``,
+            а не ``dict``). Читает предыдущие значения.
 
     Returns:
         dict с fields:

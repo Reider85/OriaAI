@@ -81,14 +81,17 @@ def send_message(session_id: str, message: str, settings: dict | None = None) ->
     are returned as-is so the caller can decide how to surface them.
     """
     url = f"{agent_service_url()}/sessions/{session_id}/chat"
-    body = {"message": message}
+    body: dict[str, Any] = {"message": message}
     if settings:
         body["settings"] = settings
     return httpx.post(url, json=body, timeout=_REQUEST_TIMEOUT)
 
 
 def stream_tokens(
-    session_id: str, on_metadata: Callable[[Any], None] | None = None
+    session_id: str,
+    on_metadata: Callable[[Any], None] | None = None,
+    *,
+    on_tool_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> Iterator[str]:
     """Yield assistant tokens from ``GET /sessions/{session_id}/stream``.
 
@@ -101,6 +104,14 @@ def stream_tokens(
     ``metadata`` events (PII score from ADR-014) are captured into the
     pending-metadata buffer and, when ``on_metadata`` is given, also forwarded
     to the callback so the UI can update a message's badge with low latency.
+
+    ``tool_call`` / ``tool_result`` / ``retrieved_docs`` events (G-1, Block H-4
+    contract) are captured into the pending-tool-events buffer and, when
+    ``on_tool_event`` is given, forwarded immediately as
+    ``(event_type, payload)``.  The live callback is what makes the tool-call
+    preview appear *while* the agent is still working: a ``tool_call`` frame is
+    delivered before the matching ``tool_result``, so buffering until end of
+    stream would hide the whole point of the preview.
     """
     url = f"{agent_service_url()}/sessions/{session_id}/stream"
     try:
@@ -124,6 +135,8 @@ def stream_tokens(
                         on_metadata(event.data)
                 elif event.event in TOOL_EVENTS:
                     _record_tool_event(event.data)
+                    if on_tool_event is not None and isinstance(event.data, dict):
+                        on_tool_event(event.event, event.data)
                 elif event.event == "done":
                     return
                 elif event.event in TERMINAL_EVENTS:
