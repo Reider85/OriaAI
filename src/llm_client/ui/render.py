@@ -10,11 +10,17 @@ implementation that ``StreamlitClient`` delegates to (prompt 8).
 PII score badge (UI-1, ADR-014): ``render_pii_badge`` renders a compact,
 color-coded badge next to a user message using the ``pii_score`` /
 ``pii_entities`` the backend reports via the SSE ``metadata`` event.
+
+RAG citations panel (G-2, ADR-017/ADR-020): ``render_rag_citations`` renders
+the chunks the agent retrieved through ``rag_query`` as one card per chunk —
+clickable source link, meta line, relevance progress bar and a truncated
+content preview — inside a collapsed ``@st.fragment`` expander.
 """
 
 from __future__ import annotations
 
 import html
+import math
 import os
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, cast
@@ -22,6 +28,8 @@ from typing import Any, Literal, cast
 import httpx
 
 FAST_ARTIFACT_FORMATS = ("md", "txt")
+
+CITATION_PREVIEW_CHARS = 200
 
 PII_LOW_THRESHOLD_ENV = "PII_LOW_THRESHOLD"
 PII_LOW_THRESHOLD_DEFAULT = 0.3
@@ -259,19 +267,100 @@ def _badge_markup(level: str, entities: list[str]) -> str:
     )
 
 
-def render_rag_citations(chunks: list[dict]) -> None:
-    """Render RAG citations panel (G-2 placeholder)."""
+def _escape_markdown_label(value: str) -> str:
+    """Escape markdown link-label brackets so titles stay renderable."""
+    return value.replace("[", "\\[").replace("]", "\\]")
+
+
+def _citation_preview(content: Any, limit: int = CITATION_PREVIEW_CHARS) -> str:
+    """Truncate a chunk preview to ``limit`` chars, appending ``"..."``.
+
+    Chunks may carry PII or licensed text, so the full body is never rendered
+    (G-2 anti-pattern).
+    """
+    text = str(content or "")
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
+
+
+def _citation_score(value: Any) -> float:
+    """Normalize a relevance score to ``[0.0, 1.0]`` for the progress bar."""
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if math.isnan(score) or score < 0.0:
+        return 0.0
+    return min(score, 1.0)
+
+
+def render_rag_citations(chunks: list[dict[str, Any]]) -> None:
+    """Render the RAG citations panel — retrieved chunks with their sources.
+
+    Each chunk becomes its own card: a clickable title link to ``source_uri``,
+    a meta line (source, page), a relevance progress bar, and a truncated
+    content preview. The panel is collapsed by default and the number of
+    rendered chunks follows ``len(chunks)`` — the reranker may return 3, 5 or
+    8 chunks depending on ``RetrieverConfig`` (ADR-017/ADR-020).
+
+    Args:
+        chunks: list of ``{source_uri, title, page, content_preview, score}``
+            dicts. Missing fields degrade gracefully: the title falls back to
+            ``source_uri`` then ``"Chunk {index}"``, ``page`` is omitted, and
+            the score bar renders at 0.0.
+    """
     import streamlit as st
 
     if not chunks:
         return
-    
-    with st.expander("📚 Sources", expanded=True):
-        for i, chunk in enumerate(chunks[:5]):  # Show top 5
-            st.markdown(f"**Source {i+1}:** {chunk.get('source_uri', 'Unknown')}")
-            st.markdown(f"**Content:** {chunk.get('content_preview', 'No preview')}")
-            st.markdown(f"**Score:** {chunk.get('score', 0.0):.3f}")
-            st.divider()
+
+    with st.expander(f"📚 RAG citations ({len(chunks)} chunks)", expanded=False):
+        for index, chunk in enumerate(chunks, 1):
+            _render_citation_card(index, chunk)
+
+
+def _render_citation_card(index: int, chunk: dict[str, Any]) -> None:
+    """Render a single citation card: link, meta line, score bar, preview."""
+    import streamlit as st
+
+    source_uri = str(chunk.get("source_uri") or "")
+    title = str(chunk.get("title") or source_uri or f"Chunk {index}")
+    page = chunk.get("page")
+    score = _citation_score(chunk.get("score"))
+
+    label = _escape_markdown_label(title)
+    if source_uri:
+        st.markdown(f"**{index}. [{label}]({source_uri})**")
+    else:
+        st.markdown(f"**{index}. {label}**")
+
+    meta_parts = [f"📎 {source_uri or 'unknown source'}"]
+    if page is not None:
+        meta_parts.append(f"📄 p.{page}")
+    st.caption(" · ".join(meta_parts))
+
+    st.progress(score, text=f"Relevance: {score:.2f}")
+
+    st.markdown(_citation_preview(chunk.get("content_preview")))
+
+    st.divider()
+
+
+def _render_rag_citations_fragment(chunks: list[dict[str, Any]]) -> None:
+    """Render the citations panel inside ``@st.fragment`` (UI-3 pattern).
+
+    Isolating the panel keeps expanding/collapsing citations from re-running the
+    main chat area, so token streaming continues without lag.  The decorator is
+    applied lazily to keep this module importable outside a Streamlit session.
+    """
+    import streamlit as st
+
+    @st.fragment
+    def _fragment() -> None:
+        render_rag_citations(chunks)
+
+    _fragment()
 
 
 def _render_tool_call_fragment(
@@ -363,10 +452,11 @@ def handle_tool_event(
                 result_preview=tc["result_preview"],
             )
             # G-2 additionally renders citations panel:
-            render_rag_citations(data.get("chunks", []))
+            _render_rag_citations_fragment(data.get("chunks", []))
 
 
 __all__ = [
+    "CITATION_PREVIEW_CHARS",
     "FAST_ARTIFACT_FORMATS",
     "PII_HIGH_THRESHOLD_ENV",
     "PII_LOW_THRESHOLD_ENV",

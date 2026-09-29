@@ -37,6 +37,10 @@ class _FakeStreamlit:
         self.chat_messages = []
         self.json_calls = []
         self.spinner_calls = []
+        self.caption_calls = []
+        self.progress_calls = []
+        self.divider_calls = []
+        self.fragments = []
         self._button_clicked = False
 
     def warning(self, text):
@@ -50,8 +54,12 @@ class _FakeStreamlit:
         return _FakeStatus()
 
     def expander(self, label, expanded=False):
-        self.expander_calls.append(label)
+        self.expander_calls.append({"label": label, "expanded": expanded})
         return _FakeExpander()
+
+    def fragment(self, func):
+        self.fragments.append(func.__name__)
+        return func
 
     def code(self, text, language=None):
         self.code_calls.append({"text": text, "language": language})
@@ -69,7 +77,15 @@ class _FakeStreamlit:
 
     def caption(self, text):
         """Mock st.caption method."""
-        self.caption_calls = text
+        self.caption_calls.append(text)
+
+    def progress(self, value, text=None):
+        """Mock st.progress method."""
+        self.progress_calls.append({"value": value, "text": text})
+
+    def divider(self):
+        """Mock st.divider method."""
+        self.divider_calls.append(True)
 
     def chat_message(self, role):
         self.chat_messages.append(role)
@@ -100,10 +116,6 @@ class _FakeStreamlit:
     def error(self, text):
         """Mock st.error method."""
         self.errors.append(text)
-
-    def divider(self):
-        """Mock st.divider method."""
-        self.divider_calls = True
 
 
 class _FakeStatus:
@@ -293,7 +305,7 @@ def test_render_status_badge_cancelled_without_detail(fake_streamlit):
 def test_render_status_badge_error_with_traceback(fake_streamlit):
     render.render_status_badge("error", "LLM provider failed", "traceback\nline")
     assert fake_streamlit.warnings == ["Error: LLM provider failed"]
-    assert fake_streamlit.expander_calls == ["Details"]
+    assert fake_streamlit.expander_calls == [{"label": "Details", "expanded": False}]
     assert fake_streamlit.code_calls == [
         {"text": "traceback\nline", "language": "python"}
     ]
@@ -438,7 +450,7 @@ def test_render_history_passes_metadata(fake_streamlit):
 # G-1 Tool-call preview tests
 def test_render_tool_call_running(fake_streamlit):
     render._render_tool_call_fragment("web_search", {"query": "python", "max_results": 5}, "running")
-    assert fake_streamlit.expander_calls == ["🔧 web_search — running"]
+    assert fake_streamlit.expander_calls == [{"label": "🔧 web_search — running", "expanded": False}]
     assert len(fake_streamlit.json_calls) == 1
     assert fake_streamlit.json_calls[0] == {"query": "python", "max_results": 5}
     assert len(fake_streamlit.spinner_calls) == 1
@@ -448,7 +460,7 @@ def test_render_tool_call_running(fake_streamlit):
 def test_render_tool_call_done_with_preview(fake_streamlit):
     preview = {"snippet_count": 3, "sources": ["example.com"]}
     render._render_tool_call_fragment("web_search", {"query": "python"}, "done", preview)
-    assert fake_streamlit.expander_calls == ["🔧 web_search — done"]
+    assert fake_streamlit.expander_calls == [{"label": "🔧 web_search — done", "expanded": False}]
     assert len(fake_streamlit.json_calls) == 2
     assert fake_streamlit.json_calls[0] == {"query": "python"}
     assert fake_streamlit.json_calls[1] == {"snippet_count": 3, "sources": ["example.com"]}
@@ -457,7 +469,7 @@ def test_render_tool_call_done_with_preview(fake_streamlit):
 
 def test_render_tool_call_error(fake_streamlit):
     render._render_tool_call_fragment("rag_query", {"query": "error"}, "error")
-    assert fake_streamlit.expander_calls == ["🔧 rag_query — error"]
+    assert fake_streamlit.expander_calls == [{"label": "🔧 rag_query — error", "expanded": False}]
     assert len(fake_streamlit.json_calls) == 1
     assert fake_streamlit.json_calls[0] == {"query": "error"}
     assert len(fake_streamlit.errors) == 1
@@ -521,7 +533,7 @@ def test_handle_tool_event_retrieved_docs(fake_streamlit):
             "result_preview": None
         }
     }
-    
+
     data = {
         "tool_call_id": "tc1",
         "chunk_count": 5,
@@ -531,7 +543,7 @@ def test_handle_tool_event_retrieved_docs(fake_streamlit):
             {"source_uri": "doc1.pdf", "content_preview": "Error 123", "score": 0.95}
         ]
     }
-    
+
     render.handle_tool_event("retrieved_docs", data, client, pending_tool_calls)
     assert pending_tool_calls["tc1"]["status"] == "done"
     assert pending_tool_calls["tc1"]["result_preview"]["chunk_count"] == 5
@@ -543,13 +555,145 @@ def test_handle_tool_event_retrieved_docs(fake_streamlit):
 def test_render_rag_citations_empty(fake_streamlit):
     render.render_rag_citations([])
     assert fake_streamlit.expander_calls == []
+    assert fake_streamlit.markdown_calls == []
 
 
-def test_render_rag_citations_with_chunks(fake_streamlit):
+def test_render_rag_citations_one_chunk(fake_streamlit):
     chunks = [
-        {"source_uri": "doc1.pdf", "content_preview": "Error 123", "score": 0.95},
-        {"source_uri": "doc2.txt", "content_preview": "Solution", "score": 0.85}
+        {
+            "source_uri": "s3://docs/manual.pdf",
+            "title": "Manual",
+            "page": 7,
+            "content_preview": "Error 123",
+            "score": 0.95,
+        }
     ]
     render.render_rag_citations(chunks)
-    assert fake_streamlit.expander_calls == ["📚 Sources"]
-    assert len(fake_streamlit.markdown_calls) == 6  # 2 chunks × 3 markdown calls each
+    assert fake_streamlit.expander_calls == [
+        {"label": "📚 RAG citations (1 chunks)", "expanded": False}
+    ]
+    assert fake_streamlit.markdown_calls[0]["text"] == (
+        "**1. [Manual](s3://docs/manual.pdf)**"
+    )
+    assert fake_streamlit.caption_calls == ["📎 s3://docs/manual.pdf · 📄 p.7"]
+    assert fake_streamlit.progress_calls == [{"value": 0.95, "text": "Relevance: 0.95"}]
+    assert fake_streamlit.markdown_calls[1]["text"] == "Error 123"
+    assert len(fake_streamlit.divider_calls) == 1
+
+
+def test_render_rag_citations_many_chunks(fake_streamlit):
+    chunks = [
+        {
+            "source_uri": f"s3://docs/doc{i}.pdf",
+            "title": f"Doc {i}",
+            "page": i,
+            "content_preview": f"content {i}",
+            "score": 0.9 - i / 10,
+        }
+        for i in range(1, 6)
+    ]
+    render.render_rag_citations(chunks)
+    assert fake_streamlit.expander_calls == [
+        {"label": "📚 RAG citations (5 chunks)", "expanded": False}
+    ]
+    assert len(fake_streamlit.divider_calls) == 5
+    assert len(fake_streamlit.progress_calls) == 5
+    assert fake_streamlit.markdown_calls[0]["text"] == "**1. [Doc 1](s3://docs/doc1.pdf)**"
+    assert fake_streamlit.markdown_calls[8]["text"] == "**5. [Doc 5](s3://docs/doc5.pdf)**"
+
+
+def test_render_rag_citations_count_follows_chunks(fake_streamlit):
+    chunks = [{"source_uri": "a", "score": 0.1}] * 3
+    render.render_rag_citations(chunks)
+    assert fake_streamlit.expander_calls == [
+        {"label": "📚 RAG citations (3 chunks)", "expanded": False}
+    ]
+    assert len(fake_streamlit.markdown_calls) == 6
+
+
+def test_render_rag_citations_long_content(fake_streamlit):
+    long_content = "x" * 500
+    render.render_rag_citations(
+        [{"source_uri": "s3://docs/big.pdf", "content_preview": long_content, "score": 0.5}]
+    )
+    assert fake_streamlit.markdown_calls[1]["text"] == "x" * 200 + "..."
+    assert len(fake_streamlit.markdown_calls[1]["text"]) == 203
+
+
+def test_render_rag_citations_short_content_not_truncated(fake_streamlit):
+    render.render_rag_citations(
+        [{"source_uri": "s3://docs/a.pdf", "content_preview": "short", "score": 0.5}]
+    )
+    assert fake_streamlit.markdown_calls[1]["text"] == "short"
+
+
+def test_render_rag_citations_missing_fields(fake_streamlit):
+    render.render_rag_citations([{"content_preview": "body"}])
+    assert fake_streamlit.markdown_calls[0]["text"] == "**1. Chunk 1**"
+    assert fake_streamlit.caption_calls == ["📎 unknown source"]
+    assert fake_streamlit.progress_calls == [{"value": 0.0, "text": "Relevance: 0.00"}]
+
+
+def test_render_rag_citations_title_falls_back_to_source_uri(fake_streamlit):
+    render.render_rag_citations(
+        [{"source_uri": "s3://docs/a.pdf", "content_preview": "body", "score": 0.4}]
+    )
+    assert fake_streamlit.markdown_calls[0]["text"] == "**1. [s3://docs/a.pdf](s3://docs/a.pdf)**"
+    assert fake_streamlit.caption_calls == ["📎 s3://docs/a.pdf"]
+
+
+def test_render_rag_citations_escapes_brackets_in_title(fake_streamlit):
+    render.render_rag_citations(
+        [{"source_uri": "s3://a.pdf", "title": "Chapter [1]", "content_preview": "x", "score": 0.2}]
+    )
+    assert fake_streamlit.markdown_calls[0]["text"] == "**1. [Chapter \\[1\\]](s3://a.pdf)**"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(0.95, 0.95), (None, 0.0), ("n/a", 0.0), (-1.0, 0.0), (4.2, 1.0)],
+)
+def test_render_rag_citations_score_normalized(fake_streamlit, raw, expected):
+    render.render_rag_citations([{"source_uri": "s3://a.pdf", "content_preview": "x", "score": raw}])
+    assert fake_streamlit.progress_calls[0]["value"] == expected
+
+
+def test_render_rag_citations_fragment_isolates_reruns(fake_streamlit, monkeypatch):
+    render._render_rag_citations_fragment([{"source_uri": "s3://a.pdf", "score": 0.3}])
+    assert fake_streamlit.fragments == ["_fragment"]
+    assert fake_streamlit.expander_calls == [
+        {"label": "📚 RAG citations (1 chunks)", "expanded": False}
+    ]
+
+
+def test_handle_tool_event_retrieved_docs_renders_citations(fake_streamlit, monkeypatch):
+    client = fake_streamlit
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "rag_query",
+            "args": {"query": "error"},
+            "status": "running",
+            "result_preview": None,
+        }
+    }
+    chunks = [
+        {"source_uri": "s3://doc1.pdf", "title": "Doc 1", "content_preview": "Error 123", "score": 0.95}
+    ]
+    data = {
+        "tool_call_id": "tc1",
+        "chunk_count": 5,
+        "top_score": 0.95,
+        "source_uris": ["s3://doc1.pdf"],
+        "chunks": chunks,
+    }
+
+    captured = []
+    monkeypatch.setattr(
+        render, "_render_rag_citations_fragment", lambda c: captured.append(c)
+    )
+
+    render.handle_tool_event("retrieved_docs", data, client, pending_tool_calls)
+
+    assert captured == [chunks]
+    assert client.tool_call_rendered["result_preview"]["chunk_count"] == 5
+    assert client.tool_call_rendered["result_preview"]["source_uris"] == ["s3://doc1.pdf"]

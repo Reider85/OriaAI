@@ -29,6 +29,21 @@ class TestUIClientABC:
             def handle_user_input(self):
                 return None
 
+            def render_tool_call(
+                self, tool_name, args, status="running", result_preview=None
+            ):
+                pass
+
+            def render_streaming_fragment(
+                self,
+                session_id,
+                prompt,
+                user_message,
+                pii_badge_area,
+                on_pii_metadata=None,
+            ):
+                pass
+
         client = _DummyClient()
         assert client is not None
 
