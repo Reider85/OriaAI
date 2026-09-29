@@ -226,7 +226,7 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
       - name: Run reranker quick test
-        run: pytest tests/unit/test_ab_test_reranker.py::test_reranker_quick -v -x --timeout=180
+        run: pytest tests/unit/test_ab_test_framework.py::TestABTestFramework::test_ab_test_improvement_calculation -v -x --timeout=180
       - name: Upload reranker results
         uses: actions/upload-artifact@v3
         if: always()
@@ -253,7 +253,7 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
       - name: Run hybrid RAG quick test
-        run: pytest tests/unit/test_ab_test_hybrid_rag.py::test_hybrid_rag_quick -v -x --timeout=300
+        run: pytest tests/unit/test_ab_test_hybrid_rag.py::TestABTestHybridRAG::test_main_quick_mode_logic -v -x --timeout=300
       - name: Upload hybrid RAG results
         uses: actions/upload-artifact@v3
         if: always()
@@ -280,7 +280,7 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
       - name: Run web search quick test
-        run: pytest tests/unit/test_web_search.py::test_web_search_mock -v -x --timeout=60
+        run: pytest tests/unit/test_web_search.py::test_web_search_basic_functionality -v -x --timeout=60
       - name: Upload web search results
         uses: actions/upload-artifact@v3
         if: always()
@@ -307,7 +307,7 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
       - name: Run RAG query quick test
-        run: pytest tests/unit/test_rag_pipeline.py::test_rag_pipeline_mock -v -x --timeout=120
+        run: pytest tests/unit/test_rag_pipeline.py::test_rerank_after_fusion_with_enabled_reranker -v -x --timeout=120
       - name: Upload RAG query results
         uses: actions/upload-artifact@v3
         if: always()

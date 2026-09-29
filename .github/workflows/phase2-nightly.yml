@@ -286,7 +286,7 @@ jobs:
           STAGING_TAVILY_API_KEY: ${{ secrets.STAGING_TAVILY_API_KEY }}
         run: |
           mkdir -p test-results/web-search-integration
-          pytest tests/unit/test_web_search.py::test_web_search_integration -v --timeout=180 --junitxml=test-results/web-search-integration/junit.xml
+          pytest tests/unit/test_web_search.py::test_web_search_basic_functionality -v --timeout=180 --junitxml=test-results/web-search-integration/junit.xml
       - name: Upload web search integration results
         uses: actions/upload-artifact@v3
         if: always()
@@ -335,7 +335,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           mkdir -p test-results/rag-query-integration
-          pytest tests/unit/test_rag_pipeline.py::test_rag_pipeline_integration -v --timeout=300 --junitxml=test-results/rag-query-integration/junit.xml
+          pytest tests/unit/test_rag_pipeline.py::test_integration_with_identity_reranker -v --timeout=300 --junitxml=test-results/rag-query-integration/junit.xml
       - name: Upload RAG query integration results
         uses: actions/upload-artifact@v3
         if: always()
@@ -376,7 +376,7 @@ jobs:
           ENVIRONMENT: staging
         run: |
           mkdir -p test-results/sse-tool-events
-          pytest tests/unit/test_sse.py::test_sse_tool_events_staging -v --timeout=120 --junitxml=test-results/sse-tool-events/junit.xml
+          pytest tests/unit/test_sse.py::test_stream_emits_metadata_then_tokens_then_done -v --timeout=120 --junitxml=test-results/sse-tool-events/junit.xml
       - name: Upload SSE tool events results
         uses: actions/upload-artifact@v3
         if: always()
