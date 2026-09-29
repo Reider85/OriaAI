@@ -37,7 +37,7 @@ from .artifacts import load_artifact_meta
 from .cycle_detection import IterationMonitor
 from .graph import build_agent_graph
 from .provider import LLMProviderFactory
-from .tools import file_export
+from .tools import file_export, web_search
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +215,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         graph = build_agent_graph(
             llm,
             token=token,
-            tools=[file_export],
+            tools=[file_export, web_search],
             monitor=monitor,
             checkpointer=checkpointer_bundle.checkpointer
         )

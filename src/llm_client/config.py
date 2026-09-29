@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # RAG Pipeline (ADR-017/020, Phase 2)
     reranker_enabled: bool = True  # Enable/disable reranking in RAG pipeline
 
+    # Web Search (AG-5, Phase 2)
+    tavily_api_key: str = ""
+    tavily_search_depth: str = "basic"
+    tavily_timeout_seconds: float = 10.0
+    tavily_snippet_max_chars: int = 500
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")
@@ -80,6 +86,18 @@ class Settings(BaseSettings):
         if self.llm_provider == "openai" and not self.openai_api_key:
             raise ValueError(
                 "OPENAI_API_KEY required when LLM_PROVIDER=openai"
+            )
+        if self.tavily_search_depth not in {"basic", "advanced"}:
+            raise ValueError(
+                f"TAVILY_SEARCH_DEPTH must be basic|advanced, got {self.tavily_search_depth!r}"
+            )
+        if self.tavily_timeout_seconds <= 0:
+            raise ValueError(
+                f"TAVILY_TIMEOUT_SECONDS must be > 0, got {self.tavily_timeout_seconds!r}"
+            )
+        if self.tavily_snippet_max_chars <= 0:
+            raise ValueError(
+                f"TAVILY_SNIPPET_MAX_CHARS must be > 0, got {self.tavily_snippet_max_chars!r}"
             )
         if self.checkpoint_backend not in {"redis_postgres", "redis_only", "postgres_only"}:
             raise ValueError(

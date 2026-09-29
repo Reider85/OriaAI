@@ -1,5 +1,6 @@
 """Tests for AG-1 LangGraph agent graph."""
 
+
 import pytest
 from langchain_core.language_models import FakeListChatModel
 from langchain_core.messages import AIMessage, HumanMessage
@@ -213,3 +214,36 @@ async def test_max_iterations_stops_graph():
     assert len(planner_chunks) <= 2, (
         f"Graph should stop at max_iterations=2, but ran {len(planner_chunks)} planner iterations"
     )
+
+
+# ── Phase 2 Tests (AG-5 web_search integration) ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_build_agent_graph_phase2_default_tools():
+    """Test build_agent_graph with default Phase 2 tools including web_search."""
+    
+    llm = FakeListChatModel(responses=["Hello world"])
+    graph = build_agent_graph(llm)
+    
+    # Graph should have all default tools
+    # This is mainly a smoke test - tool_executor will handle dispatch
+    assert graph is not None
+
+
+@pytest.mark.asyncio
+async def test_build_agent_graph_phase2_custom_tools():
+    """Test build_agent_graph with custom tools (web_search only)."""
+    from llm_client.agent.tools import web_search
+    
+    llm = FakeListChatModel(responses=["Hello world"])
+    graph = build_agent_graph(llm, tools=[web_search])
+    
+    # Graph should only have the specified tool
+    assert graph is not None
+
+
+
+
+
+
