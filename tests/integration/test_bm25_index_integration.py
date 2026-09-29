@@ -1,6 +1,7 @@
 """Integration tests for BM25IndexBuilder with real PostgreSQL."""
 
 import asyncio
+import asyncpg
 import pytest
 import uuid
 
@@ -214,4 +215,4 @@ class TestBM25IndexIntegration:
                     "SELECT id FROM documents WHERE id = $1",
                     doc.id
                 )
-                assert result is not
+                assert result is not None

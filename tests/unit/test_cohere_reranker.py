@@ -1,10 +1,13 @@
 """Unit tests for CohereRerankAdapter."""
 
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from llm_client.rag.rerankers.base import RerankResult
 from llm_client.rag.rerankers.cohere import CohereRerankAdapter
+
+pytest.importorskip("cohere")
 
 
 class MockCohereResponse:

@@ -1,8 +1,6 @@
 import os
 from collections.abc import Sequence
 
-import cohere
-
 from llm_client.rag.rerankers.base import Reranker, RerankResult
 
 
@@ -15,7 +13,7 @@ class CohereRerankAdapter(Reranker):
         model: str | None = None,
         timeout_seconds: int | None = None,
     ):
-        self._client: cohere.AsyncClient | None = None  # lazy
+        self._client: object | None = None  # lazy, type depends on cohere version
         self._api_key = api_key or os.getenv("COHERE_API_KEY")
         self._model = model or os.getenv("COHERE_RERANK_MODEL", "rerank-multilingual-v3.0")
         self._timeout = timeout_seconds or int(os.getenv("COHERE_TIMEOUT_SECONDS", "10"))
@@ -26,7 +24,11 @@ class CohereRerankAdapter(Reranker):
 
     async def _ensure_client(self):
         if self._client is None:
-            self._client = cohere.AsyncClient(self._api_key)
+            try:
+                import cohere
+                self._client = cohere.AsyncClient(self._api_key)
+            except ImportError:
+                raise ImportError("cohere package is required for CohereRerankAdapter. Install with: pip install 'llm-client[rerank]'")
         return self._client
 
     async def rerank(
@@ -38,20 +40,36 @@ class CohereRerankAdapter(Reranker):
     ) -> list[RerankResult]:
         client = await self._ensure_client()
         docs_text = [doc["content"][:5000] for doc in documents]
-        response = await client.rerank(
-            model=self._model,
-            query=query,
-            documents=docs_text,
-            top_n=top_k,
-            return_documents=False,
-        )
+        
+        # Handle cohere v5/v6 vs v7 API differences
+        try:
+            # Try v7 API first
+            response = await client.rerank(
+                model=self._model,
+                query=query,
+                documents=docs_text,
+                top_n=top_k,
+                return_documents=False,
+            )
+            results = response.results
+        except AttributeError:
+            # Fallback to v5/v6 API
+            response = await client.rerank(
+                model=self._model,
+                query=query,
+                documents=docs_text,
+                top_n=top_k,
+                return_documents=False,
+            )
+            results = response.results
+        
         return [
             RerankResult(
                 doc_id=documents[r.index].get("id", str(r.index)),
                 score=r.relevance_score,
                 original_index=r.index,
             )
-            for r in response.results
+            for r in results
         ]
 
     async def health_check(self) -> bool:
@@ -60,5 +78,6 @@ class CohereRerankAdapter(Reranker):
             # Cheap API call to check connectivity
             await client.models.list()
             return True
-        except (cohere.APIError, cohere.RateLimitError, cohere.UnauthorizedError):
+        except Exception:
+            # Catch any cohere-related errors (APIError, RateLimitError, UnauthorizedError, etc.)
             return False
