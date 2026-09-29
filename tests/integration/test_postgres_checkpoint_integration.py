@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS agent_checkpoints (
     parent_id UUID,
     state JSONB NOT NULL,
     metadata JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMP(timezone=True) NOT NULL DEFAULT now(),
     PRIMARY KEY (thread_id, checkpoint_id)
 )
 """

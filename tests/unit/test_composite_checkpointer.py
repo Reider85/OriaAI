@@ -1,18 +1,16 @@
 """Unit tests for RedisPostgresCheckpointer (B-3)."""
 
-import asyncio
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from llm_client.orchestration.checkpointers.composite import RedisPostgresCheckpointer
 from llm_client.orchestration.checkpointers.errors import (
     CheckpointError,
-    RedisCheckpointWriteError,
     PostgresCheckpointWriteError,
+    RedisCheckpointWriteError,
 )
 from llm_client.orchestration.checkpointers.metrics import NullCheckpointMetrics
 

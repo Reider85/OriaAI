@@ -1,20 +1,17 @@
 """Unit tests for RedisCheckpointer."""
 
-import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from redis import asyncio as aioredis
 from langgraph.checkpoint.base import (
     Checkpoint,
-    CheckpointMetadata,
     CheckpointTuple,
     RunnableConfig,
 )
 
 from llm_client.orchestration.checkpointers.errors import CheckpointWriteError
 from llm_client.orchestration.checkpointers.redis_checkpointer import RedisCheckpointer
+from redis import asyncio as aioredis
 
 
 class MockRedisClient:

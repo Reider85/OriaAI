@@ -1,8 +1,8 @@
 """Unit tests for HybridRetriever."""
 
-import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock
 
 from llm_client.rag.config import RetrieverConfig
 from llm_client.rag.metrics import NullRerankerMetrics
@@ -142,7 +142,6 @@ class TestHybridRetriever:
     @pytest.mark.asyncio
     async def test_vector_failure_bm25_success(self, sample_bm25_docs, sample_config):
         """Test hybrid retrieval when vector retriever fails but BM25 succeeds."""
-        from unittest.mock import MagicMock
         
         mock_metrics = MagicMock()
         mock_metrics.increment_error_count = MagicMock()
@@ -172,7 +171,6 @@ class TestHybridRetriever:
     @pytest.mark.asyncio
     async def test_bm25_failure_vector_success(self, sample_vector_docs, sample_config):
         """Test hybrid retrieval when BM25 retriever fails but vector succeeds."""
-        from unittest.mock import MagicMock
         
         mock_metrics = MagicMock()
         mock_metrics.increment_error_count = MagicMock()
@@ -202,7 +200,6 @@ class TestHybridRetriever:
     @pytest.mark.asyncio
     async def test_complete_failure(self, sample_config):
         """Test hybrid retrieval when both retrievers fail."""
-        from unittest.mock import MagicMock
         
         mock_metrics = MagicMock()
         mock_metrics.increment_error_count = MagicMock()
@@ -263,7 +260,6 @@ class TestHybridRetriever:
     @pytest.mark.asyncio
     async def test_latency_metrics(self, sample_vector_docs, sample_bm25_docs, sample_config):
         """Test that latency is properly recorded."""
-        from unittest.mock import MagicMock
         
         mock_metrics = MagicMock()
         mock_metrics.increment_error_count = MagicMock()

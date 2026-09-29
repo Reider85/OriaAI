@@ -1,25 +1,22 @@
 """Integration tests for RedisPostgresCheckpointer (B-3)."""
 
-import asyncio
 import uuid
-from typing import Any
 
+import asyncpg
 import pytest
 import redis.asyncio as aioredis
-import asyncpg
 
+from llm_client.config import Settings
 from llm_client.orchestration.checkpointers.composite import RedisPostgresCheckpointer
 from llm_client.orchestration.checkpointers.factory import build_checkpointer
-from llm_client.config import Settings
-
 
 # ── Helper functions ───────────────────────────────────────────────────────────────
 
 async def _are_services_available():
     """Check if Redis and PostgreSQL are available for integration tests."""
     try:
-        import redis.asyncio as aioredis
         import asyncpg
+        import redis.asyncio as aioredis
         
         # Check Redis
         redis_client = aioredis.from_url("redis://127.0.0.1:6379/1", decode_responses=False)
@@ -65,7 +62,7 @@ CREATE TABLE IF NOT EXISTS agent_checkpoints (
     parent_id UUID,
     state JSONB NOT NULL,
     metadata JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMP(timezone=True) NOT NULL DEFAULT now(),
     PRIMARY KEY (thread_id, checkpoint_id)
 );
 """
@@ -115,8 +112,8 @@ def settings():
 @pytest.fixture
 async def composite_checkpointer(redis_client, pg_pool, settings):
     """Composite checkpointer with real Redis and PostgreSQL."""
-    from llm_client.orchestration.checkpointers.redis_checkpointer import RedisCheckpointer
     from llm_client.orchestration.checkpointers.postgres_checkpointer import PostgresCheckpointer
+    from llm_client.orchestration.checkpointers.redis_checkpointer import RedisCheckpointer
     
     redis_cp = RedisCheckpointer(
         redis_client=redis_client,

@@ -4,8 +4,7 @@ import sys
 
 import pytest
 
-from llm_client.ui import session
-from llm_client.ui import sidebar
+from llm_client.ui import session, sidebar
 
 
 class _FakeSidebar:
@@ -107,7 +106,7 @@ def test_render_sidebar_new_session_button(monkeypatch, fake_streamlit):
 
 
 def test_render_sidebar_none_when_no_sessions(monkeypatch, fake_streamlit):
-    monkeypatch.setattr(session, "get_sessions_list", lambda: [])
+    monkeypatch.setattr(session, "get_sessions_list", list)
     monkeypatch.setattr(session, "current_session_id", lambda: "a")
     assert sidebar.render_sidebar() is None
 

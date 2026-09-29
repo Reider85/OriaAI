@@ -8,10 +8,10 @@ different rerankers when the primary ones fail.
 
 import asyncio
 import logging
+
 from llm_client.rag.config import RetrieverConfig
 from llm_client.rag.rerankers.chain import RerankerChain
 from llm_client.rag.rerankers.identity import IdentityReranker
-from llm_client.rag.rerankers.registry import RerankerRegistry
 
 # Set up logging to see fallback events
 logging.basicConfig(level=logging.INFO)

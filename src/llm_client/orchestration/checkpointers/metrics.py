@@ -1,13 +1,12 @@
 """Checkpoint metrics for ADR-010 composite checkpointer."""
 
 import logging
-from typing import Any, Optional
 
 from prometheus_client import (
+    CollectorRegistry,
     Counter,
     Gauge,
     Histogram,
-    CollectorRegistry,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,7 +28,7 @@ class CheckpointMetrics:
     
     def __init__(
         self,
-        registry: Optional[CollectorRegistry] = None,
+        registry: CollectorRegistry | None = None,
         *,
         prefix: str = "llm_client_checkpoint",
     ) -> None:

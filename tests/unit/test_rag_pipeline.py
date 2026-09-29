@@ -1,15 +1,16 @@
 """Unit tests for RAG pipeline reranking functionality."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from llm_client.observability.forensic_writer import ForensicStreamWriter
+from llm_client.observability.operational_writer import OperationalStreamWriter
 from llm_client.rag.config import RetrieverConfig
-from llm_client.rag.pipeline import rerank_after_fusion, _identity_fallback
+from llm_client.rag.metrics import NullRerankerMetrics, RerankerMetrics
+from llm_client.rag.pipeline import _identity_fallback, rerank_after_fusion
 from llm_client.rag.rerankers.base import RerankResult
 from llm_client.rag.rerankers.identity import IdentityReranker
-from llm_client.rag.metrics import RerankerMetrics, NullRerankerMetrics
-from llm_client.observability.operational_writer import OperationalStreamWriter
-from llm_client.observability.forensic_writer import ForensicStreamWriter
 
 
 class MockReranker:

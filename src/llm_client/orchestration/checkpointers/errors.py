@@ -12,7 +12,6 @@ __all__ = [
 
 class CheckpointError(RuntimeError):
     """Base exception for checkpoint-related failures."""
-    pass
 
 
 class CheckpointWriteError(CheckpointError):
@@ -25,12 +24,10 @@ class CheckpointWriteError(CheckpointError):
 
 class RedisCheckpointWriteError(CheckpointWriteError):
     """Raised when Redis checkpoint write fails after retries."""
-    pass
 
 
 class PostgresCheckpointWriteError(CheckpointWriteError):
     """Raised when PostgreSQL checkpoint write fails after retries."""
-    pass
 
 
 class CheckpointFatalError(CheckpointError):

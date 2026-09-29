@@ -11,12 +11,13 @@ to models/bge-reranker-base/ for use in ADR-017 (Reranker Model in RAG).
 The model is cached locally and can be reused across sessions without re-downloading.
 """
 
-import os
 import sys
+import time
 from pathlib import Path
+
 from huggingface_hub import snapshot_download
 from sentence_transformers import CrossEncoder
-import time
+
 
 def main():
     """Download BGE-reranker-base model with smoke test."""
@@ -30,7 +31,7 @@ def main():
         if not model_dir.exists():
             model_dir.mkdir(parents=True, exist_ok=True)
             
-            print(f"Downloading from HuggingFace Hub...")
+            print("Downloading from HuggingFace Hub...")
             start_time = time.time()
             
             snapshot_download(
@@ -45,12 +46,12 @@ def main():
         else:
             print(f"Model already exists at {model_dir}")
     
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         print(f"Download failed: {e}")
         sys.exit(1)
     
     # Smoke test: verify model works
-    print(f"Running smoke test...")
+    print("Running smoke test...")
     try:
         # Load model and test inference
         reranker = CrossEncoder(str(model_dir))
@@ -65,10 +66,10 @@ def main():
         scores = reranker.predict(test_pairs)
         inference_time = time.time() - start_time
         
-        print(f"Smoke test passed!")
+        print("Smoke test passed!")
         print(f"   - Predicted scores: {scores}")
         print(f"   - Inference time: {inference_time:.3f}s")
-        print(f"   - RAM usage: ~600MB loaded, ~1.2GB peak during inference")
+        print("   - RAM usage: ~600MB loaded, ~1.2GB peak during inference")
         
         # Verify scores are reasonable (first pair should be higher)
         if scores[0] > scores[1]:
@@ -76,12 +77,12 @@ def main():
         else:
             print("Score ordering unexpected: check model loading")
         
-        print(f"\nBGE-reranker-base is ready for use!")
+        print("\nBGE-reranker-base is ready for use!")
         print(f"   - Model location: {model_dir.absolute()}")
         print(f"   - Use with RERANKER_MODEL_NAME={model_name}")
         print(f"   - Use with RERANKER_MODEL_DIR={model_dir.absolute()}")
         
-    except Exception as e:
+    except (OSError, RuntimeError, ValueError) as e:
         print(f"❌ Smoke test failed: {e}")
         sys.exit(1)
 

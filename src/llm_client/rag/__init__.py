@@ -6,11 +6,11 @@ from .pipeline import rerank_after_fusion
 from .retrieval import BM25Retriever, HybridRetriever, RetrievalError, rrf_fusion
 
 __all__ = [
-    "RetrieverConfig",
-    "Document",
-    "rerank_after_fusion",
-    "rrf_fusion",
     "BM25Retriever",
+    "Document",
     "HybridRetriever",
     "RetrievalError",
+    "RetrieverConfig",
+    "rerank_after_fusion",
+    "rrf_fusion",
 ]

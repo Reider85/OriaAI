@@ -1,8 +1,6 @@
 """Unit tests for BM25IndexBuilder."""
 
-import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from llm_client.rag.indexing.bm25_indexer import BM25IndexBuilder
 from llm_client.rag.indexing.models import Document

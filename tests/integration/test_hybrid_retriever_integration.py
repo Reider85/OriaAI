@@ -1,12 +1,12 @@
 """Integration test for HybridRetriever with real components."""
 
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from llm_client.rag.config import RetrieverConfig
 from llm_client.rag.retrieval.hybrid_retriever import HybridRetriever
-from llm_client.rag.retrieval.bm25_retriever import BM25Retriever
 
 
 class MockVectorRetriever:

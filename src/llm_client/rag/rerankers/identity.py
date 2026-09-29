@@ -1,4 +1,5 @@
-from typing import Sequence
+from collections.abc import Sequence
+
 from llm_client.rag.rerankers.base import Reranker, RerankResult
 
 

@@ -1,14 +1,13 @@
 """Unit tests for RRF fusion functionality."""
 
+
 import pytest
-from unittest.mock import patch
 
 from llm_client.rag.retrieval.fusion import (
-    rrf_fusion,
-    rrf_fusion_with_metrics,
     FusionMetrics,
     NullFusionMetrics,
-    default_fusion_metrics,
+    rrf_fusion,
+    rrf_fusion_with_metrics,
 )
 
 

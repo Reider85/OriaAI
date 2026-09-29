@@ -1,9 +1,10 @@
 """Unit tests for web_search tool via Tavily API (AG-5, Phase 2)."""
 
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
-from llm_client.agent.tools.web_search import web_search, WebSearchArgs, _web_search_impl
+import pytest
+
+from llm_client.agent.tools.web_search import WebSearchArgs, _web_search_impl
 from llm_client.config import settings
 
 
