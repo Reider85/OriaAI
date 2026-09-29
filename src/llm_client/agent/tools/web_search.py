@@ -44,7 +44,7 @@ async def _web_search_impl(query: str, max_results: int = 5) -> list[dict]:
             },
         )
         response.raise_for_status()
-        data = response.json()
+        data = await response.json()
 
     # Normalize Tavily response to our contract:
     results = []
