@@ -15,6 +15,12 @@ RAG citations panel (G-2, ADR-017/ADR-020): ``render_rag_citations`` renders
 the chunks the agent retrieved through ``rag_query`` as one card per chunk —
 clickable source link, meta line, relevance progress bar and a truncated
 content preview — inside a collapsed ``@st.fragment`` expander.
+
+Web search results panel (G-3, ADR-005/ADR-007): ``render_web_search_results``
+renders the Tavily results the agent fetched through ``web_search`` as one card
+per result — clickable title link, URL caption, snippet and an optional
+relevance metric — inside its own collapsed ``@st.fragment`` expander, kept
+separate from the RAG citations panel.
 """
 
 from __future__ import annotations
@@ -363,6 +369,84 @@ def _render_rag_citations_fragment(chunks: list[dict[str, Any]]) -> None:
     _fragment()
 
 
+def render_web_search_results(results: list[dict[str, Any]]) -> None:
+    """Render the web search results panel — results from Tavily (G-3).
+
+    Each result becomes a card: a clickable title link to ``url``, a URL
+    caption, the snippet text, and an optional relevance score metric.
+    The panel is collapsed by default and the number of rendered results
+    follows ``len(results)`` — ``web_search`` returns up to
+    ``WebSearchArgs.max_results`` items (5 by default, 20 at most).
+
+    Args:
+        results: list of ``{title, url, snippet, score?}`` dicts. ``score`` is
+            a Tavily relevance score in ``[0, 1]`` and is optional — not every
+            result carries one, and the metric is only rendered when it is
+            present.
+    """
+    import streamlit as st
+
+    if not results:
+        return
+
+    with st.expander(
+        f"\U0001f310 Web search results ({len(results)})",
+        expanded=False,
+    ):
+        for index, result in enumerate(results, 1):
+            _render_web_result_card(index, result)
+
+
+def _render_web_result_card(index: int, result: dict[str, Any]) -> None:
+    """Render a single web search result card (G-3).
+
+    Web results are deliberately *not* rendered through
+    ``_render_citation_card`` (G-2): they carry no page, no
+    ``content_preview``, and their score semantics differ (Tavily relevance
+    vs. reranker score), so they get their own local shape.
+    """
+    import streamlit as st
+
+    title = str(result.get("title") or result.get("url") or f"Result {index}")
+    url = str(result.get("url") or "")
+    snippet = str(result.get("snippet") or "")
+    score = result.get("score")
+
+    label = _escape_markdown_label(title) if url else title
+    if url:
+        st.markdown(f"**{index}. [{label}]({url})**")
+    else:
+        st.markdown(f"**{index}. {label}**")
+    st.caption(f"\U0001f517 {url}")
+
+    if snippet:
+        st.markdown(snippet)
+
+    if score is not None:
+        try:
+            st.metric("Relevance", f"{float(score):.2f}")
+        except (TypeError, ValueError):
+            pass
+
+    st.divider()
+
+
+def _render_web_search_results_fragment(results: list[dict[str, Any]]) -> None:
+    """Render the web search results panel inside ``@st.fragment`` (UI-3 pattern).
+
+    Isolating the panel keeps expanding/collapsing results from re-running the
+    main chat area, so token streaming continues without lag. The decorator is
+    applied lazily to keep this module importable outside a Streamlit session.
+    """
+    import streamlit as st
+
+    @st.fragment
+    def _fragment() -> None:
+        render_web_search_results(results)
+
+    _fragment()
+
+
 def _render_tool_call_fragment(
     tool_name: str,
     args: dict[str, Any],
@@ -401,6 +485,11 @@ def handle_tool_event(
 ) -> None:
     """Update state and trigger re-render for tool events (G-1).
 
+    Beyond the generic tool-call preview, two branches also render a
+    dedicated results panel: ``retrieved_docs`` renders the RAG citations
+    panel (G-2) and a ``tool_result`` for ``web_search`` renders the web
+    search results panel (G-3).
+
     Args:
         event_type: "tool_call" | "tool_result" | "retrieved_docs"
         data: SSE event data (Block H-4 contract)
@@ -434,6 +523,10 @@ def handle_tool_event(
                 status="done",
                 result_preview=tc["result_preview"],
             )
+            # G-3: web_search results get their own panel, separate from the
+            # tool-call preview above (which keeps the snippet_count preview).
+            if tc["tool_name"] == "web_search":
+                _render_web_search_results_fragment(data.get("full_results") or [])
     elif event_type == "retrieved_docs":
         # For rag_query — extended preview with citations (G-2)
         tc_id = data["tool_call_id"]
@@ -470,4 +563,5 @@ __all__ = [
     "render_pii_badge",
     "render_rag_citations",
     "render_status_badge",
+    "render_web_search_results",
 ]

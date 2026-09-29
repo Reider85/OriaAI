@@ -39,6 +39,7 @@ class _FakeStreamlit:
         self.spinner_calls = []
         self.caption_calls = []
         self.progress_calls = []
+        self.metric_calls = []
         self.divider_calls = []
         self.fragments = []
         self._button_clicked = False
@@ -82,6 +83,10 @@ class _FakeStreamlit:
     def progress(self, value, text=None):
         """Mock st.progress method."""
         self.progress_calls.append({"value": value, "text": text})
+
+    def metric(self, label, value):
+        """Mock st.metric method."""
+        self.metric_calls.append({"label": label, "value": value})
 
     def divider(self):
         """Mock st.divider method."""
@@ -697,3 +702,256 @@ def test_handle_tool_event_retrieved_docs_renders_citations(fake_streamlit, monk
     assert captured == [chunks]
     assert client.tool_call_rendered["result_preview"]["chunk_count"] == 5
     assert client.tool_call_rendered["result_preview"]["source_uris"] == ["s3://doc1.pdf"]
+
+
+# G-3 Web search results panel tests
+WEB_PANEL = "\U0001f310 Web search results"
+
+
+def test_render_web_search_results_empty(fake_streamlit):
+    render.render_web_search_results([])
+    assert fake_streamlit.expander_calls == []
+    assert fake_streamlit.markdown_calls == []
+    assert fake_streamlit.metric_calls == []
+
+
+def test_render_web_search_results_one(fake_streamlit):
+    results = [
+        {
+            "title": "Python asyncio docs",
+            "url": "https://docs.python.org/3/library/asyncio.html",
+            "snippet": "asyncio is a library for asynchronous Python.",
+            "score": 0.95,
+        }
+    ]
+    render.render_web_search_results(results)
+
+    assert fake_streamlit.expander_calls == [{"label": f"{WEB_PANEL} (1)", "expanded": False}]
+    assert fake_streamlit.markdown_calls[0]["text"] == (
+        "**1. [Python asyncio docs](https://docs.python.org/3/library/asyncio.html)**"
+    )
+    assert fake_streamlit.caption_calls == [
+        "\U0001f517 https://docs.python.org/3/library/asyncio.html"
+    ]
+    assert fake_streamlit.markdown_calls[1]["text"] == (
+        "asyncio is a library for asynchronous Python."
+    )
+    assert fake_streamlit.metric_calls == [{"label": "Relevance", "value": "0.95"}]
+    assert len(fake_streamlit.divider_calls) == 1
+
+
+def test_render_web_search_results_many(fake_streamlit):
+    results = [
+        {
+            "title": f"Result {i}",
+            "url": f"https://example.com/{i}",
+            "snippet": f"snippet {i}",
+            "score": 0.9,
+        }
+        for i in range(1, 6)
+    ]
+    render.render_web_search_results(results)
+
+    assert fake_streamlit.expander_calls == [{"label": f"{WEB_PANEL} (5)", "expanded": False}]
+    assert len(fake_streamlit.divider_calls) == 5
+    assert len(fake_streamlit.metric_calls) == 5
+    assert fake_streamlit.markdown_calls[0]["text"] == (
+        "**1. [Result 1](https://example.com/1)**"
+    )
+    assert fake_streamlit.markdown_calls[8]["text"] == (
+        "**5. [Result 5](https://example.com/5)**"
+    )
+
+
+def test_render_web_search_results_count_is_not_hardcoded(fake_streamlit):
+    render.render_web_search_results([{"title": "a", "url": "https://a", "snippet": "s"}] * 17)
+    assert fake_streamlit.expander_calls == [{"label": f"{WEB_PANEL} (17)", "expanded": False}]
+
+
+def test_render_web_search_results_missing_snippet(fake_streamlit):
+    render.render_web_search_results(
+        [{"title": "No snippet", "url": "https://example.com", "score": 0.5}]
+    )
+    assert fake_streamlit.markdown_calls[0]["text"] == (
+        "**1. [No snippet](https://example.com)**"
+    )
+    assert len(fake_streamlit.markdown_calls) == 1
+    assert len(fake_streamlit.divider_calls) == 1
+
+
+def test_render_web_search_results_missing_score(fake_streamlit):
+    render.render_web_search_results(
+        [{"title": "No score", "url": "https://example.com", "snippet": "body"}]
+    )
+    assert fake_streamlit.metric_calls == []
+
+
+def test_render_web_search_results_invalid_score_is_skipped(fake_streamlit):
+    render.render_web_search_results(
+        [{"title": "Bad score", "url": "https://example.com", "score": "n/a"}]
+    )
+    assert fake_streamlit.metric_calls == []
+    assert len(fake_streamlit.divider_calls) == 1
+
+
+def test_render_web_search_results_missing_fields(fake_streamlit):
+    render.render_web_search_results([{}])
+    assert fake_streamlit.markdown_calls[0]["text"] == "**1. Result 1**"
+    assert fake_streamlit.caption_calls == ["\U0001f517 "]
+    assert fake_streamlit.metric_calls == []
+
+
+def test_render_web_search_results_title_falls_back_to_url(fake_streamlit):
+    render.render_web_search_results([{"url": "https://example.com", "snippet": "x"}])
+    assert fake_streamlit.markdown_calls[0]["text"] == (
+        "**1. [https://example.com](https://example.com)**"
+    )
+
+
+def test_render_web_search_results_escapes_brackets_in_title(fake_streamlit):
+    render.render_web_search_results(
+        [{"title": "Chapter [1]", "url": "https://example.com", "snippet": "x"}]
+    )
+    assert fake_streamlit.markdown_calls[0]["text"] == (
+        "**1. [Chapter \\[1\\]](https://example.com)**"
+    )
+
+
+def test_render_web_search_results_hides_technical_fields(fake_streamlit):
+    render.render_web_search_results(
+        [
+            {
+                "title": "T",
+                "url": "https://example.com",
+                "snippet": "**bold** snippet",
+                "raw_tavily_field": "must not render",
+            }
+        ]
+    )
+    texts = [call["text"] for call in fake_streamlit.markdown_calls]
+    assert texts == ["**1. [T](https://example.com)**", "**bold** snippet"]
+    assert not any("must not render" in text for text in texts)
+
+
+def test_render_web_search_results_uses_separate_expander_from_rag(fake_streamlit):
+    render.render_rag_citations(
+        [{"source_uri": "s3://doc.pdf", "content_preview": "x", "score": 0.5}]
+    )
+    render.render_web_search_results([{"title": "T", "url": "https://example.com", "snippet": "x"}])
+    assert [call["label"] for call in fake_streamlit.expander_calls] == [
+        "\U0001f4da RAG citations (1 chunks)",
+        f"{WEB_PANEL} (1)",
+    ]
+
+
+def test_render_web_search_results_fragment_isolates_reruns(fake_streamlit):
+    render._render_web_search_results_fragment(
+        [{"title": "T", "url": "https://example.com", "snippet": "x"}]
+    )
+    assert fake_streamlit.fragments == ["_fragment"]
+    assert fake_streamlit.expander_calls == [{"label": f"{WEB_PANEL} (1)", "expanded": False}]
+
+
+def test_handle_tool_event_web_search_full_results(fake_streamlit, monkeypatch):
+    client = fake_streamlit
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "web_search",
+            "args": {"query": "python asyncio"},
+            "status": "running",
+            "result_preview": None,
+        }
+    }
+    full_results = [{"title": "T", "url": "https://example.com", "snippet": "x", "score": 0.9}]
+    data = {
+        "tool_call_id": "tc1",
+        "tool_name": "web_search",
+        "preview": {"snippet_count": 1},
+        "full_results": full_results,
+    }
+
+    captured = []
+    monkeypatch.setattr(
+        render,
+        "_render_web_search_results_fragment",
+        lambda r: captured.append(r),
+    )
+
+    render.handle_tool_event("tool_result", data, client, pending_tool_calls)
+
+    assert captured == [full_results]
+    assert client.tool_call_rendered["result_preview"] == {"snippet_count": 1}
+    assert pending_tool_calls["tc1"]["status"] == "done"
+
+
+def test_handle_tool_event_web_search_renders_results_panel(fake_streamlit):
+    client = fake_streamlit
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "web_search",
+            "args": {"query": "python asyncio"},
+            "status": "running",
+            "result_preview": None,
+        }
+    }
+    data = {
+        "tool_call_id": "tc1",
+        "tool_name": "web_search",
+        "preview": {"snippet_count": 1},
+        "full_results": [
+            {
+                "title": "Python asyncio docs",
+                "url": "https://docs.python.org/3/library/asyncio.html",
+                "snippet": "asyncio is a library for asynchronous Python.",
+                "score": 0.95,
+            }
+        ],
+    }
+
+    render.handle_tool_event("tool_result", data, client, pending_tool_calls)
+
+    assert fake_streamlit.expander_calls == [{"label": f"{WEB_PANEL} (1)", "expanded": False}]
+    assert fake_streamlit.markdown_calls[0]["text"] == (
+        "**1. [Python asyncio docs](https://docs.python.org/3/library/asyncio.html)**"
+    )
+    assert fake_streamlit.metric_calls == [{"label": "Relevance", "value": "0.95"}]
+
+
+def test_handle_tool_event_web_search_without_results_renders_nothing(fake_streamlit):
+    client = fake_streamlit
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "web_search",
+            "args": {"query": "python"},
+            "status": "running",
+            "result_preview": None,
+        }
+    }
+    data = {"tool_call_id": "tc1", "preview": {"snippet_count": 0}}
+
+    render.handle_tool_event("tool_result", data, client, pending_tool_calls)
+
+    assert fake_streamlit.expander_calls == []
+    assert pending_tool_calls["tc1"]["status"] == "done"
+
+
+def test_handle_tool_event_non_web_search_does_not_render_web_panel(fake_streamlit):
+    client = fake_streamlit
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "file_export",
+            "args": {"filename": "a.txt"},
+            "status": "running",
+            "result_preview": None,
+        }
+    }
+    data = {
+        "tool_call_id": "tc1",
+        "tool_name": "file_export",
+        "preview": {"filename": "a.txt"},
+        "full_results": [{"title": "T", "url": "https://example.com"}],
+    }
+
+    render.handle_tool_event("tool_result", data, client, pending_tool_calls)
+
+    assert fake_streamlit.expander_calls == []
