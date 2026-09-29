@@ -127,7 +127,7 @@ class StreamlitClient(UIClient):
             messages = st.session_state.get(session_id, {}).get("messages", [])
             for msg in messages:
                 self.render_message(
-                    str(msg.get("role", "user")),
+                    msg.get("role", "user"),
                     str(msg.get("content", "")),
                     msg.get("metadata"),
                 )
@@ -319,6 +319,18 @@ class StreamlitClient(UIClient):
         return st.chat_input(
             "Type your message...", key=f"{_CHAT_INPUT_KEY}{session_id}"
         )
+
+    def render_tool_call(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        status: Literal["running", "done", "error"] = "running",
+        result_preview: dict[str, Any] | None = None,
+    ) -> None:
+        """Render a collapsible tool-call preview panel inside current chat message."""
+        from llm_client.ui.render import _render_tool_call_fragment
+
+        _render_tool_call_fragment(tool_name, args, status, result_preview)
 
 
 __all__ = [

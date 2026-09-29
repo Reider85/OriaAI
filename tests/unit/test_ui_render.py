@@ -35,6 +35,8 @@ class _FakeStreamlit:
         self.code_calls = []
         self.markdown_calls = []
         self.chat_messages = []
+        self.json_calls = []
+        self.spinner_calls = []
         self._button_clicked = False
 
     def warning(self, text):
@@ -47,7 +49,7 @@ class _FakeStreamlit:
         self.status_calls.append({"label": label, "expanded": expanded})
         return _FakeStatus()
 
-    def expander(self, label):
+    def expander(self, label, expanded=False):
         self.expander_calls.append(label)
         return _FakeExpander()
 
@@ -61,12 +63,47 @@ class _FakeStreamlit:
     def markdown(self, text, unsafe_allow_html=False):
         self.markdown_calls.append({"text": text, "unsafe_allow_html": unsafe_allow_html})
 
+    def json(self, data):
+        """Mock st.json method."""
+        self.json_calls.append(data)
+
+    def caption(self, text):
+        """Mock st.caption method."""
+        self.caption_calls = text
+
     def chat_message(self, role):
         self.chat_messages.append(role)
         return _FakeContainer()
 
     def rerun(self):
         raise _FakeRerun()
+
+    def render_tool_call(self, tool_name, args, status="running", result_preview=None):
+        """Mock render_tool_call method."""
+        self.tool_call_rendered = {
+            "tool_name": tool_name,
+            "args": args,
+            "status": status,
+            "result_preview": result_preview
+        }
+
+    def spinner(self, text):
+        """Mock st.spinner method."""
+        self.spinner_calls.append(text)
+        self.spinner_text = text
+        return _FakeContextManager()
+
+    def success(self, text):
+        """Mock st.success method."""
+        self.success_calls = text
+
+    def error(self, text):
+        """Mock st.error method."""
+        self.errors.append(text)
+
+    def divider(self):
+        """Mock st.divider method."""
+        self.divider_calls = True
 
 
 class _FakeStatus:
@@ -86,6 +123,14 @@ class _FakeExpander:
 
 
 class _FakeContainer:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        return False
+
+
+class _FakeContextManager:
     def __enter__(self):
         return self
 
@@ -388,3 +433,123 @@ def test_render_history_passes_metadata(fake_streamlit):
     assert fake_streamlit.markdown_calls[2]["text"] == "hello"
     assert fake_streamlit.markdown_calls[3]["text"] == "boost"
     assert "PII: high" in fake_streamlit.markdown_calls[4]["text"]
+
+
+# G-1 Tool-call preview tests
+def test_render_tool_call_running(fake_streamlit):
+    render._render_tool_call_fragment("web_search", {"query": "python", "max_results": 5}, "running")
+    assert fake_streamlit.expander_calls == ["🔧 web_search — running"]
+    assert len(fake_streamlit.json_calls) == 1
+    assert fake_streamlit.json_calls[0] == {"query": "python", "max_results": 5}
+    assert len(fake_streamlit.spinner_calls) == 1
+    assert fake_streamlit.spinner_text == "Running..."
+
+
+def test_render_tool_call_done_with_preview(fake_streamlit):
+    preview = {"snippet_count": 3, "sources": ["example.com"]}
+    render._render_tool_call_fragment("web_search", {"query": "python"}, "done", preview)
+    assert fake_streamlit.expander_calls == ["🔧 web_search — done"]
+    assert len(fake_streamlit.json_calls) == 2
+    assert fake_streamlit.json_calls[0] == {"query": "python"}
+    assert fake_streamlit.json_calls[1] == {"snippet_count": 3, "sources": ["example.com"]}
+    assert fake_streamlit.success_calls == "Done"
+
+
+def test_render_tool_call_error(fake_streamlit):
+    render._render_tool_call_fragment("rag_query", {"query": "error"}, "error")
+    assert fake_streamlit.expander_calls == ["🔧 rag_query — error"]
+    assert len(fake_streamlit.json_calls) == 1
+    assert fake_streamlit.json_calls[0] == {"query": "error"}
+    assert len(fake_streamlit.errors) == 1
+    assert fake_streamlit.errors[0] == "Failed"
+
+
+def test_render_tool_call_file_export_content_truncation(fake_streamlit):
+    long_content = "x" * 300
+    render._render_tool_call_fragment("file_export", {"content": long_content, "filename": "test.txt"})
+    assert fake_streamlit.json_calls[0] == {"content": "x" * 200 + "...", "filename": "test.txt"}
+
+
+def test_handle_tool_event_tool_call(fake_streamlit):
+    client = fake_streamlit  # Mock client
+    pending_tool_calls = {}
+    
+    data = {
+        "tool_call_id": "tc1",
+        "tool_name": "web_search",
+        "args": {"query": "python", "max_results": 5}
+    }
+    
+    render.handle_tool_event("tool_call", data, client, pending_tool_calls)
+    assert len(pending_tool_calls) == 1
+    assert pending_tool_calls["tc1"]["tool_name"] == "web_search"
+    assert pending_tool_calls["tc1"]["status"] == "running"
+    assert client.tool_call_rendered["tool_name"] == "web_search"
+    assert client.tool_call_rendered["status"] == "running"
+
+
+def test_handle_tool_event_tool_result(fake_streamlit):
+    client = fake_streamlit  # Mock client
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "web_search",
+            "args": {"query": "python"},
+            "status": "running",
+            "result_preview": None
+        }
+    }
+    
+    data = {
+        "tool_call_id": "tc1",
+        "preview": {"snippet_count": 3}
+    }
+    
+    render.handle_tool_event("tool_result", data, client, pending_tool_calls)
+    assert pending_tool_calls["tc1"]["status"] == "done"
+    assert pending_tool_calls["tc1"]["result_preview"] == {"snippet_count": 3}
+    assert client.tool_call_rendered["status"] == "done"
+    assert client.tool_call_rendered["result_preview"] == {"snippet_count": 3}
+
+
+def test_handle_tool_event_retrieved_docs(fake_streamlit):
+    client = fake_streamlit  # Mock client
+    pending_tool_calls = {
+        "tc1": {
+            "tool_name": "rag_query",
+            "args": {"query": "error"},
+            "status": "running",
+            "result_preview": None
+        }
+    }
+    
+    data = {
+        "tool_call_id": "tc1",
+        "chunk_count": 5,
+        "top_score": 0.95,
+        "source_uris": ["doc1.pdf", "doc2.txt"],
+        "chunks": [
+            {"source_uri": "doc1.pdf", "content_preview": "Error 123", "score": 0.95}
+        ]
+    }
+    
+    render.handle_tool_event("retrieved_docs", data, client, pending_tool_calls)
+    assert pending_tool_calls["tc1"]["status"] == "done"
+    assert pending_tool_calls["tc1"]["result_preview"]["chunk_count"] == 5
+    assert pending_tool_calls["tc1"]["result_preview"]["top_score"] == 0.95
+    assert client.tool_call_rendered["status"] == "done"
+    assert len(fake_streamlit.expander_calls) == 1  # Only citations panel gets added, tool call updates existing
+
+
+def test_render_rag_citations_empty(fake_streamlit):
+    render.render_rag_citations([])
+    assert fake_streamlit.expander_calls == []
+
+
+def test_render_rag_citations_with_chunks(fake_streamlit):
+    chunks = [
+        {"source_uri": "doc1.pdf", "content_preview": "Error 123", "score": 0.95},
+        {"source_uri": "doc2.txt", "content_preview": "Solution", "score": 0.85}
+    ]
+    render.render_rag_citations(chunks)
+    assert fake_streamlit.expander_calls == ["📚 Sources"]
+    assert len(fake_streamlit.markdown_calls) == 6  # 2 chunks × 3 markdown calls each

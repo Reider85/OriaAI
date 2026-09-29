@@ -17,7 +17,7 @@ from __future__ import annotations
 import html
 import os
 from collections.abc import Mapping, Sequence
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 
@@ -259,16 +259,125 @@ def _badge_markup(level: str, entities: list[str]) -> str:
     )
 
 
+def render_rag_citations(chunks: list[dict]) -> None:
+    """Render RAG citations panel (G-2 placeholder)."""
+    import streamlit as st
+
+    if not chunks:
+        return
+    
+    with st.expander("📚 Sources", expanded=True):
+        for i, chunk in enumerate(chunks[:5]):  # Show top 5
+            st.markdown(f"**Source {i+1}:** {chunk.get('source_uri', 'Unknown')}")
+            st.markdown(f"**Content:** {chunk.get('content_preview', 'No preview')}")
+            st.markdown(f"**Score:** {chunk.get('score', 0.0):.3f}")
+            st.divider()
+
+
+def _render_tool_call_fragment(
+    tool_name: str,
+    args: dict[str, Any],
+    status: Literal["running", "done", "error"] = "running",
+    result_preview: dict[str, Any] | None = None,
+) -> None:
+    """Render a collapsible tool-call preview panel (G-1)."""
+    import streamlit as st
+
+    # PII truncation for file_export content
+    display_args = dict(args)
+    if tool_name == "file_export" and "content" in display_args:
+        content = str(display_args["content"])
+        display_args["content"] = (content[:200] + "...") \
+            if len(content) > 200 else content
+
+    # Collapsible panel inside current chat_message
+    with st.expander(f"🔧 {tool_name} — {status}", expanded=False):
+        st.json(display_args)
+        if result_preview is not None:
+            st.caption("Result preview")
+            st.json(result_preview)
+        if status == "running":
+            st.spinner("Running...")
+        elif status == "done":
+            st.success("Done")
+        elif status == "error":
+            st.error("Failed")
+
+
+def handle_tool_event(
+    event_type: str,
+    data: dict[str, Any],
+    client: Any,  # UIClient but circular import
+    pending_tool_calls: dict[str, dict],
+) -> None:
+    """Update state and trigger re-render for tool events (G-1).
+
+    Args:
+        event_type: "tool_call" | "tool_result" | "retrieved_docs"
+        data: SSE event data (Block H-4 contract)
+        client: UIClient instance (StreamlitClient)
+        pending_tool_calls: dict[tool_call_id, {tool_name, args, status, result_preview}]
+                           in st.session_state
+    """
+    if event_type == "tool_call":
+        pending_tool_calls[data["tool_call_id"]] = {
+            "tool_name": data["tool_name"],
+            "args": data["args"],
+            "status": "running",
+            "result_preview": None,
+        }
+        client.render_tool_call(
+            tool_name=data["tool_name"],
+            args=data["args"],
+            status="running",
+        )
+    elif event_type == "tool_result":
+        tc_id = data["tool_call_id"]
+        if tc_id in pending_tool_calls:
+            pending_tool_calls[tc_id]["status"] = "done"
+            pending_tool_calls[tc_id]["result_preview"] = (
+                data.get("preview") or {}
+            )
+            tc = pending_tool_calls[tc_id]
+            client.render_tool_call(
+                tool_name=tc["tool_name"],
+                args=tc["args"],
+                status="done",
+                result_preview=tc["result_preview"],
+            )
+    elif event_type == "retrieved_docs":
+        # For rag_query — extended preview with citations (G-2)
+        tc_id = data["tool_call_id"]
+        if tc_id in pending_tool_calls:
+            pending_tool_calls[tc_id]["status"] = "done"
+            pending_tool_calls[tc_id]["result_preview"] = {
+                "chunk_count": data.get("chunk_count", 0),
+                "top_score": data.get("top_score", 0.0),
+                "source_uris": data.get("source_uris", []),
+            }
+            tc = pending_tool_calls[tc_id]
+            client.render_tool_call(
+                tool_name=tc["tool_name"],
+                args=tc["args"],
+                status="done",
+                result_preview=tc["result_preview"],
+            )
+            # G-2 additionally renders citations panel:
+            render_rag_citations(data.get("chunks", []))
+
+
 __all__ = [
     "FAST_ARTIFACT_FORMATS",
     "PII_HIGH_THRESHOLD_ENV",
     "PII_LOW_THRESHOLD_ENV",
     "fetch_artifact_content",
     "get_mime_type",
+    "handle_tool_event",
     "render_artifact_buttons",
     "render_error",
     "render_history",
     "render_message",
     "render_pii_badge",
+    "render_rag_citations",
     "render_status_badge",
 ]

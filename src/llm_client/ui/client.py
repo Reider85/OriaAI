@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Literal
 
 from llm_client.types import ArtifactRef, MessageRole
 
@@ -69,6 +70,48 @@ class UIClient(ABC):
 
         Returns the user text when a message has been submitted, or ``None``
         when no input is pending.
+        """
+
+    @abstractmethod
+    def render_tool_call(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        status: Literal["running", "done", "error"] = "running",
+        result_preview: dict[str, Any] | None = None,
+    ) -> None:
+        """Render a collapsible panel for tool-call previews inside the current
+        assistant chat_message.
+
+        Args:
+            tool_name: "web_search" | "rag_query" | "file_export" | "mcp_call"
+                       (Phase 4). Displayed as-is (developer-facing).
+            args: dict with tool call arguments (query, max_results, format,
+                  filename, etc.). File_export content is truncated to 200 chars
+                  with "..." for privacy.
+            status: "running" (spinner), "done" (green checkmark), "error" (red badge)
+            result_preview: dict with result summary {snippet_count: int} for
+                           web_search, {chunk_count: int, top_score: float}
+                           for rag_query, {artifact_id, format, filename}
+                           for file_export. None when status="running".
+        """
+
+    @abstractmethod
+    def render_streaming_fragment(
+        self,
+        session_id: str,
+        prompt: str,
+        user_message: dict[str, Any],
+        pii_badge_area: Any,
+        on_pii_metadata: Callable[[Any], None] | None = None,
+    ) -> None:
+        """Handle the full streaming lifecycle inside ``@st.fragment``.
+
+        The fragment owns: POST to agent-service, SSE token loop, status badge,
+        PII badge updates, answer storage, and artifact rendering.  Because it
+        is a fragment, sidebar clicks do not interrupt an active stream — the
+        fragment re-executes on page rerun but its internal state (stored in
+        ``session_state``) tells it whether streaming is already complete.
         """
 
 

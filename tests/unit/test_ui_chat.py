@@ -332,3 +332,92 @@ def test_send_message_posts_to_chat_endpoint(monkeypatch):
     assert chat.send_message("sid-1", "hi") == "ok"
     assert captured["url"] == "http://localhost:8000/sessions/sid-1/chat"
     assert captured["json"] == {"message": "hi"}
+
+
+def test_stream_tokens_captures_tool_call_event(monkeypatch):
+    lines = [
+        "event: tool_call",
+        'data: {"tool_call_id": "tc1", "tool_name": "web_search", "args": {"query": "python"}}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_tool_events()
+    assert list(chat.stream_tokens("sid-1")) == []
+    events = chat.get_pending_tool_events()
+    assert len(events) == 1
+    assert events[0]["tool_call_id"] == "tc1"
+    assert events[0]["tool_name"] == "web_search"
+
+
+def test_stream_tokens_captures_tool_result_event(monkeypatch):
+    lines = [
+        "event: tool_result",
+        'data: {"tool_call_id": "tc1", "preview": {"snippet_count": 3}}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_tool_events()
+    assert list(chat.stream_tokens("sid-1")) == []
+    events = chat.get_pending_tool_events()
+    assert len(events) == 1
+    assert events[0]["tool_call_id"] == "tc1"
+    assert events[0]["preview"]["snippet_count"] == 3
+
+
+def test_stream_tokens_captures_retrieved_docs_event(monkeypatch):
+    lines = [
+        "event: retrieved_docs",
+        'data: {"tool_call_id": "tc1", "chunk_count": 5, "top_score": 0.95}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_tool_events()
+    assert list(chat.stream_tokens("sid-1")) == []
+    events = chat.get_pending_tool_events()
+    assert len(events) == 1
+    assert events[0]["tool_call_id"] == "tc1"
+    assert events[0]["chunk_count"] == 5
+    assert events[0]["top_score"] == 0.95
+
+
+def test_get_pending_tool_events_returns_copy(monkeypatch):
+    lines = [
+        "event: tool_call",
+        'data: {"tool_call_id": "tc1", "tool_name": "web_search", "args": {"query": "python"}}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_tool_events()
+    list(chat.stream_tokens("sid-1"))
+    events = chat.get_pending_tool_events()
+    events[0]["tool_call_id"] = "mutated"
+    assert chat.get_pending_tool_events()[0]["tool_call_id"] == "tc1"
+
+
+def test_clear_pending_tool_events_resets_buffer(monkeypatch):
+    lines = [
+        "event: tool_call",
+        'data: {"tool_call_id": "tc1", "tool_name": "web_search", "args": {"query": "python"}}',
+        "",
+        "event: done",
+        "data: {}",
+        "",
+    ]
+    monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
+    chat.clear_pending_tool_events()
+    list(chat.stream_tokens("sid-1"))
+    assert len(chat.get_pending_tool_events()) == 1
+    chat.clear_pending_tool_events()
+    assert chat.get_pending_tool_events() == []

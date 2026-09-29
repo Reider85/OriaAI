@@ -31,9 +31,11 @@ TOKEN_EVENTS = ("token", "message")
 TERMINAL_EVENTS = ("cancelled", "error")
 ARTIFACT_EVENTS = ("artifact_ready",)
 METADATA_EVENTS = ("metadata",)
+TOOL_EVENTS = ("tool_call", "tool_result", "retrieved_docs")
 
 _pending_artifacts: list[dict[str, Any]] = []
 _pending_metadata: list[dict[str, Any]] = []
+_pending_tool_events: list[dict[str, Any]] = []
 
 
 class SSEEvent(NamedTuple):
@@ -117,6 +119,8 @@ def stream_tokens(
                     _record_metadata(event.data)
                     if on_metadata is not None:
                         on_metadata(event.data)
+                elif event.event in TOOL_EVENTS:
+                    _record_tool_event(event.data)
                 elif event.event == "done":
                     return
                 elif event.event in TERMINAL_EVENTS:
@@ -174,6 +178,11 @@ def _record_metadata(data: Any) -> None:
         _pending_metadata.append(dict(data))
 
 
+def _record_tool_event(data: Any) -> None:
+    if isinstance(data, dict) and data.get("tool_call_id"):
+        _pending_tool_events.append(dict(data))
+
+
 def iter_sse_events(lines: Iterator[str]) -> Iterator[SSEEvent]:
     """Parse a text line iterator into SSE events (RFC 8895-style, per ADR-007).
 
@@ -223,6 +232,16 @@ def _token_payload(data: Any) -> str | None:
     return data if isinstance(data, str) else None
 
 
+def get_pending_tool_events() -> list[dict[str, Any]]:
+    """Return a copy of the tool event payloads seen in the last stream."""
+    return [dict(item) for item in _pending_tool_events]
+
+
+def clear_pending_tool_events() -> None:
+    """Drop all captured tool event payloads."""
+    _pending_tool_events.clear()
+
+
 __all__ = [
     "AGENT_SERVICE_URL_DEFAULT",
     "AGENT_SERVICE_URL_ENV",
@@ -231,8 +250,10 @@ __all__ = [
     "agent_service_url",
     "clear_pending_artifacts",
     "clear_pending_metadata",
+    "clear_pending_tool_events",
     "get_pending_artifacts",
     "get_pending_metadata",
+    "get_pending_tool_events",
     "iter_sse_events",
     "send_message",
     "stream_tokens",
