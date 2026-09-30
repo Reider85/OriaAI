@@ -37,7 +37,7 @@ from .artifacts import load_artifact_meta
 from .cycle_detection import IterationMonitor
 from .graph import build_agent_graph
 from .provider import LLMProviderFactory
-from .tools import file_export, web_search
+from .tools import file_export, rag_query, web_search
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +141,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
     # Build checkpointer for ADR-010
     from ..orchestration.checkpointers.factory import build_checkpointer
+
     checkpointer_bundle = build_checkpointer(settings, operational_writer=None)
 
     # ── PII detection (AG-3: metadata event source, ADR-014 D-1) ──────────────
@@ -211,13 +212,22 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         monitor = IterationMonitor()
 
         # Compile and build the graph (AG-4: file_export tool wired in)
-        # Use checkpointer if available, otherwise None (Phase 1 behavior)
+        # Phase 2: rag_query tool added, rag_pipeline enables rag_retriever node
+        rag_pipeline = None
+        try:
+            from ..rag.pipeline import RagPipeline
+
+            rag_pipeline = RagPipeline.from_settings(settings)
+        except (ImportError, ValueError, RuntimeError) as exc:
+            logger.debug("RAG pipeline not available (%s) — rag_retriever disabled", exc)
+
         graph = build_agent_graph(
             llm,
             token=token,
-            tools=[file_export, web_search],
+            tools=[file_export, web_search, rag_query],
             monitor=monitor,
-            checkpointer=checkpointer_bundle.checkpointer
+            checkpointer=checkpointer_bundle.checkpointer,
+            rag_pipeline=rag_pipeline,
         )
 
         # Queue for streaming chunks from background task to SSE generator
@@ -345,7 +355,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         logger.info("agent-service connected to Redis at %s", redis_url)
 
         # Start flusher for PostgreSQL checkpointer (B-4)
-        if hasattr(checkpointer_bundle, 'postgres_checkpointer') and checkpointer_bundle.postgres_checkpointer:
+        if (
+            hasattr(checkpointer_bundle, "postgres_checkpointer")
+            and checkpointer_bundle.postgres_checkpointer
+        ):
             await checkpointer_bundle.postgres_checkpointer.start_flush_loop()
             logger.info("PostgreSQL checkpointer flusher started")
 
@@ -358,7 +371,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     @app.on_event("shutdown")
     async def _shutdown() -> None:
         # Stop flusher for PostgreSQL checkpointer (B-4)
-        if hasattr(checkpointer_bundle, 'postgres_checkpointer') and checkpointer_bundle.postgres_checkpointer:
+        if (
+            hasattr(checkpointer_bundle, "postgres_checkpointer")
+            and checkpointer_bundle.postgres_checkpointer
+        ):
             await checkpointer_bundle.postgres_checkpointer.stop_flush_loop()
             logger.info("PostgreSQL checkpointer flusher stopped")
 
@@ -391,8 +407,10 @@ async def _run_checkpoint_recovery(bundle: Any) -> dict[str, int] | None:
     checkpointer = getattr(bundle, "checkpointer", None)
     recover = getattr(checkpointer, "recover", None)
     if recover is None:
-        logger.info("Checkpoint recovery skipped: backend has no recover() (backend=%s)",
-                    getattr(bundle, "backend", "none"))
+        logger.info(
+            "Checkpoint recovery skipped: backend has no recover() (backend=%s)",
+            getattr(bundle, "backend", "none"),
+        )
         return None
 
     try:
@@ -487,9 +505,7 @@ async def _stream_generator(session_id: str) -> Any:
     try:
         while True:
             try:
-                chunk = await asyncio.wait_for(
-                    queue.get(), timeout=HEARTBEAT_INTERVAL_SECONDS
-                )
+                chunk = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_INTERVAL_SECONDS)
             except TimeoutError:
                 # Heartbeat to keep connection alive (RFC 8895 comment line)
                 yield ": keepalive\n\n"

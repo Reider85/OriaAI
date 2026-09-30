@@ -1,6 +1,5 @@
 """Tests for AG-1 LangGraph agent graph."""
 
-
 import pytest
 from langchain_core.language_models import FakeListChatModel
 from langchain_core.messages import AIMessage, HumanMessage
@@ -222,10 +221,10 @@ async def test_max_iterations_stops_graph():
 @pytest.mark.asyncio
 async def test_build_agent_graph_phase2_default_tools():
     """Test build_agent_graph with default Phase 2 tools including web_search."""
-    
+
     llm = FakeListChatModel(responses=["Hello world"])
     graph = build_agent_graph(llm)
-    
+
     # Graph should have all default tools
     # This is mainly a smoke test - tool_executor will handle dispatch
     assert graph is not None
@@ -235,15 +234,312 @@ async def test_build_agent_graph_phase2_default_tools():
 async def test_build_agent_graph_phase2_custom_tools():
     """Test build_agent_graph with custom tools (web_search only)."""
     from llm_client.agent.tools import web_search
-    
+
     llm = FakeListChatModel(responses=["Hello world"])
     graph = build_agent_graph(llm, tools=[web_search])
-    
+
     # Graph should only have the specified tool
     assert graph is not None
 
 
+# ── Phase 2 Tests (AG-6 rag_query + rag_retriever integration) ────────────────
 
 
+class _MockRagPipeline:
+    """Mock RagPipeline for testing rag_retriever node."""
+
+    def __init__(self, chunks: list[dict] | None = None):
+        self._chunks = chunks or [
+            {"source_uri": "doc1", "title": "T1", "page": 1, "content_preview": "p1", "score": 0.9},
+        ]
+        self.retrieve_calls: list[dict] = []
+
+    async def retrieve(self, query: str, top_k: int = 5) -> dict:
+        self.retrieve_calls.append({"query": query, "top_k": top_k})
+        return {
+            "chunks": self._chunks[:top_k],
+            "chunk_count": min(len(self._chunks), top_k),
+            "top_score": self._chunks[0]["score"] if self._chunks else 0.0,
+            "source_uris": [c["source_uri"] for c in self._chunks[:top_k] if c.get("source_uri")],
+        }
 
 
+def test_build_agent_graph_phase2_with_rag_pipeline():
+    llm = FakeListChatModel(responses=["Hello"])
+    pipeline = _MockRagPipeline()
+    graph = build_agent_graph(llm, rag_pipeline=pipeline)
+    assert graph is not None
+
+
+def test_build_agent_graph_phase2_without_rag_pipeline():
+    llm = FakeListChatModel(responses=["Hello"])
+    graph = build_agent_graph(llm, rag_pipeline=None)
+    assert graph is not None
+
+
+def test_build_agent_graph_phase2_custom_rag_triggers():
+    llm = FakeListChatModel(responses=["Hello"])
+    pipeline = _MockRagPipeline()
+    graph = build_agent_graph(llm, rag_pipeline=pipeline, rag_triggers=("custom",))
+    assert graph is not None
+
+
+@pytest.mark.asyncio
+async def test_route_after_planner_rag_trigger_words():
+    """User message with 'найди' should route to rag_retriever."""
+    llm = FakeListChatModel(responses=["Here is what I found"])
+    pipeline = _MockRagPipeline(chunks=[])
+    graph = build_agent_graph(llm, rag_pipeline=pipeline)
+
+    state = {
+        "messages": [HumanMessage("найди документацию по asyncio")],
+        "user_id": "u1",
+        "session_id": "s1",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "iteration": 0,
+        "max_iterations": 10,
+        "final_answer": None,
+    }
+
+    chunks = []
+    async for chunk in graph.astream(state):
+        chunks.append(chunk)
+
+    # Should have gone through rag_retriever → final_answer
+    node_names = set()
+    for c in chunks:
+        for k in c:
+            if k not in ("messages", "iteration", "retrieved_docs", "final_answer"):
+                node_names.add(k)
+    assert "rag_retriever" in node_names or any("retrieved_docs" in c for c in chunks)
+
+
+@pytest.mark.asyncio
+async def test_route_after_planner_direct_llm_route():
+    """User message without RAG triggers should go to final_answer."""
+    llm = FakeListChatModel(responses=["Hello there!"])
+    pipeline = _MockRagPipeline()
+    graph = build_agent_graph(llm, rag_pipeline=pipeline)
+
+    state = {
+        "messages": [HumanMessage("привет")],
+        "user_id": "u1",
+        "session_id": "s1",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "iteration": 0,
+        "max_iterations": 10,
+        "final_answer": None,
+    }
+
+    chunks = []
+    async for chunk in graph.astream(state):
+        chunks.append(chunk)
+
+    # Should have gone directly to final_answer (no rag_retriever)
+    node_names = set()
+    for c in chunks:
+        for k in c:
+            if k not in ("messages", "iteration", "retrieved_docs", "final_answer"):
+                node_names.add(k)
+    assert "rag_retriever" not in node_names
+
+
+@pytest.mark.asyncio
+async def test_rag_retriever_node_extracts_query():
+    """rag_retriever node should extract the last human message as query."""
+    pipeline = _MockRagPipeline()
+    from llm_client.agent.graph import _rag_retriever_node
+
+    state = {
+        "messages": [
+            HumanMessage("previous message"),
+            HumanMessage("найди информацию про Redis"),
+        ],
+    }
+
+    result = await _rag_retriever_node(state, pipeline)
+
+    assert "retrieved_docs" in result
+    assert len(result["retrieved_docs"]) > 0
+    assert pipeline.retrieve_calls[-1]["query"] == "найди информацию про Redis"
+
+
+@pytest.mark.asyncio
+async def test_rag_retriever_node_no_user_msg():
+    """rag_retriever with no human messages returns empty docs."""
+    pipeline = _MockRagPipeline()
+    from llm_client.agent.graph import _rag_retriever_node
+
+    state = {"messages": []}
+    result = await _rag_retriever_node(state, pipeline)
+
+    assert result["retrieved_docs"] == []
+
+
+@pytest.mark.asyncio
+async def test_rag_retriever_node_no_pipeline():
+    """rag_retriever with None pipeline returns empty docs."""
+    from llm_client.agent.graph import _rag_retriever_node
+
+    state = {"messages": [HumanMessage("test")]}
+    result = await _rag_retriever_node(state, None)
+
+    assert result["retrieved_docs"] == []
+
+
+@pytest.mark.asyncio
+async def test_rag_retriever_node_with_pipeline():
+    """rag_retriever with mock pipeline returns chunks."""
+    chunks = [
+        {"source_uri": "a", "title": "A", "page": 1, "content_preview": "x", "score": 0.95},
+        {"source_uri": "b", "title": "B", "page": 2, "content_preview": "y", "score": 0.85},
+    ]
+    pipeline = _MockRagPipeline(chunks=chunks)
+    from llm_client.agent.graph import _rag_retriever_node
+
+    state = {"messages": [HumanMessage("search for something")], "rag_top_k": 2}
+    result = await _rag_retriever_node(state, pipeline)
+
+    assert len(result["retrieved_docs"]) == 2
+    assert result["retrieved_docs"][0]["score"] == 0.95
+
+
+@pytest.mark.asyncio
+async def test_rag_retriever_node_uses_top_k_from_state():
+    """rag_retriever uses rag_top_k from state if available."""
+    pipeline = _MockRagPipeline(
+        chunks=[
+            {
+                "source_uri": f"d{i}",
+                "title": f"T{i}",
+                "page": i,
+                "content_preview": f"p{i}",
+                "score": 0.9 - i * 0.1,
+            }
+            for i in range(10)
+        ]
+    )
+    from llm_client.agent.graph import _rag_retriever_node
+
+    state = {"messages": [HumanMessage("test")], "rag_top_k": 3}
+    result = await _rag_retriever_node(state, pipeline)
+
+    assert pipeline.retrieve_calls[-1]["top_k"] == 3
+    assert len(result["retrieved_docs"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_rag_trigger_search_english():
+    """English trigger word 'search' should route to rag_retriever."""
+    llm = FakeListChatModel(responses=["Found it"])
+    pipeline = _MockRagPipeline(chunks=[])
+    graph = build_agent_graph(llm, rag_pipeline=pipeline)
+
+    state = {
+        "messages": [HumanMessage("search for async patterns")],
+        "user_id": "u1",
+        "session_id": "s1",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "iteration": 0,
+        "max_iterations": 10,
+        "final_answer": None,
+    }
+
+    chunks = []
+    async for chunk in graph.astream(state):
+        chunks.append(chunk)
+
+    node_names = set()
+    for c in chunks:
+        for k in c:
+            if k not in ("messages", "iteration", "retrieved_docs", "final_answer"):
+                node_names.add(k)
+    assert "rag_retriever" in node_names or any("retrieved_docs" in c for c in chunks)
+
+
+@pytest.mark.asyncio
+async def test_rag_trigger_find_english():
+    """English trigger word 'find' should route to rag_retriever."""
+    llm = FakeListChatModel(responses=["Here you go"])
+    pipeline = _MockRagPipeline(chunks=[])
+    graph = build_agent_graph(llm, rag_pipeline=pipeline)
+
+    state = {
+        "messages": [HumanMessage("find the documentation")],
+        "user_id": "u1",
+        "session_id": "s1",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "iteration": 0,
+        "max_iterations": 10,
+        "final_answer": None,
+    }
+
+    chunks = []
+    async for chunk in graph.astream(state):
+        chunks.append(chunk)
+
+    node_names = set()
+    for c in chunks:
+        for k in c:
+            if k not in ("messages", "iteration", "retrieved_docs", "final_answer"):
+                node_names.add(k)
+    assert "rag_retriever" in node_names or any("retrieved_docs" in c for c in chunks)
+
+
+@pytest.mark.asyncio
+async def test_build_agent_graph_phase2_rag_first_stores_retrieved_docs():
+    """After rag_retriever, state should contain retrieved_docs."""
+    chunks = [
+        {"source_uri": "doc1", "title": "T1", "page": 1, "content_preview": "p1", "score": 0.9},
+    ]
+    pipeline = _MockRagPipeline(chunks=chunks)
+    llm = FakeListChatModel(responses=["Based on the documents..."])
+    graph = build_agent_graph(llm, rag_pipeline=pipeline)
+
+    state = {
+        "messages": [HumanMessage("найди документ")],
+        "user_id": "u1",
+        "session_id": "s1",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "iteration": 0,
+        "max_iterations": 10,
+        "final_answer": None,
+    }
+
+    final_chunks = []
+    async for chunk in graph.astream(state):
+        final_chunks.append(chunk)
+
+    # Last chunk should have final_answer
+    last = final_chunks[-1]
+    assert "final_answer" in last
+
+
+@pytest.mark.asyncio
+async def test_tool_executor_dispatches_rag_query():
+    """tool_executor should be able to dispatch rag_query tool calls."""
+    from llm_client.agent.tools import rag_query
+    from llm_client.agent.graph import _tool_executor_node
+
+    state = {
+        "messages": [
+            type(
+                "AIMessage",
+                (),
+                {
+                    "tool_calls": [{"name": "rag_query", "args": {"query": "test"}, "id": "tc1"}],
+                    "content": "",
+                },
+            )(),
+        ],
+    }
+
+    result = await _tool_executor_node(state, [rag_query])
+    messages = result["messages"]
+    assert len(messages) == 1
+    assert messages[0].tool_call_id == "tc1"
