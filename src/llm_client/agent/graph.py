@@ -25,6 +25,22 @@ logger = logging.getLogger(__name__)
 # Default trigger words for rag_first routing (Phase 2 simplified heuristic).
 _RAG_TRIGGERS = ("найди", "search", "find", "документ", "look up", "поиск")
 
+#: Tool whose results let the planner answer from the corpus on its own.
+RAG_QUERY_TOOL = "rag_query"
+
+
+def normalise_query(text: Any) -> str:
+    """Normalise an RAG query for equality comparison.
+
+    Used by the ``rag_first`` routing guard (same query already answered by a
+    ``rag_query`` tool call) and by the SSE emitter in ``service.py`` (H-4 query
+    dedup), so both layers agree on what "the same query" means. Case and
+    whitespace are insignificant; anything that is not text normalises to "".
+    """
+    if not isinstance(text, str):
+        return ""
+    return " ".join(text.split()).casefold()
+
 
 # ── Agent state schema ────────────────────────────────────────────────────────
 
@@ -173,6 +189,60 @@ def _resolve_top_k_override(settings: dict[str, Any] | None) -> int | None:
     return top_k
 
 
+def _carries_chunks(content: Any) -> bool:
+    """True when a ToolMessage payload is a rag_query result (has ``chunks``).
+
+    A failed or unknown tool call returns ``{"error": ...}`` instead, which
+    carries no chunks — such a call must not count as an answered query, or the
+    planner would be left with no context at all.
+    """
+    payload = content
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return False
+    return isinstance(payload, dict) and isinstance(payload.get("chunks"), list)
+
+
+def _rag_query_answered(messages: list[Any], query: Any) -> bool:
+    """True when a ``rag_query`` tool call already retrieved for *query*.
+
+    The planner loop revisits ``route_after_planner`` after ``tool_executor``, so
+    an RAG-intent user message triggers the heuristic a second time even though
+    the planner has just retrieved with the ``rag_query`` tool. Re-retrieving the
+    same question costs a full hybrid + rerank pass (ADR-020/ADR-017) and yields
+    the very same chunks, so the heuristic route is skipped.
+
+    A ``rag_query`` call with a *different* query (multi-hop decomposition) does
+    not suppress the route — that second retrieval is genuinely new context.
+    """
+    wanted = normalise_query(query)
+    if not wanted:
+        return False
+
+    args_by_call_id: dict[str, Any] = {}
+    for msg in messages:
+        for tc in getattr(msg, "tool_calls", None) or []:
+            if tc.get("name") == RAG_QUERY_TOOL:
+                args_by_call_id[str(tc.get("id"))] = (tc.get("args") or {}).get("query")
+
+    if not args_by_call_id:
+        return False
+
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        call_id = str(getattr(msg, "tool_call_id", ""))
+        if call_id not in args_by_call_id:
+            continue
+        if normalise_query(args_by_call_id[call_id]) != wanted:
+            continue
+        if _carries_chunks(msg.content):
+            return True
+    return False
+
+
 def build_agent_graph(
     llm: BaseChatModel,
     token: CancellationToken | None = None,
@@ -270,24 +340,32 @@ def build_agent_graph(
             return END
 
         # Tool calls → tool_executor (AG-4)
-        if tools:
-            messages = state.get("messages") or []
-            if messages:
-                last = messages[-1]
-                if getattr(last, "tool_calls", None):
-                    return "tool_executor"
+        messages = state.get("messages") or []
+        if tools and messages:
+            last = messages[-1]
+            if getattr(last, "tool_calls", None):
+                return "tool_executor"
 
         # Phase 2: rag_first heuristic route
         if rag_pipeline is not None:
             user_msg = None
-            for m in reversed(state.get("messages") or []):
+            for m in reversed(messages):
                 if getattr(m, "type", "") == "human":
                     user_msg = m
                     break
             if user_msg is not None:
-                content_lower = (getattr(user_msg, "content", "") or "").lower()
-                if any(t in content_lower for t in triggers):
-                    return "rag_retriever"
+                content = getattr(user_msg, "content", "") or ""
+                if isinstance(content, str) and any(t in content.lower() for t in triggers):
+                    # A rag_query tool call for this same question already
+                    # retrieved (possibly via tool_executor on an earlier
+                    # iteration) — re-running the pipeline would only repeat it.
+                    if _rag_query_answered(messages, content):
+                        logger.info(
+                            "rag_first route skipped — rag_query tool call already "
+                            "retrieved for this query"
+                        )
+                    else:
+                        return "rag_retriever"
 
         return "final_answer"
 

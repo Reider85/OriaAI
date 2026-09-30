@@ -733,3 +733,167 @@ async def test_rag_retriever_invalid_settings_top_k_ignored():
         pass
 
     assert pipeline.retrieve_calls[-1]["top_k"] == 3
+
+
+# ── H-4: rag_retriever is skipped when rag_query already answered ──────────────
+
+_RAG_CHUNKS = [
+    {"source_uri": "doc1", "title": "T1", "page": 1, "content_preview": "p1", "score": 0.9},
+]
+
+
+def _rag_query_llm(query: str, result: dict) -> FakeMessagesListChatModel:
+    """LLM that calls rag_query once, then answers in plain text."""
+    return FakeMessagesListChatModel(
+        responses=[
+            _ai_message_with_tool_calls(
+                {"name": "rag_query", "args": {"query": query}, "id": "tc-rag"}
+            ),
+            AIMessage(content="Готово."),
+        ]
+    )
+
+
+def _rag_query_tool(result: dict) -> Any:
+    return _MockTool("rag_query", result=result)
+
+
+async def _run(graph: Any, message: str) -> list[dict]:
+    return [chunk async for chunk in graph.astream(_initial_state(message))]
+
+
+def _node_names(chunks: list[dict]) -> set[str]:
+    ignored = ("messages", "iteration", "retrieved_docs", "final_answer")
+    return {key for chunk in chunks for key in chunk if key not in ignored}
+
+
+@pytest.mark.asyncio
+async def test_route_skips_rag_retriever_after_rag_query_tool_call():
+    """Same question already answered by the tool — no duplicate retrieval."""
+    pipeline = _MockRagPipeline(chunks=_RAG_CHUNKS)
+    tool = _rag_query_tool(
+        {
+            "chunks": _RAG_CHUNKS,
+            "chunk_count": 1,
+            "top_score": 0.9,
+            "source_uris": ["doc1"],
+        }
+    )
+    graph = build_agent_graph(
+        _rag_query_llm("найди документацию про asyncio", {}),
+        tools=[tool],
+        rag_pipeline=pipeline,
+    )
+
+    chunks = await _run(graph, "найди документацию про asyncio")
+
+    assert "tool_executor" in _node_names(chunks)
+    assert "rag_retriever" not in _node_names(chunks), "rag_retriever ran a duplicate query"
+    assert pipeline.retrieve_calls == []
+    assert tool.calls == [{"query": "найди документацию про asyncio"}]
+
+
+@pytest.mark.asyncio
+async def test_route_skips_rag_retriever_for_normalised_query_match():
+    """Case and whitespace differences must not defeat the dedup."""
+    pipeline = _MockRagPipeline(chunks=_RAG_CHUNKS)
+    tool = _rag_query_tool({"chunks": _RAG_CHUNKS, "chunk_count": 1, "top_score": 0.9})
+    graph = build_agent_graph(
+        _rag_query_llm("  НАЙДИ   документацию про Asyncio  ", {}),
+        tools=[tool],
+        rag_pipeline=pipeline,
+    )
+
+    chunks = await _run(graph, "найди документацию про asyncio")
+
+    assert "rag_retriever" not in _node_names(chunks)
+    assert pipeline.retrieve_calls == []
+
+
+@pytest.mark.asyncio
+async def test_route_runs_rag_retriever_when_query_differs():
+    """A decomposed query is new context — the heuristic route must still run."""
+    pipeline = _MockRagPipeline(chunks=_RAG_CHUNKS)
+    tool = _rag_query_tool({"chunks": _RAG_CHUNKS, "chunk_count": 1, "top_score": 0.9})
+    graph = build_agent_graph(
+        _rag_query_llm("пункт 5 договора", {}),
+        tools=[tool],
+        rag_pipeline=pipeline,
+    )
+
+    chunks = await _run(graph, "найди документацию про asyncio")
+
+    assert "rag_retriever" in _node_names(chunks)
+    assert pipeline.retrieve_calls[-1]["query"] == "найди документацию про asyncio"
+
+
+@pytest.mark.asyncio
+async def test_route_skips_rag_retriever_when_rag_query_returned_no_chunks():
+    """An empty result is still an answer — the same query cannot yield more."""
+    pipeline = _MockRagPipeline(chunks=_RAG_CHUNKS)
+    tool = _rag_query_tool({"chunks": [], "chunk_count": 0, "top_score": 0.0})
+    graph = build_agent_graph(
+        _rag_query_llm("найди документацию про asyncio", {}),
+        tools=[tool],
+        rag_pipeline=pipeline,
+    )
+
+    chunks = await _run(graph, "найди документацию про asyncio")
+
+    assert "rag_retriever" not in _node_names(chunks)
+    assert pipeline.retrieve_calls == []
+
+
+@pytest.mark.asyncio
+async def test_route_runs_rag_retriever_when_rag_query_failed():
+    """A tool error carries no chunks, so it must not count as an answer."""
+    pipeline = _MockRagPipeline(chunks=_RAG_CHUNKS)
+    tool = _rag_query_tool({"error": "Error: no corpus"})
+    llm = FakeMessagesListChatModel(
+        responses=[
+            _ai_message_with_tool_calls(
+                {
+                    "name": "rag_query",
+                    "args": {"query": "найди документацию про asyncio"},
+                    "id": "tc1",
+                }
+            ),
+            AIMessage(content="Попробую другой путь."),
+        ]
+    )
+    graph = build_agent_graph(llm, tools=[tool], rag_pipeline=pipeline)
+
+    chunks = await _run(graph, "найди документацию про asyncio")
+
+    assert "rag_retriever" in _node_names(chunks)
+    assert pipeline.retrieve_calls[-1]["query"] == "найди документацию про asyncio"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("найди документацию", "найди документацию"),
+        ("  НАЙДИ   Документацию  ", "найди документацию"),
+        ("найди\n\tдокументацию", "найди документацию"),
+        ("", ""),
+    ],
+)
+def test_normalise_query(raw: str, expected: str):
+    """normalise_query folds case and whitespace, and is shared with the SSE layer."""
+    from llm_client.agent.graph import normalise_query
+
+    assert normalise_query(raw) == expected
+
+
+def test_rag_query_answered_ignores_non_string_content():
+    """A malformed ToolMessage (content blocks) must not raise."""
+    from langchain_core.messages import ToolMessage
+
+    from llm_client.agent.graph import _rag_query_answered
+
+    messages = [
+        _ai_message_with_tool_calls({"name": "rag_query", "args": {"query": "q"}, "id": "tc1"}),
+        ToolMessage(content=[{"type": "text", "text": "x"}], tool_call_id="tc1", name="rag_query"),
+    ]
+
+    assert _rag_query_answered(messages, "q") is False

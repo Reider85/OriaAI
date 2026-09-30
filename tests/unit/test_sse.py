@@ -21,6 +21,8 @@ from langchain_core.messages import AIMessage, ToolMessage
 from llm_client.agent import service as agent_service
 from llm_client.agent.service import (
     HEARTBEAT_INTERVAL_SECONDS,
+    _build_tool_result_preview,
+    _parse_tool_full_results,
     format_metadata_payload,
     format_sse_event,
 )
@@ -52,12 +54,13 @@ def _register_session(
     queue: asyncio.Queue[Any],
     token: CancellationToken | None = None,
     message_id: str | None = None,
+    message: str = "hi",
 ) -> tuple[str, _StubSubscriber]:
     """Populate ``_sessions`` for a synthetic run and return (session_id, sub)."""
     session_id = f"s-{uuid4().hex[:8]}"
     subscriber = _StubSubscriber()
     _agent_service_sessions()[session_id] = {
-        "message": "hi",
+        "message": message,
         "user_id": "u1",
         "task": None,
         "queue": queue,
@@ -313,8 +316,25 @@ async def test_stream_emits_artifact_ready_for_tool_message():
     session_id, _ = _register_session(queue)
     events = _events(await _drain(session_id))
 
-    assert [e for e, _ in events] == ["metadata", "artifact_ready", "done"]
+    # H-4: file_export closes both lifecycles — artifact_ready (Phase 1 download
+    # buttons) and tool_result (Phase 2 tool-call preview).
+    assert [e for e, _ in events] == [
+        "metadata",
+        "artifact_ready",
+        "tool_result",
+        "done",
+    ]
     assert events[1][1] == _ARTIFACT
+    assert events[2][1] == {
+        "tool_call_id": "call-1",
+        "tool_name": "unknown",
+        "preview": {
+            "artifact_id": "a-123",
+            "format": "md",
+            "filename": "artifact.md",
+        },
+        "full_results": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -343,12 +363,13 @@ async def test_stream_emits_tokens_and_artifact_together():
         "metadata",
         "token",
         "artifact_ready",
+        "tool_result",
         "done",
     ]
 
 
 @pytest.mark.asyncio
-async def test_non_artifact_tool_message_is_ignored():
+async def test_non_artifact_tool_message_emits_tool_result_only():
     """A ToolMessage without artifact_id must not become artifact_ready."""
     queue: asyncio.Queue[Any] = asyncio.Queue()
     metadata_chunk, _ = _resolved_metadata()
@@ -367,7 +388,11 @@ async def test_non_artifact_tool_message_is_ignored():
     session_id, _ = _register_session(queue)
     events = _events(await _drain(session_id))
 
-    assert [e for e, _ in events] == ["metadata", "done"]
+    # An unrecognised payload still closes the tool lifecycle, with an empty
+    # preview — never an artifact_ready.
+    assert [e for e, _ in events] == ["metadata", "tool_result", "done"]
+    assert events[1][1]["preview"] == {}
+    assert events[1][1]["full_results"] is None
 
 
 @pytest.mark.asyncio
@@ -570,11 +595,13 @@ async def test_frames_are_parseable_by_ui_parser():
         "metadata",
         "token",
         "artifact_ready",
+        "tool_result",
         "done",
     ]
     assert parsed[0].data["message_id"] == "m-42"
     assert parsed[1].data["token"] == "Hello world"
     assert parsed[2].data["artifact_id"] == "a-123"
+    assert parsed[3].data["preview"]["artifact_id"] == "a-123"
 
 
 @pytest.mark.asyncio
@@ -615,3 +642,625 @@ async def test_cancelled_latency_under_200ms():
     assert "event: cancelled" in frame
     assert '"reason":"user_cancelled"' in frame
     assert elapsed_ms < 200.0, f"cancelled took {elapsed_ms:.1f} ms"
+
+
+# ── H-4: tool_call / tool_result / retrieved_docs ────────────────────────────
+
+_RAG_CHUNKS = [
+    {
+        "source_uri": "s3://doc1.pdf",
+        "title": "T1",
+        "page": 1,
+        "content_preview": "p1",
+        "score": 0.93,
+    },
+    {
+        "source_uri": "s3://doc2.pdf",
+        "title": "T2",
+        "page": None,
+        "content_preview": "p2",
+        "score": 0.71,
+    },
+]
+_RAG_RESULT = {
+    "chunks": _RAG_CHUNKS,
+    "chunk_count": 2,
+    "top_score": 0.93,
+    "source_uris": ["s3://doc1.pdf", "s3://doc2.pdf"],
+}
+_WEB_RESULTS = [
+    {"title": "T1", "url": "http://a", "snippet": "s1", "score": 0.9},
+    {"title": "T2", "url": "http://b", "snippet": "s2", "score": 0.7},
+]
+
+
+def _ai_tool_call(name: str, args: dict[str, Any], call_id: str = "tc-1") -> AIMessage:
+    """AIMessage carrying a single tool_call, as the planner would return it."""
+    return AIMessage(
+        content="",
+        tool_calls=[{"name": name, "args": args, "id": call_id, "type": "tool_call"}],
+    )
+
+
+def _planner_chunk(msg: Any) -> dict[str, Any]:
+    return {"planner": {"messages": [msg]}}
+
+
+def _executor_chunk(msg: ToolMessage) -> dict[str, Any]:
+    return {"tool_executor": {"messages": [msg]}}
+
+
+def _queue_with(*chunks: Any) -> asyncio.Queue[Any]:
+    """Queue pre-loaded with the metadata chunk, *chunks*, and the done sentinel."""
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+    metadata_chunk, _ = _resolved_metadata()
+    queue.put_nowait(metadata_chunk)
+    for item in chunks:
+        queue.put_nowait(item)
+    queue.put_nowait(None)
+    return queue
+
+
+def _names(frames: list[str]) -> list[str]:
+    return [e for e, _ in _events(frames)]
+
+
+def _payloads(frames: list[str], event: str) -> list[Any]:
+    return [d for e, d in _events(frames) if e == event]
+
+
+# ── Payload helpers ──────────────────────────────────────────────────────────
+
+
+def test_build_tool_result_preview_web_search():
+    assert _build_tool_result_preview(json.dumps(_WEB_RESULTS)) == {"snippet_count": 2}
+
+
+def test_build_tool_result_preview_rag_query():
+    assert _build_tool_result_preview(json.dumps(_RAG_RESULT)) == {
+        "chunk_count": 2,
+        "top_score": 0.93,
+    }
+
+
+def test_build_tool_result_preview_file_export():
+    assert _build_tool_result_preview(json.dumps(_ARTIFACT)) == {
+        "artifact_id": "a-123",
+        "format": "md",
+        "filename": "artifact.md",
+    }
+
+
+def test_build_tool_result_preview_failed_tool():
+    assert _build_tool_result_preview('{"error": "Error: boom"}') == {"error": "Error: boom"}
+
+
+def test_build_tool_result_preview_unrecognised_payload_is_empty():
+    assert _build_tool_result_preview('{"status": "ok"}') == {}
+    assert _build_tool_result_preview("not json at all") == {}
+
+
+def test_build_tool_result_preview_rag_query_chunk_count_falls_back_to_len():
+    preview = _build_tool_result_preview(json.dumps({"chunks": _RAG_CHUNKS}))
+    assert preview == {"chunk_count": 2, "top_score": 0.0}
+
+
+def test_parse_tool_full_results_returns_list_payloads():
+    assert _parse_tool_full_results(json.dumps(_WEB_RESULTS)) == _WEB_RESULTS
+
+
+def test_parse_tool_full_results_ignores_rag_and_artifact_payloads():
+    assert _parse_tool_full_results(json.dumps(_RAG_RESULT)) is None
+    assert _parse_tool_full_results(json.dumps(_ARTIFACT)) is None
+    assert _parse_tool_full_results("plain text") is None
+
+
+# ── tool_call ────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_tool_call_with_id_name_and_args():
+    queue = _queue_with(_planner_chunk(_ai_tool_call("web_search", {"query": "x"})))
+    session_id, _ = _register_session(queue)
+
+    events = _events(await _drain(session_id))
+
+    assert events[1] == (
+        "tool_call",
+        {"tool_call_id": "tc-1", "tool_name": "web_search", "args": {"query": "x"}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_no_tool_call_event_without_tool_calls():
+    queue = _queue_with(_planner_chunk(AIMessage(content="plain answer")))
+    session_id, _ = _register_session(queue)
+
+    assert _names(await _drain(session_id)) == ["metadata", "token", "done"]
+
+
+@pytest.mark.asyncio
+async def test_tool_name_resolved_from_tracked_call_when_message_omits_it():
+    """ToolMessage without .name still resolves via the recorded tool_call."""
+    queue = _queue_with(
+        _planner_chunk(_ai_tool_call("web_search", {"query": "x"}, call_id="tc-9")),
+        _executor_chunk(ToolMessage(content=json.dumps(_WEB_RESULTS), tool_call_id="tc-9")),
+    )
+    session_id, _ = _register_session(queue)
+
+    result = _payloads(await _drain(session_id), "tool_result")
+
+    assert result[0]["tool_name"] == "web_search"
+
+
+# ── tool_result ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_tool_result_for_web_search():
+    queue = _queue_with(
+        _planner_chunk(_ai_tool_call("web_search", {"query": "x"})),
+        _executor_chunk(
+            ToolMessage(
+                content=json.dumps(_WEB_RESULTS),
+                tool_call_id="tc-1",
+                name="web_search",
+            )
+        ),
+    )
+    session_id, _ = _register_session(queue)
+    frames = await _drain(session_id)
+    events = _events(frames)
+
+    assert _names(frames) == ["metadata", "tool_call", "tool_result", "done"]
+    assert events[2][1] == {
+        "tool_call_id": "tc-1",
+        "tool_name": "web_search",
+        "preview": {"snippet_count": 2},
+        "full_results": _WEB_RESULTS,
+    }
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_retrieved_docs_for_rag_query_tool_call():
+    """Chunks travel in retrieved_docs, never inside tool_result (anti-pattern)."""
+    queue = _queue_with(
+        _planner_chunk(_ai_tool_call("rag_query", {"query": "q"}, call_id="tc-rag")),
+        _executor_chunk(
+            ToolMessage(
+                content=json.dumps(_RAG_RESULT),
+                tool_call_id="tc-rag",
+                name="rag_query",
+            )
+        ),
+    )
+    session_id, _ = _register_session(queue)
+    frames = await _drain(session_id)
+    events = _events(frames)
+
+    assert _names(frames) == [
+        "metadata",
+        "tool_call",
+        "tool_result",
+        "retrieved_docs",
+        "done",
+    ]
+    result, docs = events[2][1], events[3][1]
+    assert result["preview"] == {"chunk_count": 2, "top_score": 0.93}
+    assert result["full_results"] is None
+    assert "chunks" not in result
+    assert docs == {
+        "tool_call_id": "tc-rag",
+        "chunk_count": 2,
+        "top_score": 0.93,
+        "source_uris": ["s3://doc1.pdf", "s3://doc2.pdf"],
+        "chunks": _RAG_CHUNKS,
+    }
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_tool_result_for_failed_tool():
+    queue = _queue_with(
+        _planner_chunk(_ai_tool_call("web_search", {"query": "x"})),
+        _executor_chunk(
+            ToolMessage(
+                content=json.dumps({"error": "Error: TAVILY_API_KEY not set"}),
+                tool_call_id="tc-1",
+                name="web_search",
+            )
+        ),
+    )
+    session_id, _ = _register_session(queue)
+
+    result = _payloads(await _drain(session_id), "tool_result")
+
+    assert result[0]["preview"] == {"error": "Error: TAVILY_API_KEY not set"}
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_no_retrieved_docs_for_unrelated_tool():
+    queue = _queue_with(
+        _executor_chunk(
+            ToolMessage(
+                content=json.dumps({"items": ["a", "b"]}),
+                tool_call_id="tc-1",
+                name="some_tool",
+            )
+        ),
+    )
+    session_id, _ = _register_session(queue)
+
+    assert "retrieved_docs" not in _names(await _drain(session_id))
+
+
+# ── retrieved_docs from the rag_retriever node ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_synthetic_tool_call_before_node_retrieved_docs():
+    queue = _queue_with({"rag_retriever": {"retrieved_docs": _RAG_CHUNKS}})
+    session_id, _ = _register_session(queue, message="найди документ")
+    frames = await _drain(session_id)
+    events = _events(frames)
+
+    assert _names(frames) == [
+        "metadata",
+        "tool_call",
+        "retrieved_docs",
+        "done",
+    ]
+    assert events[1][1] == {
+        "tool_call_id": agent_service.RAG_RETRIEVER_TOOL_CALL_ID,
+        "tool_name": "rag_query",
+        "args": {"query": "найди документ"},
+    }
+    assert events[2][1]["tool_call_id"] == agent_service.RAG_RETRIEVER_TOOL_CALL_ID
+    assert events[2][1]["chunk_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_flat_retrieved_docs_chunk_is_supported():
+    queue = _queue_with({"retrieved_docs": _RAG_CHUNKS[:1]})
+    session_id, _ = _register_session(queue)
+
+    docs = _payloads(await _drain(session_id), "retrieved_docs")
+
+    assert docs[0]["chunk_count"] == 1
+    assert docs[0]["top_score"] == 0.93
+
+
+@pytest.mark.asyncio
+async def test_empty_retrieved_docs_emits_no_event():
+    queue = _queue_with({"rag_retriever": {"retrieved_docs": []}})
+    session_id, _ = _register_session(queue)
+
+    assert _names(await _drain(session_id)) == ["metadata", "done"]
+
+
+@pytest.mark.asyncio
+async def test_node_retrieval_suppressed_after_rag_query_tool_call():
+    """Same question twice must not render the citations panel twice."""
+    queue = _queue_with(
+        _planner_chunk(_ai_tool_call("rag_query", {"query": "найди документ"}, call_id="tc-rag")),
+        _executor_chunk(
+            ToolMessage(
+                content=json.dumps(_RAG_RESULT),
+                tool_call_id="tc-rag",
+                name="rag_query",
+            )
+        ),
+        {"rag_retriever": {"retrieved_docs": _RAG_CHUNKS}},
+    )
+    session_id, _ = _register_session(queue, message="найди документ")
+    names = _names(await _drain(session_id))
+
+    assert names == ["metadata", "tool_call", "tool_result", "retrieved_docs", "done"]
+    assert names.count("tool_call") == 1, "no synthetic tool_call for a duplicated query"
+
+
+@pytest.mark.asyncio
+async def test_node_retrieval_reuses_pending_rag_query_call_id():
+    """A rag_query call whose result carried no chunks still owns the preview."""
+    queue = _queue_with(
+        _planner_chunk(_ai_tool_call("rag_query", {"query": "найди документ"}, call_id="tc-rag")),
+        _executor_chunk(
+            ToolMessage(
+                content=json.dumps({"error": "Error: no corpus"}),
+                tool_call_id="tc-rag",
+                name="rag_query",
+            )
+        ),
+        {"rag_retriever": {"retrieved_docs": _RAG_CHUNKS}},
+    )
+    session_id, _ = _register_session(queue, message="найди документ")
+    frames = await _drain(session_id)
+    names = _names(frames)
+
+    assert names.count("tool_call") == 1
+    assert names[-2:] == ["retrieved_docs", "done"]
+    assert _payloads(frames, "retrieved_docs")[0]["tool_call_id"] == "tc-rag"
+
+
+@pytest.mark.asyncio
+async def test_node_retrieval_emitted_when_query_differs():
+    """Multi-hop: a decomposed query is genuinely new context — both panels."""
+    queue = _queue_with(
+        _planner_chunk(_ai_tool_call("rag_query", {"query": "пункт 5 договора"}, call_id="tc-a")),
+        _executor_chunk(
+            ToolMessage(
+                content=json.dumps(_RAG_RESULT),
+                tool_call_id="tc-a",
+                name="rag_query",
+            )
+        ),
+        {"rag_retriever": {"retrieved_docs": _RAG_CHUNKS}},
+    )
+    session_id, _ = _register_session(queue, message="найди документ")
+    docs = _payloads(await _drain(session_id), "retrieved_docs")
+
+    assert len(docs) == 2
+    assert docs[0]["tool_call_id"] == "tc-a"
+    assert docs[1]["tool_call_id"] == agent_service.RAG_RETRIEVER_TOOL_CALL_ID
+
+
+# ── Ordering ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_token_and_tool_events_are_interleaved_in_order():
+    queue = _queue_with(
+        _planner_chunk(AIMessage(content="Looking it up")),
+        _planner_chunk(_ai_tool_call("web_search", {"query": "x"})),
+        _executor_chunk(
+            ToolMessage(content=json.dumps(_WEB_RESULTS), tool_call_id="tc-1", name="web_search")
+        ),
+        _planner_chunk(AIMessage(content="Here is what I found")),
+    )
+    session_id, _ = _register_session(queue)
+
+    assert _names(await _drain(session_id)) == [
+        "metadata",
+        "token",
+        "tool_call",
+        "tool_result",
+        "token",
+        "done",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_single_ai_message_emits_tokens_then_tool_calls():
+    msg = AIMessage(
+        content="Working on it",
+        tool_calls=[{"name": "web_search", "args": {"query": "x"}, "id": "tc-1"}],
+    )
+    queue = _queue_with(_planner_chunk(msg))
+    session_id, _ = _register_session(queue)
+
+    assert _names(await _drain(session_id)) == ["metadata", "token", "tool_call", "done"]
+
+
+# ── UI parser ────────────────────────────────────────────────────────────────
+
+
+def test_iter_sse_events_parses_tool_call():
+    events = list(
+        iter_sse_events(
+            iter(
+                [
+                    "event: tool_call",
+                    'data: {"tool_call_id": "tc1", "tool_name": "web_search", "args": {"q": "x"}}',
+                    "",
+                ]
+            )
+        )
+    )
+
+    assert events[0].event == "tool_call"
+    assert events[0].data == {
+        "tool_call_id": "tc1",
+        "tool_name": "web_search",
+        "args": {"q": "x"},
+    }
+
+
+def test_iter_sse_events_parses_retrieved_docs():
+    events = list(
+        iter_sse_events(
+            iter(
+                [
+                    "event: retrieved_docs",
+                    'data: {"tool_call_id": "tc1", "chunk_count": 2, "top_score": 0.93}',
+                    "",
+                ]
+            )
+        )
+    )
+
+    assert events[0].event == "retrieved_docs"
+    assert events[0].data["chunk_count"] == 2
+
+
+def test_iter_sse_events_ignores_heartbeat_between_tool_events():
+    events = list(
+        iter_sse_events(
+            iter(
+                [
+                    ": keepalive",
+                    "",
+                    "event: tool_result",
+                    'data: {"tool_call_id": "tc1", "preview": {}}',
+                    "",
+                    ": keepalive",
+                    "",
+                ]
+            )
+        )
+    )
+
+    assert [e.event for e in events] == ["tool_result"]
+
+
+# ── Full flow (CI: sse-tool-events-staging) ──────────────────────────────────
+
+
+class _StubTool:
+    """BaseTool stand-in with a fixed result — no network, no LLM."""
+
+    def __init__(self, name: str, result: Any) -> None:
+        self.name = name
+        self._result = result
+        self.calls: list[dict] = []
+
+    async def ainvoke(self, args: dict) -> Any:
+        self.calls.append(args)
+        return self._result
+
+
+class _RagToolCallLLM:
+    """Fake LLM: first a rag_query tool_call, then plain text."""
+
+    def __init__(self, query: str) -> None:
+        self._query = query
+        self._calls = 0
+
+    def bind_tools(self, tools: list[Any], **kwargs: Any) -> _RagToolCallLLM:
+        return self
+
+    async def ainvoke(self, messages: Any, **kwargs: Any) -> AIMessage:
+        self._calls += 1
+        if self._calls == 1:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "rag_query",
+                        "args": {"query": self._query},
+                        "id": "call_rag_1",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return AIMessage(content="Готово, вот ответ по документации.")
+
+
+class _RecordingPipeline:
+    """rag_pipeline stand-in — records every retrieval the graph performs."""
+
+    def __init__(self) -> None:
+        self.retrieve_calls: list[dict] = []
+
+    async def retrieve(self, query: str, top_k: int = 5) -> dict:
+        self.retrieve_calls.append({"query": query, "top_k": top_k})
+        return _RAG_RESULT
+
+
+class _RecordingClient:
+    """UIClient stand-in capturing the tool-call previews G-1 renders."""
+
+    def __init__(self) -> None:
+        self.previews: list[dict] = []
+
+    def render_tool_call(
+        self,
+        tool_name: str,
+        args: dict,
+        status: str = "running",
+        result_preview: dict | None = None,
+    ) -> None:
+        self.previews.append(
+            {
+                "tool_name": tool_name,
+                "args": args,
+                "status": status,
+                "result_preview": result_preview,
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_sse_tool_events_staging(monkeypatch):
+    """End-to-end: graph → SSE frames → UI parser → G-1 preview + G-2 citations.
+
+    Exercises the full Phase 2 flow for an RAG-intent message: the planner calls
+    ``rag_query`` as a tool, the citations panel must be rendered exactly once,
+    and the ``rag_retriever`` heuristic route must not repeat the same retrieval.
+    """
+    from langchain_core.messages import HumanMessage
+
+    from llm_client.agent.graph import build_agent_graph
+    from llm_client.ui import render
+
+    user_message = "найди документ про онбординг"
+    pipeline = _RecordingPipeline()
+    rag_tool = _StubTool("rag_query", _RAG_RESULT)
+    graph = build_agent_graph(
+        _RagToolCallLLM(query=user_message),  # type: ignore[arg-type]
+        tools=[rag_tool],
+        rag_pipeline=pipeline,
+    )
+
+    state: dict[str, Any] = {
+        "messages": [HumanMessage(user_message)],
+        "user_id": "u1",
+        "session_id": "s-staging",
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "iteration": 0,
+        "max_iterations": 10,
+        "final_answer": None,
+    }
+
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+    metadata_chunk, _ = _resolved_metadata()
+    queue.put_nowait(metadata_chunk)
+
+    async def _feed_graph() -> None:
+        async for graph_chunk in graph.astream(state):
+            queue.put_nowait(graph_chunk)
+        queue.put_nowait(None)
+
+    feed = asyncio.create_task(_feed_graph())
+    session_id, _ = _register_session(queue, message=user_message)
+    frames = await _drain(session_id)
+    await feed
+
+    names = _names(frames)
+    assert names == [
+        "metadata",
+        "tool_call",
+        "tool_result",
+        "retrieved_docs",
+        "token",
+        "done",
+    ]
+
+    # The graph must not have run the heuristic retrieval a second time.
+    assert pipeline.retrieve_calls == []
+    assert rag_tool.calls == [{"query": user_message}]
+
+    # G-1 preview + G-2 citations, fed through the same handler the UI uses.
+    citations: list[list[dict]] = []
+    monkeypatch.setattr(
+        render, "_render_rag_citations_fragment", lambda chunks: citations.append(list(chunks))
+    )
+    client = _RecordingClient()
+    pending: dict[str, dict] = {}
+    for event in iter_sse_events(iter(_lines(frames))):
+        if event.event in ("tool_call", "tool_result", "retrieved_docs"):
+            render.handle_tool_event(event.event, event.data, client, pending)
+
+    assert len(citations) == 1, "citations panel rendered more than once"
+    assert citations[0] == _RAG_CHUNKS
+    assert list(pending) == ["call_rag_1"]
+    assert pending["call_rag_1"]["status"] == "done"
+    assert pending["call_rag_1"]["result_preview"]["chunk_count"] == 2
+    assert pending["call_rag_1"]["result_preview"]["source_uris"] == _RAG_RESULT["source_uris"]
+    # G-1 preview renders on tool_call, then once per result event; retrieved_docs
+    # upgrades the preview to the citation-bearing variant.
+    assert [p["status"] for p in client.previews] == ["running", "done", "done"]
+    assert client.previews[-1]["result_preview"] == {
+        "chunk_count": 2,
+        "top_score": 0.93,
+        "source_uris": _RAG_RESULT["source_uris"],
+    }

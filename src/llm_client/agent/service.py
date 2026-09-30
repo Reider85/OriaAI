@@ -10,6 +10,9 @@ AG-2 replaces the mock LLM with LLMProviderFactory.
 AG-3 implements the full SSE event protocol: token / metadata / artifact_ready /
 cancelled / error / done, plus an RFC 8895 heartbeat comment line.
 AG-4 adds the file_export tool and the artifact download endpoint.
+H-4 extends the protocol for the Phase 2 tool lifecycle with tool_call,
+tool_result and retrieved_docs, consumed by the UI tool-call preview (G-1),
+the RAG citations panel (G-2) and the web search results panel (G-3).
 """
 
 import asyncio
@@ -35,7 +38,7 @@ from ..transport.publisher import CancelPublisher
 from ..transport.subscriber import CancelSubscriber
 from .artifacts import load_artifact_meta
 from .cycle_detection import IterationMonitor
-from .graph import build_agent_graph
+from .graph import RAG_QUERY_TOOL, build_agent_graph, normalise_query
 from .provider import LLMProviderFactory
 from .tools import file_export, rag_query, web_search
 
@@ -51,6 +54,12 @@ HEARTBEAT_INTERVAL_SECONDS = 15.0
 #: Graph payload chunks are keyed by node name, so these can never collide.
 CHUNK_KEY_ERROR = "_error"
 CHUNK_KEY_METADATA = "_metadata"
+
+#: Synthetic ``tool_call_id`` for retrieval performed by the rag_retriever node
+#: (H-4). The node is not an LLM tool call, so no real id exists; the UI keys
+#: its tool-call previews by id, so one stable id is synthesised per stream to
+#: carry the ``retrieved_docs`` event.
+RAG_RETRIEVER_TOOL_CALL_ID = "rag-retriever"
 
 
 # ── SSE helper (reused in AG-3) ───────────────────────────────────────────────
@@ -526,14 +535,146 @@ def _artifact_payload(content: Any) -> dict[str, Any] | None:
     return None
 
 
+# ── Tool result inspection (H-4) ──────────────────────────────────────────────
+#
+# Tool payloads are recognised by *shape*, never by tool name: web_search
+# returns a list, rag_query a dict with ``chunks``, file_export a dict with
+# ``artifact_id``, a failed call a dict with ``error``.
+
+
+def _decode_tool_payload(content: Any) -> Any:
+    """Decode a ToolMessage content into a Python payload.
+
+    Accepts either the raw content (a JSON string, as produced by the
+    tool_executor node) or an already-decoded payload; anything that is not
+    JSON-decodable is returned unchanged.
+    """
+    if not isinstance(content, str):
+        return content
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return content
+
+
+def _build_tool_result_preview(payload: Any) -> dict[str, Any]:
+    """Build the short preview dict for the tool-call preview (G-1).
+
+    * ``web_search`` (list) -> ``{snippet_count}``;
+    * ``rag_query`` (dict with chunks) -> ``{chunk_count, top_score}`` — the
+      chunks themselves travel in the separate ``retrieved_docs`` event;
+    * ``file_export`` (dict with artifact_id) -> ``{artifact_id, format,
+      filename}``;
+    * failed call (dict with error) -> ``{error}``.
+
+    Unrecognised shapes yield an empty preview rather than guessing.
+    """
+    payload = _decode_tool_payload(payload)
+    if isinstance(payload, list):
+        return {"snippet_count": len(payload)}
+    if isinstance(payload, dict):
+        if isinstance(payload.get("chunks"), list):
+            return {
+                "chunk_count": payload.get("chunk_count", len(payload["chunks"])),
+                "top_score": payload.get("top_score", 0.0),
+            }
+        if payload.get("artifact_id"):
+            return {
+                "artifact_id": payload["artifact_id"],
+                "format": payload.get("format"),
+                "filename": payload.get("filename"),
+            }
+        if payload.get("error"):
+            return {"error": str(payload["error"])}
+    return {}
+
+
+def _parse_tool_full_results(payload: Any) -> list[dict[str, Any]] | None:
+    """Extract the full result list for the web search panel (G-3).
+
+    Only a list payload carries full results (``web_search``). ``rag_query``
+    returns ``None`` — its chunks arrive via ``retrieved_docs`` — and so does
+    ``file_export``, whose artifact travels via ``artifact_ready``.
+    """
+    payload = _decode_tool_payload(payload)
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return None
+
+
+def _extract_chunks(payload: Any) -> list[Any] | None:
+    """Return the ``chunks`` list of a rag_query payload, else ``None``.
+
+    ``None`` distinguishes "not a rag_query result" from an empty retrieval,
+    which is a legitimate result and still emits its event.
+    """
+    payload = _decode_tool_payload(payload)
+    if isinstance(payload, dict) and isinstance(payload.get("chunks"), list):
+        return payload["chunks"]
+    return None
+
+
+def _build_retrieved_docs_payload(chunks: list[Any], tool_call_id: str) -> dict[str, Any]:
+    """Build the ``retrieved_docs`` payload for the citations panel (G-2)."""
+    dicts = [c for c in chunks if isinstance(c, dict)]
+    top_score = 0.0
+    if dicts:
+        try:
+            top_score = float(dicts[0].get("score", 0.0))
+        except (TypeError, ValueError):
+            top_score = 0.0
+    return {
+        "tool_call_id": tool_call_id,
+        "chunk_count": len(chunks),
+        "top_score": top_score,
+        "source_uris": [c["source_uri"] for c in dicts if c.get("source_uri")],
+        "chunks": list(chunks),
+    }
+
+
+def _iter_retrieved_docs(chunk: Any) -> list[list[Any]]:
+    """Extract retrieved-chunk lists from a ``graph.astream`` chunk.
+
+    Mirrors ``_iter_stream_messages``: handles node-keyed chunks
+    (``{"rag_retriever": {"retrieved_docs": [...]}}``) and flat ones
+    (``{"retrieved_docs": [...]}``).
+    """
+    if not isinstance(chunk, dict):
+        return []
+    found: list[list[Any]] = []
+    if isinstance(chunk.get("retrieved_docs"), list):
+        found.append(chunk["retrieved_docs"])
+    for node_output in chunk.values():
+        if isinstance(node_output, dict) and isinstance(node_output.get("retrieved_docs"), list):
+            found.append(node_output["retrieved_docs"])
+    return found
+
+
+def _matching_rag_call_id(rag_queries: dict[str, str], query: str) -> str | None:
+    """Most recent ``rag_query`` tool_call_id that asked for *query*, if any.
+
+    Only an id for the very same question is reusable for node-driven
+    retrieval; reusing an unrelated call's id would overwrite that call's own
+    preview with chunks from a different search.
+    """
+    wanted = normalise_query(query)
+    if not wanted:
+        return None
+    for call_id, tool_query in reversed(list(rag_queries.items())):
+        if normalise_query(tool_query) == wanted:
+            return call_id
+    return None
+
+
 async def _stream_generator(session_id: str) -> Any:
     """Yield SSE chunks for *session_id* (AG-3 event protocol, ADR-007).
 
     Reads from the background graph task via an asyncio.Queue and emits, in
     order: ``metadata`` (once, for the user message), ``token`` x N,
-    ``artifact_ready`` (per file_export result), then exactly one terminal
-    event — ``cancelled``, ``error`` or ``done``. An RFC 8895 heartbeat comment
-    line is emitted whenever the queue is idle.
+    ``tool_call`` / ``tool_result`` / ``artifact_ready`` for the Phase 2 tool
+    lifecycle (H-4), then exactly one terminal event — ``cancelled``, ``error``
+    or ``done``. An RFC 8895 heartbeat comment line is emitted whenever the
+    queue is idle.
     """
     session = _sessions.get(session_id)
     if session is None:
@@ -547,6 +688,15 @@ async def _stream_generator(session_id: str) -> Any:
     token = session["token"]
     message_id: str = session.get("message_id") or uuid4().hex
     metadata_sent = False
+
+    # H-4 bookkeeping: tool_call_id → tool name (ToolMessage.name is preferred,
+    # this covers tools that do not stamp it), and the rag_query queries already
+    # streamed as retrieved_docs so the same question is never announced twice.
+    user_message = str(session.get("message") or "")
+    tool_names: dict[str, str] = {}
+    rag_queries: dict[str, str] = {}
+    emitted_rag_queries: set[str] = set()
+    synthetic_rag_call_sent = False
 
     try:
         while True:
@@ -592,7 +742,31 @@ async def _stream_generator(session_id: str) -> Any:
                     artifact = _artifact_payload(msg.content)
                     if artifact is not None:
                         yield format_sse_event("artifact_ready", artifact)
+
+                    payload = _decode_tool_payload(msg.content)
+                    call_id = str(getattr(msg, "tool_call_id", "") or "")
+                    tool_name = getattr(msg, "name", None) or tool_names.get(call_id) or "unknown"
+                    yield format_sse_event(
+                        "tool_result",
+                        {
+                            "tool_call_id": call_id,
+                            "tool_name": tool_name,
+                            "preview": _build_tool_result_preview(payload),
+                            "full_results": _parse_tool_full_results(payload),
+                        },
+                    )
+
+                    rag_chunks = _extract_chunks(payload)
+                    if rag_chunks is not None and call_id:
+                        yield format_sse_event(
+                            "retrieved_docs",
+                            _build_retrieved_docs_payload(rag_chunks, call_id),
+                        )
+                        answered = normalise_query(rag_queries.get(call_id))
+                        if answered:
+                            emitted_rag_queries.add(answered)
                     continue
+
                 content = msg.content if hasattr(msg, "content") else str(msg)
                 if isinstance(content, list):
                     # Content blocks (LangChain v1): concatenate plain text parts.
@@ -603,6 +777,60 @@ async def _stream_generator(session_id: str) -> Any:
                     )
                 if content:
                     yield format_sse_event("token", {"token": content})
+
+                for tool_call in getattr(msg, "tool_calls", None) or []:
+                    call_id = tool_call.get("id")
+                    if call_id is None:
+                        continue
+                    tool_name = tool_call.get("name") or "unknown"
+                    args = tool_call.get("args") or {}
+                    tool_names[str(call_id)] = tool_name
+                    if tool_name == RAG_QUERY_TOOL:
+                        rag_queries[str(call_id)] = str(args.get("query") or "")
+                    yield format_sse_event(
+                        "tool_call",
+                        {
+                            "tool_call_id": call_id,
+                            "tool_name": tool_name,
+                            "args": args,
+                        },
+                    )
+
+            for docs in _iter_retrieved_docs(chunk):
+                if not docs:
+                    # An empty retrieval closes no preview — nothing to render.
+                    continue
+                query_key = normalise_query(user_message)
+                if query_key and query_key in emitted_rag_queries:
+                    logger.debug(
+                        "retrieved_docs suppressed for session %s — the same query was "
+                        "already streamed from the rag_query tool result",
+                        session_id,
+                    )
+                    continue
+
+                rag_call_id = _matching_rag_call_id(rag_queries, user_message)
+                if rag_call_id is None:
+                    # The rag_retriever node is not an LLM tool call, so a
+                    # synthetic tool_call is emitted first: the UI registers the
+                    # preview on tool_call and flips it to done on retrieved_docs.
+                    rag_call_id = RAG_RETRIEVER_TOOL_CALL_ID
+                    if not synthetic_rag_call_sent:
+                        synthetic_rag_call_sent = True
+                        yield format_sse_event(
+                            "tool_call",
+                            {
+                                "tool_call_id": rag_call_id,
+                                "tool_name": RAG_QUERY_TOOL,
+                                "args": {"query": user_message},
+                            },
+                        )
+                if query_key:
+                    emitted_rag_queries.add(query_key)
+                yield format_sse_event(
+                    "retrieved_docs",
+                    _build_retrieved_docs_payload(docs, rag_call_id),
+                )
 
     finally:
         # Always unsubscribe to prevent Redis listener leak (C-4)

@@ -376,7 +376,7 @@ jobs:
           ENVIRONMENT: staging
         run: |
           mkdir -p test-results/sse-tool-events
-          pytest tests/unit/test_sse.py::test_stream_emits_metadata_then_tokens_then_done -v --timeout=120 --junitxml=test-results/sse-tool-events/junit.xml
+          pytest tests/unit/test_sse.py::test_sse_tool_events_staging -v --timeout=120 --junitxml=test-results/sse-tool-events/junit.xml
       - name: Upload SSE tool events results
         uses: actions/upload-artifact@v3
         if: always()
