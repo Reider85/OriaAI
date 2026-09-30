@@ -235,7 +235,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Per-phase ideality delta vs the control point from ROADMAP §15.2. Phase 1 control point: 2 capabilities / 1 dependency = 2.0.",
+      "description": "Per-phase ideality delta vs the control point from ROADMAP §15.2. Phase 1 control point: 2.0 (6 caps / 3 deps in v1.2.0). Phase 2 ADR control point: 1.5 (3 caps / 2 deps); AG extensions 2.0; UI extensions ∞ (see Panel 6).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -307,17 +307,281 @@
         }
       ],
       "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Phase 2 operational metrics (ALPHA-PROMPTS F-2 Panel 5): checkpoint write p99, recovery duration p99, reranker recall@5, hybrid exact_term recall improvement, reranker fallback count.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*latency.*|.*duration.*" },
+            "properties": [{ "id": "unit", "value": "ms" }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": ".*recall.*|.*improvement.*" },
+            "properties": [{ "id": "unit", "value": "percentunit" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 18 },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum(rate(llm_client_checkpoint_write_redis_latency_ms_bucket[5m])) by (le))",
+          "legendFormat": "checkpoint write p99 (ms)",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum(rate(llm_client_checkpoint_recovery_duration_ms_bucket[5m])) by (le))",
+          "legendFormat": "checkpoint recovery p99 (ms)",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "reranker_recall_at_5",
+          "legendFormat": "reranker recall@5 ({{arm}})",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hybrid_recall_improvement_percentage / 100",
+          "legendFormat": "hybrid exact_term recall improvement",
+          "refId": "D"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "llm_client_reranker_fallback_count",
+          "legendFormat": "reranker fallback count",
+          "refId": "E"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "increase(llm_client_checkpoint_recovery_corrupted_count_total[24h])",
+          "legendFormat": "recovery corrupted (24h)",
+          "refId": "F"
+        }
+      ],
+      "title": "Phase 2 metrics (checkpoint / reranker / hybrid retrieval)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Phase 2 idealidad control point (ALPHA-PROMPTS F-2 Panel 6): ADR ratio 1.5 (3 caps / 2 deps), AG extensions 2.0 (web_search + rag_query / Tavily), UI extensions ∞ (G-1..G-4 / 0 deps). Phase 1 ratio 2.0 shown for comparison.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "ratio" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "mode": "gradient", "type": "color-background" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "llm_client_idealidad_ratio{phase=\"Phase 1\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "Phase 1 ADR ratio",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "llm_client_idealidad_ratio{phase=\"Phase 2\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "Phase 2 ADR ratio",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "llm_client_phase_min_required{phase=\"Phase 2\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "Phase 2 ADR min required",
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "llm_client_ag_extensions_ratio",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "AG extensions ratio",
+          "refId": "D"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "llm_client_ui_extensions_ratio",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "UI extensions ratio",
+          "refId": "E"
+        }
+      ],
+      "title": "Phase 2 idealidad control point (ADR 1.5 / AG 2.0 / UI ∞)",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "indexByName": {},
+            "renameByName": {
+              "Value #A": "Phase 1 ADR",
+              "Value #B": "Phase 2 ADR",
+              "Value #C": "Phase 2 ADR min",
+              "Value #D": "AG extensions",
+              "Value #E": "UI extensions"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "RAG quality trend (ALPHA-PROMPTS F-2 Panel 7): per-category recall@5 from hybrid/reranker A/B tests, latency overhead hybrid vs vector-only.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "reranker_recall_at_5",
+          "legendFormat": "reranker recall@5 ({{arm}})",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hybrid_recall_improvement_percentage / 100",
+          "legendFormat": "hybrid exact_term improvement",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "hybrid_recall_latency_overhead_percentage / 100",
+          "legendFormat": "hybrid latency overhead",
+          "refId": "C"
+        }
+      ],
+      "title": "RAG quality trend (recall@5 / hybrid improvement / latency overhead)",
+      "type": "timeseries"
     }
   ],
   "refresh": "1h",
   "schemaVersion": 39,
-  "tags": ["architecture", "idealidad", "phase-1", "adr"],
+  "tags": ["architecture", "idealidad", "phase-1", "phase-2", "adr"],
   "templating": { "list": [] },
   "time": { "from": "now-6M", "to": "now" },
   "timepicker": {},
   "timezone": "utc",
   "title": "Architecture Ideality (Δf / Δcomplexity)",
   "uid": "architecture-idealidad",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

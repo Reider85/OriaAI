@@ -69,7 +69,7 @@ async def rerank_after_fusion(
             for reranker_name in config.reranker_fallback_chain:
                 try:
                     chain_rerankers.append(registry.get(reranker_name))
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — skip unloadable chain members
                     logger.warning(
                         "Failed to load reranker '%s' from fallback chain: %s",
                         reranker_name,
@@ -79,9 +79,10 @@ async def rerank_after_fusion(
 
             if not chain_rerankers:
                 logger.error("No valid rerankers found in fallback chain")
+                metrics.increment_fallback_count(primary=config.reranker_name, active="identity")
                 return _identity_fallback(fused_docs, config.reranker_top_k)
 
-            reranker: Any = RerankerChain(chain_rerankers)
+            reranker: Any = RerankerChain(chain_rerankers, metrics=metrics)
         else:
             # Use single reranker (existing behavior)
             reranker = registry.get(config.reranker_name)
@@ -90,6 +91,9 @@ async def rerank_after_fusion(
         if not await reranker.health_check():
             logger.warning(
                 "Reranker '%s' failed health check, falling back to identity", reranker.name
+            )
+            metrics.increment_fallback_count(
+                primary=config.reranker_name, active="identity"
             )
             # Log error to operational stream
             if operational_writer:
@@ -183,6 +187,7 @@ async def rerank_after_fusion(
 
         # Fall back to identity reranking
         logger.warning("Falling back to identity reranking for query='%s'", query)
+        metrics.increment_fallback_count(primary=config.reranker_name, active="identity")
         return _identity_fallback(fused_docs, config.reranker_top_k)
 
 

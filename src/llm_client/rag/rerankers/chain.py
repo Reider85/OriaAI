@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Sequence
 
+from llm_client.rag.metrics import NullRerankerMetrics, RerankerMetrics
 from llm_client.rag.rerankers.base import Reranker, RerankResult
 
 logger = logging.getLogger(__name__)
@@ -16,10 +17,12 @@ class RerankerChain(Reranker):
 
     Args:
         rerankers: Ordered list of rerankers to try (primary, fallback1, fallback2)
+        metrics: Optional metrics collector for fallback counting (F-2).
     """
 
-    def __init__(self, rerankers: Sequence[Reranker]):
+    def __init__(self, rerankers: Sequence[Reranker], metrics: RerankerMetrics | None = None):
         self._rerankers = rerankers  # ordered: primary, fallback1, fallback2
+        self._metrics = metrics or NullRerankerMetrics()
 
     @property
     def name(self) -> str:
@@ -48,6 +51,7 @@ class RerankerChain(Reranker):
             (identity fallback behavior).
         """
         errors = []
+        primary_name = self._rerankers[0].name if self._rerankers else "unknown"
 
         for reranker in self._rerankers:
             try:
@@ -64,20 +68,24 @@ class RerankerChain(Reranker):
                     logger.warning(
                         "Reranker fallback occurred",
                         extra={
-                            "primary": self._rerankers[0].name,
+                            "primary": primary_name,
                             "active": reranker.name,
                             "errors": errors,
                         },
                     )
+                    self._metrics.increment_fallback_count(
+                        primary=primary_name, active=reranker.name
+                    )
 
                 return results
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — chain falls back on any reranker failure
                 errors.append(f"{reranker.name}: {e!s}")
                 continue
 
         # All rerankers failed - return identity fallback
         logger.error("All rerankers failed, using identity fallback", extra={"errors": errors})
+        self._metrics.increment_fallback_count(primary=primary_name, active="identity")
         return [
             RerankResult(doc_id=str(i), score=1.0, original_index=i)
             for i, doc in enumerate(documents[:top_k])

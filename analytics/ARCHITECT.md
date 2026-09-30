@@ -2,9 +2,9 @@
 
 | Атрибут | Значение |
 |---|---|
-| Версия документа | 1.2.0 |
-| Дата | 2026-09-26 |
-| Changelog | 1.2.0 (2026-09-26): §5.1 (строка 357) уточнена — in-process опция (Streamlit native callbacks) помечена как «не используется; AG-0 (из `BACKLOG.md` v1.1.0) фиксирует FastAPI + SSE как единственную MVP-реализацию». §5.2.2 (Orchestration), §5.2.3 (LLM Provider), §5.2.4 (Tool Layer) дополнены ссылками на AG-1..AG-4 (формализация agent-service в Phase 1, см. `AG-PROMPTS.md` v1.0.0). § 8 Trade-offs обновлён (C-2, C-5 — частично resolved через AG-1/AG-3). \| 1.1.0 (2026-09-21): Phase 1 завершена — добавлены ADR-013 и ADR-014; расширен ADR-008 (LocalFileStorage упразднён); C-4/C-11/C-15 помечены [RESOLVED]; Q-2 закрыт, Q-4 закрыт частично \|
+| Версия документа | 1.3.0 |
+| Дата | 2026-09-30 |
+| Changelog | 1.3.0 (2026-09-30): Phase 2 завершена — добавлены ADR-010, ADR-017, ADR-020; C-2 помечено [RESOLVED]; C-6 помечено [PARTIALLY RESOLVED, ADR-011 pending Phase 3]; Q-5 частично закрыт; компонентная диаграмма обновлён с Redis DB 1, RerankerRegistry, HybridRetriever, BM25IndexBuilder, RagPipeline, rag_retriever нодой, web_search и rag_query tools; §5.2.2 Checkpointer обновлён на RedisPostgresCheckpointer + rag_retriever нода; §5.2.4 Tool Layer обновлён с AG-5 web_search и AG-6 rag_query; §5.2.5 RAG pipeline обновлён на hybrid + reranker + RagPipeline class; §5.1 Presentation Layer обновлён с tool-call previews, settings_panel, RAG citations, web search results panels; AG-5 и AG-6 помечены Approved в §7. \| 1.2.0 (2026-09-26): §5.1 (строка 357) уточнена — in-process опция (Streamlit native callbacks) помечена как «не используется; AG-0 (из `BACKLOG.md` v1.1.0) фиксирует FastAPI + SSE как единственную MVP-реализацию». §5.2.2 (Orchestration), §5.2.3 (LLM Provider), §5.2.4 (Tool Layer) дополнены ссылками на AG-1..AG-4 (формализация agent-service в Phase 1, см. `AG-PROMPTS.md` v1.0.0). § 8 Trade-offs обновлён (C-2, C-5 — частично resolved через AG-1/AG-3). \| 1.1.0 (2026-09-21): Phase 1 завершена — добавлены ADR-013 и ADR-014; расширен ADR-008 (LocalFileStorage упразднён); C-4/C-11/C-15 помечены [RESOLVED]; Q-2 закрыт, Q-4 закрыт частично \|
 | Статус | Draft → Review → Approved |
 | Аудитория | Solution-архитектор / Tech-лид |
 | Технологический стек | Python 3.11, LangGraph 0.2+, LangChain 0.3+, Streamlit 1.40+ |
@@ -127,8 +127,8 @@ flowchart LR
     end
 
     subgraph Storage["Storage Layer"]
-        PG[("PostgreSQL<br/>sessions, files meta")]
-        REDIS[("Redis<br/>cache, rate-limit")]
+        PG[("PostgreSQL<br/>sessions, files meta<br/>+ pgvector + tsvector")]
+        REDIS[("Redis<br/>DB 0: pub/sub ADR-013<br/>DB 1: checkpoint-WAL ADR-010")]
         VEC1[("Qdrant<br/>vector store")]
         VEC2[("pgvector<br/>vector alt")]
         VEC3[("Chroma<br/>vector dev")]
@@ -173,8 +173,8 @@ flowchart LR
 | `agent-service` | Python 3.11, LangGraph, LangChain | Оркестрация графа агента, tool calling loop, streaming | HTTP / SSE (FastAPI или нативно через Streamlit) |
 | `tool-layer` | Python модули | Реализация tools: `web_search`, `rag_query`, `mcp_call`, `file_export` | in-process |
 | `worker` (optional, prod) | Celery / RQ | Асинхронная генерация тяжёлых файлов (pdf/docx/xlsx), фоновый индексинг | AMQP/Redis |
-| `postgres` | PostgreSQL 16 | Sessions, messages, files metadata, pgvector (alt RAG) | SQL |
-| `redis` | Redis 7 | Cache (LLM responses, embeddings), rate-limit, pub/sub для WS | RESP |
+| `postgres` | PostgreSQL 16 | Sessions, messages, files metadata, pgvector (alt RAG), tsvector (BM25 ADR-020) | SQL |
+| `redis` | Redis 7 | DB 0: cache, rate-limit, pub/sub (ADR-013); DB 1: checkpoint-WAL (ADR-010) | RESP |
 | `qdrant` | Qdrant 1.10 | Production vector DB | HTTP/gRPC |
 | `chroma` | Chroma 0.5 | Локальная dev-БД векторов | HTTP |
 | `nginx` (prod) | Nginx | TLS termination, reverse proxy, static assets | HTTP |
@@ -189,11 +189,13 @@ flowchart LR
 +-------------------------------------------------------------+
 | 1. Presentation Layer (Streamlit UI)                        |
 |    - Chat components, session history, file download         |
+|    - Tool-call previews, RAG citations, web search panels   |
 +-------------------------------------------------------------+
 | 2. Orchestration Layer (LangGraph)                          |
-|    - State machine: planner -> tool_selector -> executor     |
+|    - State machine: planner -> tool_executor /              |
+|      rag_retriever -> final_answer                          |
 |    - Conditional edges, cycles, human-in-the-loop            |
-|    - Checkpointing (PostgreSQL backend)                     |
+|    - Checkpointing (RedisPostgresCheckpointer, ADR-010)     |
 +-------------------------------------------------------------+
 | 3. LLM Provider Layer (LangChain abstraction)               |
 |    - BaseChatModel -> OpenAI / Anthropic / Ollama            |
@@ -209,7 +211,9 @@ flowchart LR
 |    - Chunkers (recursive, semantic, sentence)                |
 |    - Embeddings (OpenAI text-embedding-3-small / BGE)       |
 |    - Vector stores: Chroma / Qdrant / pgvector               |
-|    - Retrievers: similarity, MMR, hybrid (BM25 + vector)     |
+|    - HybridRetriever (BM25 + vector, ADR-020)               |
+|    - RerankerRegistry + BgeReranker (ADR-017)               |
+|    - RagPipeline (composes retriever + reranker)            |
 +-------------------------------------------------------------+
 | 6. MCP Client Layer                                          |
 |    - mcp Python SDK, multi-transport (stdio, SSE, WS)        |
@@ -219,8 +223,8 @@ flowchart LR
 | 7. Persistence Layer                                         |
 |    - SQLAlchemy 2.0 (async) -> PostgreSQL                    |
 |    - Alembic migrations                                      |
-|    - Redis client (aioredis)                                 |
-|    - File storage: local FS / S3-compatible (MinIO)         |
+|    - Redis DB 0 (pub/sub) + Redis DB 1 (checkpoint-WAL)     |
+|    - File storage: S3-compatible (MinIO/S3)                 |
 +-------------------------------------------------------------+
 ```
 
@@ -229,15 +233,18 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph UI[Streamlit UI]
-        CHAT[chat_component]
+        CHAT[chat_component<br/>+ tool-call previews G-1]
         HIST[session_history]
         DL[download_button]
+        RC[rag_citations_panel G-2]
+        WS[web_search_results_panel G-3]
+        SET[settings_panel G-4<br/>retrieval_strategy, reranker]
     end
 
     subgraph ORCH[LangGraph Orchestration]
         GRAPH[StateGraph]
-        NODES[Nodes: planner, tool_call,<br/>rag_retriever, mcp_call, final_answer]
-        CHECK[Checkpointer<br/>PostgresSaver]
+        NODES[Nodes: planner, tool_executor,<br/>rag_retriever, mcp_invoker,<br/>final_answer]
+        CHECK[Checkpointer<br/>RedisPostgresCheckpointer<br/>ADR-010]
         STATE[AgentState<br/>TypedDict]
     end
 
@@ -249,10 +256,10 @@ flowchart TB
     end
 
     subgraph TOOLS[Tool Layer]
-        TS[web_search<br/>Tavily]
-        TR[rag_query<br/>retriever.invoke]
-        TM[mcp_call<br/>proxy]
-        TF[file_export<br/>md/txt/pdf/docx/xlsx/odt]
+        TS[web_search<br/>Tavily AG-5]
+        TR[rag_query<br/>RagPipeline AG-6]
+        TM[mcp_call<br/>proxy AG-7 Phase 4]
+        TF[file_export<br/>md/txt/pdf/docx/xlsx/odt AG-4]
         TC[calc/code_exec<br/>sandboxed]
     end
 
@@ -263,7 +270,10 @@ flowchart TB
         VS1[(Chroma)]
         VS2[(Qdrant)]
         VS3[(pgvector)]
-        RET[retrievers]
+        BM25[BM25Retriever<br/>tsvector ADR-020]
+        HYB[HybridRetriever<br/>+ RRFFusion ADR-020]
+        RERANK[RerankerRegistry<br/>+ BgeRerankerAdapter<br/>ADR-017]
+        PIPE[RagPipeline<br/>H-2 singleton]
     end
 
     subgraph MCP[MCP Client Layer]
@@ -275,8 +285,9 @@ flowchart TB
 
     subgraph PERS[Persistence Layer]
         SA[SQLAlchemy async]
-        PG[(PostgreSQL)]
-        RD[(Redis)]
+        PG[(PostgreSQL<br/>+ pgvector + tsvector)]
+        RD0[(Redis DB 0<br/>pub/sub ADR-013)]
+        RD1[(Redis DB 1<br/>checkpoint-WAL ADR-010)]
         FS[(File Storage)]
         MINIO[(MinIO / S3)]
         VLT[(Vault / KMS)]
@@ -298,10 +309,14 @@ flowchart TB
     PROV -.-> LIT
     NODES --> TOOLS
     TS --> TAV[Tavily API]
-    TR --> RET
-    RET --> VS1
-    RET --> VS2
-    RET --> VS3
+    TR --> PIPE
+    PIPE --> HYB
+    PIPE --> RERANK
+    HYB --> BM25
+    HYB --> VS1
+    HYB --> VS2
+    HYB --> VS3
+    BM25 --> PG
     TF --> FS
     TM --> CLIENT
     CLIENT --> TRANS1
@@ -309,14 +324,17 @@ flowchart TB
     TRANS1 --> MCPS1[(filesystem<br/>MCP server)]
     TRANS2 --> MCPS2[(github<br/>MCP server)]
     GRAPH --> CHECK
+    CHECK --> RD1
     CHECK --> SA
     SA --> PG
-    NODES --> RD
+    NODES --> RD0
     HIST --> SA
     DL --> FS
+    RC --> PIPE
+    WS --> TS
     CE --> CPS
-    CPS --> RD
-    CSS --> RD
+    CPS --> RD0
+    CSS --> RD0
     CSS --> GRAPH
     CSS --> OW
     CSS --> FW
@@ -332,13 +350,13 @@ flowchart TB
     classDef pers fill:#e0e7ff,stroke:#3730a3,color:#000
     classDef ctrl fill:#fef9c3,stroke:#854d0e,color:#000
 
-    class CHAT,HIST,DL ui
+    class CHAT,HIST,DL,RC,WS,SET ui
     class GRAPH,NODES,CHECK,STATE orch
     class PROV,OAI,ANT,LIT llm
     class TS,TR,TM,TF,TC tools
-    class LOAD,CHUNK,EMB,VS1,VS2,VS3,RET rag
+    class LOAD,CHUNK,EMB,VS1,VS2,VS3,BM25,HYB,RERANK,PIPE rag
     class CLIENT,REG,TRANS1,TRANS2 mcp
-    class SA,PG,RD,FS,MINIO,VLT pers
+    class SA,PG,RD0,RD1,FS,MINIO,VLT pers
     class CE,CPS,CSS,OW,FW ctrl
 ```
 
@@ -348,15 +366,19 @@ flowchart TB
 
 | Компонент | Файл | Ответственность |
 |---|---|---|
-| `chat_component` | `ui/components/chat.py` | Рендеринг сообщений, streaming tokens, tool-call previews |
+| `chat_component` | `ui/components/chat.py` | Рендеринг сообщений, streaming tokens, tool-call previews (G-1, Phase 2) — реализовано |
 | `session_history` | `ui/components/history.py` | Список сессий слева, переключение, поиск по истории |
 | `download_button` | `ui/components/download.py` | Кнопки для каждого экспортированного файла |
-| `settings_panel` | `ui/components/settings.py` | Выбор провайдера/модели, температура, max_tokens, tools on/off |
+| `rag_citations_panel` | `ui/components/rag_citations.py` | RAG citations panel (G-2, Phase 2) — отображение retrieved_docs из event: retrieved_docs — реализовано |
+| `web_search_results_panel` | `ui/components/web_search.py` | Web search results panel (G-3, Phase 2) — отображение web_search tool results — реализовано |
+| `settings_panel` | `ui/components/settings.py` | Выбор провайдера/модели, температура, max_tokens, tools on/off, retrieval_strategy (ADR-020), reranker (ADR-017) — реализовано (G-4, Phase 2) |
 | `auth_gate` | `ui/components/auth.py` | Basic auth (MVP) -> OAuth2/OIDC (prod) |
 
 UI общается с `agent_service` через **Streamlit native callbacks** (MVP, in-process) или через **FastAPI + SSE** (Alpha+ для multi-instance).
 
 > **Phase 1 Update (v1.2.0, 2026-09-26)**: in-process опция (Streamlit native callbacks) **не используется**. AG-0 из `BACKLOG.md` v1.1.0 (см. `AG-PROMPTS.md` v1.0.0 §1) фиксирует **FastAPI + SSE как единственную MVP-реализацию** `agent-service`, запускаемую как отдельный процесс (`python -m llm_client.agent` или `uvicorn llm_client.agent.service:app`) на `AGENT_SERVICE_PORT` (default 8000). UI (`src/llm_client/ui/chat.py`) общается с `agent-service` через HTTP/SSE по контракту `AGENT_SERVICE_URL` (default `http://localhost:8000`). Это применяет принцип ТРИЗ #19 (переход в другое измерение) и подготавливает Phase 5 multi-instance (UI-4/UI-5 из `BACKLOG.md` v1.1.0): добавление второго инстанса `agent-service` за load balancer не требует переписывания UI-кода — контракт `AGENT_SERVICE_URL` не меняется. Подробное обоснование — `BACKLOG.md` v1.1.0 §2.3–§2.4 (Пробелы D–G) и §6.4 (риск «AG-0 расходится с ARCHITECT.md §5.1 in-process vs separate process»).
+
+> **Phase 2 Update (v1.3.0, 2026-09-30)**: UI-расширения Блока G (`ALPHA-PROMPTS.md`) реализованы: `chat_component` получает tool-call previews (G-1) — отображение вызовов `web_search`/`rag_query`/`file_export` из SSE `event: tool_call`; добавлены `rag_citations_panel` (G-2) — панель цитат RAG из `event: retrieved_docs`; `web_search_results_panel` (G-3) — результаты веб-поиска из `event: tool_result`; `settings_panel` расширен (G-4) — tools on/off, `retrieval_strategy` (ADR-020: vector|bm25|hybrid), выбор reranker (ADR-017: bge|cohere|identity). Все компоненты расширяют `UIClient` interface (`ui/client.py`), не Streamlit-specific API напрямую.
 
 #### 5.2.2 Orchestration Layer (LangGraph)
 
@@ -385,16 +407,18 @@ class AgentState(TypedDict):
 Граф содержит узлы:
 - `planner` — анализ запроса, выбор стратегии (RAG first / web_search / direct LLM / tool chain)
 - `tool_executor` — универсальный ToolNode, обрабатывает `tool_calls` из last message
-- `rag_retriever` — инкапсулирует retriever.invoke, обновляет `retrieved_docs`
+- `rag_retriever` — **Phase 2 (AG-6)**. Извлекает RAG chunks через `RagPipeline`, обновляет `state["retrieved_docs"]` для `final_answer`. Вызывается когда planner выбирает `route_decision="rag_first"` (в Phase 2 — heuristic по ключевым словам; в Phase 3+ — LLM structured output). Пропускается если `rag_query` tool call уже ответил на тот же query (H-4 оптимизация, `_rag_query_answered`).
 - `mcp_invoker` — делегирует вызовы в MCP client
 - `final_answer` — формирует финальный ответ с цитатами и артефактами
 - `human_review` (опционально) — прерывание для подтверждения тяжёлых действий (например, удаление файла через MCP filesystem)
 
 Conditional edges:
-- `route_after_planner`: если planner вернул `tools_needed`, идём в `tool_executor`; иначе — в `final_answer`.
+- `route_after_planner`: **Phase 2 — 3 выхода** (Phase 1 был 1 выход): если planner вернул `tools_needed` → `tool_executor`; если `rag_first` → `rag_retriever`; иначе → `final_answer`.
 - `route_after_tool`: если в `messages` есть новый `tool` message, возвращаемся в LLM для интерпретации; если `final_answer_ready` — выходим.
 
-Checkpointer: `PostgresSaver` (LangGraph 0.2+) — персистентное состояние графа, поддержка resume-after-restart.
+Checkpointer: **`RedisPostgresCheckpointer` (ADR-010, Phase 2)** — composite sync Redis + async PG. `PostgresSaver` (ADR-001) — deprecated, оставлен только для backward-compat тестов. См. `src/llm_client/orchestration/checkpointers/composite.py`.
+
+> **Phase 2 Update (v1.3.0, 2026-09-30)**: Checkpointer обновлён с `PostgresSaver` на `RedisPostgresCheckpointer` (ADR-010). Добавлена `rag_retriever` нода (AG-6/H-2/H-3) — `src/llm_client/agent/graph.py`. `route_after_planner` расширен с 1 выхода до 3 (`direct_llm` / `tools_needed` / `rag_first`). `build_agent_graph(llm, token, tools, rag_pipeline)` — `rag_pipeline` singleton включает `rag_retriever` ноду; `None` отключает (backward compat).
 
 #### 5.2.3 LLM Provider Layer
 
@@ -451,13 +475,33 @@ class FileExportArgs(BaseModel):
 def file_export(content: str, format: str, filename: str | None = None) -> dict:
     '''Сохраняет контент в файл заданного формата, возвращает {path, size}.'''
     ...
+
+class RagQueryArgs(BaseModel):
+    query: str = Field(..., description="RAG query по корпусу документов")
+    top_k: int = Field(5, ge=1, le=20)
+
+@tool(args_schema=RagQueryArgs)
+async def rag_query(query: str, top_k: int = 5) -> dict:
+    '''RAG retrieval через RagPipeline. Возвращает {chunks, chunk_count, top_score}.'''
+    ...
 ```
 
 Tool registry собирает все `BaseTool` инстансы в единый список, который передаётся в LangGraph `ToolNode`. MCP-tools добавляются в registry динамически при подключении MCP-сервера.
 
+**Статус реализации tools по фазам:**
+
+| Tool | Фаза | ADR | Реализация |
+|---|---|---|---|
+| `file_export` | Phase 1 (AG-4) | расш. ADR-008, ADR-006 | `src/llm_client/agent/tools/file_export.py` — md/txt sync, pdf/docx async stub |
+| `web_search` | Phase 2 (AG-5) | ADR-005, ADR-006 | `src/llm_client/agent/tools/web_search.py` — Tavily API, `TAVILY_API_KEY` |
+| `rag_query` | Phase 2 (AG-6) | ADR-003, ADR-001, ADR-017, ADR-020 | `src/llm_client/agent/tools/rag_query.py` — через `RagPipeline` |
+| `mcp_call` | Phase 4 (AG-7) | ADR-012 | planned — `mcp_invoker` нода |
+
+> **Phase 2 Update (v1.3.0, 2026-09-30)**: Tool Layer расширен AG-5 (`web_search`) и AG-6 (`rag_query`). `DEFAULT_TOOLS_ENABLED = ("file_export", "web_search", "rag_query")` в `agent/service.py`. `rag_query` возвращает `dict` с `chunks` (не list) — SSE-эмиттер парсит по shape payload. Phase 4 добавит `mcp_call` (AG-7) через `MCPTransport` (ADR-012).
+
 #### 5.2.5 RAG Layer
 
-Pipeline:
+Pipeline (Phase 2, ADR-020 + ADR-017):
 1. **Load** — `PyPDFLoader`, `Docx2txtLoader`, `UnstructuredMarkdownLoader`, `WebBaseLoader` (для URL).
 2. **Chunk** — `RecursiveCharacterTextSplitter` (default 1000/200), опционально `SemanticChunker` (через embeddings).
 3. **Embed** — `OpenAIEmbeddings(model="text-embedding-3-small")` (Phase 1), `BGEEmbeddings` для локального режима (Phase 4).
@@ -483,7 +527,28 @@ class VectorStoreFactory:
                                 embedding_function=emb)
 ```
 
-5. **Retrieve** — `vector_store.as_retriever(search_type="mmr", k=8, fetch_k=20)`. Для гибридного поиска — комбинируем BM25 (через `rank_bm25`) с vector reranking.
+5. **Retrieve** — **Phase 2 default: hybrid** (`RetrieverConfig.retrieval_strategy="hybrid"`, ADR-020):
+   - `HybridRetriever` (`src/llm_client/rag/retrieval/hybrid_retriever.py`) — параллельный vector + BM25.
+   - Vector top-20 + BM25 top-20 → `rrf_fusion` (reciprocal rank fusion) → top-50.
+   - BM25: `BM25Retriever` через PostgreSQL `tsvector` (GIN index на `documents.search_vector`).
+   - Опции: `"vector"` (только embeddings), `"bm25"` (только lexical).
+6. **Rerank** — **Phase 2 (ADR-017)**: cross-encoder reranker после fusion → top-5:
+   - Default: `BgeRerankerAdapter` (`BAAI/bge-reranker-base`, in-process).
+   - Optional: `CohereRerankAdapter`.
+   - Fallback: `IdentityReranker` (no-op) через `RerankerChain`.
+
+**RagPipeline (H-2, Phase 2)** — композирует retriever + reranker на основе `RetrieverConfig`:
+
+```python
+# src/llm_client/rag/pipeline.py
+class RagPipeline:
+    """Композирует retriever (HybridRetriever / VectorRetriever / BM25Retriever)
+    + reranker (BgeRerankerAdapter / CohereRerankAdapter / identity) на основе
+    RetrieverConfig. Singleton при agent-service startup.
+    Используется rag_query @tool и rag_retriever нодой — single source of truth."""
+```
+
+> **Phase 2 Update (v1.3.0, 2026-09-30)**: RAG pipeline обновлён на hybrid + reranker + `RagPipeline` class. PostgreSQL расширен extensions: `pgvector` (existing) + `tsvector`/`pg_trgm` (new, `documents.search_vector` GENERATED ALWAYS AS STORED + GIN index). `RagPipeline.from_settings_with_overrides(...)` — singleton в `agent/service.py`, передаётся в `build_agent_graph(rag_pipeline=...)`. Retriever metrics: `RerankerMetrics` (`src/llm_client/rag/metrics.py`) — latency, recall@5, fallback_count.
 
 #### 5.2.6 MCP Client Layer
 
@@ -843,6 +908,93 @@ sequenceDiagram
 - (-) Ключи шифрования в KMS/Vault — ещё одна зависимость.
 **References**: ROADMAP.md §5.4, TRIZ-ANALYSIS.md §7.1 + §11, MVP-PROMPTS.md Блок D.
 
+### ADR-010: Async Checkpoint Write-Behind Log
+
+**Status**: Approved (2026-09-30)
+**Context**: ADR-001 использует `PostgresSaver` для LangGraph checkpointer с синхронной записью в `agent_checkpoints` на каждом node transition. Это добавляет 10–50 мс на каждый переход, суммарно 50–200 мс на типовой агентский цикл, что становится bottleneck при росте RPS. ROADMAP.md §6.3 требует latency checkpoint <2 мс в 99% случаев и корректное восстановление при restart. Противоречие C-2 (PG checkpoint vs latency).
+**Decision**: Ввести composite checkpointer `RedisPostgresCheckpointer` (`src/llm_client/orchestration/checkpointers/composite.py`), реализующий `BaseCheckpointSaver` interface LangGraph:
+1. `RedisCheckpointer` — synchronous write в Redis DB 1 (`REDIS_CHECKPOINT_URL`), latency <1 мс, TTL=24h, `maxmemory-policy=noeviction`.
+2. `PostgresCheckpointer` — asynchronous batched write: background flusher каждые 5 сек или N=50 checkpoints через `INSERT ... ON CONFLICT DO UPDATE`.
+3. Восстановление при restart: snapshot из PostgreSQL, затем delta-replay из Redis (потеря ≤5 сек — acceptable risk).
+4. `PostgresSaver` — deprecated, оставлен только для backward-compat тестов.
+**Consequences**:
+- (+) Latency checkpointing снижается с 10–50 мс до <1 мс.
+- (+) PostgreSQL не нагружается на каждом node transition (RPS на PG снижается ~50×).
+- (+) Resume-after-restart сохраняется (Redis snapshot + PostgreSQL durable).
+- (-) Redis — mandatory dependency для checkpointing (раньше опциональный).
+- (-) Возможна потеря последних 5 сек checkpoint-ов при одновременном отказе Redis и PostgreSQL.
+- (-) Сложнее тестировать (два хранилища вместо одного).
+**References**: ROADMAP.md §6.3, TRIZ-ANALYSIS.md §5.2 (C-2) + §11, ALPHA-PROMPTS.md Блок B, BACKLOG.md §3.4.
+
+### ADR-017: Reranker Model in RAG
+
+**Status**: Approved (2026-09-30)
+**Context**: §5.2.5 упоминает MMR reranking, но без ML-reranker. Pure vector retrieval плохо ранжирует топ-K чанков. ROADMAP.md §6.4 требует recall@5 ↑ ≥15% vs baseline (no reranker) и latency retrieval ↑ <100 мс. Противоречие C-6 (long RAG context vs cost) — качественная составляющая.
+**Decision**: Ввести cross-encoder reranker в RAG pipeline (`src/llm_client/rag/rerankers/`):
+1. Default reranker: `BgeRerankerAdapter` (`BAAI/bge-reranker-base`, локальная in-process модель, ~600MB RAM).
+2. Опционально: `CohereRerankAdapter` (Cohere Rerank API).
+3. `IdentityReranker` — no-op fallback при недоступности моделей.
+4. `RerankerRegistry` + `RerankerChain` — pluggable registry с graceful fallback (при ошибке одного reranker переходим к следующему в chain).
+5. Pipeline: vector top-20 + BM25 top-20 → RRF fusion top-50 → reranker top-5.
+**Consequences**:
+- (+) Значительное улучшение precision и recall (типично +20–30% recall@5).
+- (+) Снижение контекста LLM (5 качественных чанков вместо 20 шумных).
+- (-) Дополнительная latency (50–200 мс на reranking CPU).
+- (-) bge-reranker-base требует ~600MB RAM для in-process.
+- (-) Cohere Rerank — внешняя зависимость с отдельной стоимостью.
+**References**: ROADMAP.md §6.4, TRIZ-ANALYSIS.md §6.1 (C-6) + §11, ALPHA-PROMPTS.md Блок C, BACKLOG.md §3.4 (AG-6 расширяется).
+
+### ADR-020: Hybrid (BM25 + Vector) RAG по умолчанию
+
+**Status**: Approved (2026-09-30)
+**Context**: §5.2.5 упоминает hybrid search (BM25 + vector), но как опция. Pure vector retrieval плохо находит точные совпадения (product SKU, error codes, артикулы). ROADMAP.md §6.5 требует recall ↑ ≥30% для точных терминов и latency retrieval ↑ <50 мс. ТРИЗ-стандарт 1.1.5 (введение второго поля в веполь).
+**Decision**: Сделать hybrid retrieval (BM25 + vector) default (`src/llm_client/rag/retrieval/`):
+1. `RetrieverConfig.retrieval_strategy: "vector"|"bm25"|"hybrid"` — default: `hybrid`.
+2. `BM25Retriever` — lexical retrieval через PostgreSQL `tsvector` (GIN index на `documents.search_vector`, GENERATED ALWAYS AS STORED).
+3. `HybridRetriever` — параллельный vector + BM25, `rrf_fusion` (reciprocal rank fusion) для объединения.
+4. Reranker (ADR-017) применяется после fusion.
+5. PostgreSQL расширен extensions: `pgvector` (existing) + `tsvector`/`pg_trgm` (new).
+**Consequences**:
+- (+) Значительное улучшение recall для запросов с точными терминами (≥30%).
+- (+) Best of both worlds: semantic + lexical.
+- (+) Нулевая новая зависимость (tsvector в существующей PostgreSQL, принцип ТРИЗ #5 «объединение»).
+- (-) Дополнительное хранилище для BM25 index (GIN).
+- (-) Latency retrieval возрастает на 30–50% (двойной запрос, параллельно).
+- (-) Reranker обязателен (без него noise от fusion).
+**References**: ROADMAP.md §6.5, TRIZ-ANALYSIS.md §6.1 (C-6) + §8.3 + §11, ALPHA-PROMPTS.md Блок D, BACKLOG.md §3.4 (AG-6 расширяется).
+
+### AG-5: web_search tool via Tavily
+
+**Status**: Approved (2026-09-30)
+**Context**: BACKLOG.md v1.1.0 §3.4 формализует AG-5 как Phase 2 работу. ADR-005 (Tool Layer) и ADR-006 (нативный tool calling через `bind_tools()`) уже Approved. UI-1 (Phase 1) имеет G-3 (web search results panel) как потребителя событий `event: tool_call` / `event: tool_result`.
+**Decision**: Реализовать `web_search` tool (`src/llm_client/agent/tools/web_search.py`):
+1. `StructuredTool.from_function` с `RagQueryArgs`-подобной Pydantic-схемой (`query`, `max_results`).
+2. Внешний API: Tavily (`TAVILY_API_KEY` env var).
+3. Возвращает `list[dict]` `{title, url, snippet}`.
+4. Подключается в `bind_tools()` planner ноды; payload (list) парсится SSE-эмиттером как `event: tool_result`.
+5. При отсутствии `TAVILY_API_KEY` — tool unavailable (graceful degradation, warning).
+**Consequences**:
+- (+) Агент получает актуальные веб-данные (G-3: ≥5 инструментов в проде).
+- (+) UI-1 web search results panel (G-3) получает источник событий.
+- (-) Зависимость от внешнего API Tavily (cost + availability).
+**References**: ROADMAP.md §6.2.4, BACKLOG.md v1.1.0 §3.4, AG-PROMPTS.md (Phase 1 AG-1..AG-4 — предусловие), ALPHA-PROMPTS.md Блок H-1.
+
+### AG-6: rag_query tool + base RAG pipeline + rag_retriever нода
+
+**Status**: Approved (2026-09-30)
+**Context**: BACKLOG.md v1.1.0 §3.4 формализует AG-6 как Phase 2 работу (4 чел-дн). ADR-003 (VectorStoreFactory) и ADR-001 (LangGraph) Approved. Расширяется ADR-017 (reranker) и ADR-020 (hybrid retrieval) в этом же Phase 2. Закрывает связку UI-1 (RAG citations panel, G-2) с реальным источником RAG-данных.
+**Decision**: Реализовать связку:
+1. `RagQueryArgs` + `rag_query` @tool (`src/llm_client/agent/tools/rag_query.py`) — вызывает `RagPipeline`, возвращает `dict` с `chunks`, `chunk_count`, `top_score`.
+2. `RagPipeline` (`src/llm_client/rag/pipeline.py`) — singleton при agent-service startup; композирует retriever (`HybridRetriever` / vector-only / BM25-only) + reranker (`BgeRerankerAdapter` / `CohereRerankAdapter` / identity) на основе `RetrieverConfig`. Single source of truth для `rag_query` @tool и `rag_retriever` ноды.
+3. `rag_retriever` нода (`src/llm_client/agent/graph.py`) — Phase 2; извлекает RAG chunks через `RagPipeline`, обновляет `state["retrieved_docs"]`. Вызывается когда planner выбирает `route_decision="rag_first"` (heuristic по ключевым словам; в Phase 3+ — LLM structured output).
+4. Conditional edges: `route_after_planner` — 3 выхода (`direct_llm` / `tools_needed` / `rag_first`); `rag_retriever` пропускается если `rag_query` tool call уже ответил на тот же query (H-4 оптимизация).
+**Consequences**:
+- (+) RAG доступен агенту как tool (G-1: сокращение времени аналитика).
+- (+) UI-1 RAG citations panel (G-2) получает источник `event: retrieved_docs`.
+- (+) Single RagPipeline — единая точка конфигурации retrieval/reranker.
+- (-) Дополнительная latency на rag_retriever ноду (reranker + hybrid).
+**References**: ROADMAP.md §6.2.5, BACKLOG.md v1.1.0 §3.4, AG-PROMPTS.md, ALPHA-PROMPTS.md Блок H-2/H-3/H-4.
+
 ---
 
 ## 8. Trade-offs
@@ -857,6 +1009,8 @@ sequenceDiagram
 | ~~SSE streaming (C-4)~~ | Простота, proxy-friendly | One-way | ~~HTTP endpoint для cancel~~ **[RESOLVED by ADR-013 in Phase 1]** — control-plane: POST /cancel + Redis pub/sub; data-plane: SSE без изменений |
 | ~~PII masking vs observability (C-11)~~ | Compliance, GDPR/SOC2 | Полный trace недоступен | **[RESOLVED by ADR-014 in Phase 1]** — DualStreamLogger: operational (masked) + forensic (AES-256-GCM encrypted) |
 | ~~File storage abstraction (C-15)~~ | Swappable backends | Двойная имплементация | ~~Test both в CI~~ **[RESOLVED by расш. ADR-008 in Phase 1]** — LocalFileStorage удалён, единственный S3CompatibleStorage (MinIO/S3) |
+| ~~PG checkpoint vs latency (C-2)~~ | Durability, resume-after-restart | Latency 10–50 мс на каждый node transition | **[RESOLVED by ADR-010 in Phase 2]** — RedisPostgresCheckpointer: sync Redis (<1 мс) + async PG batch flush; PostgresSaver deprecated |
+| ~~Long RAG context vs cost (C-6)~~ | Precision/recall RAG | Cost / context size LLM | **[PARTIALLY RESOLVED by ADR-017 + ADR-020 in Phase 2 (precision/recall)]** — reranker + hybrid retrieval снижают context (top-5 вместо top-20); **ADR-011 в Phase 3 — cost component pending** (semantic cache) |
 
 ---
 
@@ -1102,7 +1256,7 @@ RATE_LIMIT_PER_MIN=60
 | Q-2 | LangSmith pricing для большого объема трейсов | High | Medium | **[CLOSED: ADR-014 DualStreamLogger — собственный observability, не зависит от LangSmith]** |
 | Q-3 | MCP-серверы с stdio в docker-compose — complexity | High | Medium | Использовать SSE transport где возможно, отдельный sidecar контейнер |
 | Q-4 | Streamlit + LangGraph async — совместимость | Medium | High | **[PARTIALLY CLOSED: ADR-013 — cancel через Redis pub/sub, не Streamlit native; полное закрытие в Phase 5 через ADR-018]** |
-| Q-5 | Стоимость LLM при high RAG context (>50k tokens) | High | High | Implement context compression (LangChain `LLMChainExtractor`), map-reduce для длинных документов |
+| Q-5 | Стоимость LLM при high RAG context (>50k tokens) | High | High | **[PARTIALLY CLOSED: ADR-017 + ADR-020 снижают context size (top-5 reranked chunks вместо raw top-20); ADR-011 в Phase 3 — full closure через semantic cache]** Implement context compression (LangChain `LLMChainExtractor`), map-reduce для длинных документов |
 
 ---
 

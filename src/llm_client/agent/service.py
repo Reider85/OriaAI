@@ -43,6 +43,12 @@ from .graph import RAG_QUERY_TOOL, build_agent_graph, normalise_query
 from .provider import LLMProviderFactory
 from .tools import file_export, rag_query, web_search
 
+# Prometheus default registry used by /metrics (F-2).
+try:
+    from prometheus_client import REGISTRY as _PROMETHEUS_DEFAULT_REGISTRY
+except ImportError:  # pragma: no cover — prometheus_client is a hard dependency
+    _PROMETHEUS_DEFAULT_REGISTRY = None
+
 logger = logging.getLogger(__name__)
 
 # ── SSE protocol constants (AG-3, ADR-007) ────────────────────────────────────
@@ -267,6 +273,34 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/metrics")
+    async def metrics() -> Response:
+        """Prometheus exposition for Phase 2 control-point dashboards (F-2)."""
+        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+        from ..orchestration.checkpointers.metrics import default_checkpoint_metrics
+        from ..rag.metrics import default_reranker_metrics
+
+        parts: list[bytes] = []
+        seen: set[int] = set()
+        for source in (_PROMETHEUS_DEFAULT_REGISTRY, default_checkpoint_metrics, default_reranker_metrics):
+            if source is None:
+                continue
+            registry = getattr(source, "registry", source)
+            if id(registry) in seen:
+                continue
+            seen.add(id(registry))
+            try:
+                parts.append(generate_latest(registry))
+            except Exception as exc:  # noqa: BLE001 — never break /metrics on one bad collector
+                logger.debug("Skipping prometheus registry in /metrics: %s", exc)
+                continue
+
+        return Response(
+            content=b"\n".join(parts),
+            media_type=CONTENT_TYPE_LATEST,
+        )
 
     @app.post(
         "/sessions/{session_id}/chat",

@@ -1,9 +1,16 @@
-# Grafana unified alerting rules for the architecture ideality metric (G-2).
+# Grafana unified alerting rules for the architecture ideality metric (G-2)
+# and Phase 2 control point (ALPHA-PROMPTS F-2).
 #
-# Rule 1: idealidad_ratio < 1.0 sustained over a 14-day window (trend down).
-# Rule 2: dependency_count grew by more than 2 within 7 days (over-engineering).
+# Phase 1 (G-2):
+#   - idealidad_ratio < 1.0 sustained over a 14-day window (trend down).
+#   - dependency_count grew by more than 2 within 7 days (over-engineering).
+# Phase 2 control point (F-2), 7-day trend windows:
+#   - Phase 2 ADR ideality ratio < 1.0.
+#   - reranker fallback_count > 100/day.
+#   - checkpoint recovery loss proxy > 5s (recovery p99 duration).
+#   - hybrid exact_term recall@5 regression > 5% (delta of improvement < -5).
 #
-# Both rules carry the `team: architecture` label, which the notification policy
+# All rules carry the `team: architecture` label, which the notification policy
 # routes to the Slack contact point.
 apiVersion: 1
 
@@ -53,8 +60,217 @@ groups:
                   query:
                     params:
                       - A
-reducer:
+                  reducer:
                     type: max
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+  - orgId: 1
+    name: phase2-control-point
+    folder: Architecture
+    interval: 1m
+    rules:
+      - uid: phase2-idealidad-ratio-low
+        title: Phase 2 idealidad ratio below control point
+        condition: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Phase 2 ADR ideality ratio {{ $values.A.Value }} < 1.0 over the last
+            7 days. Phase 2 control point not reached (expected 1.5 = 3 caps / 2 deps).
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 604800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: min(llm_client_idealidad_ratio{phase="Phase 2"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: max
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+      - uid: reranker-fallback-high
+        title: Reranker fallback count high
+        condition: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Reranker fallback events {{ $values.A.Value }} > 100/day over the last
+            7 days. Reranker chain is degrading (ADR-017).
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 604800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: increase(llm_client_reranker_fallback_count[1d])
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 100
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: max
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+      - uid: checkpoint-recovery-loss-high
+        title: Checkpoint recovery loss high
+        condition: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Checkpoint recovery p99 duration {{ $values.A.Value }} ms > 5000 ms
+            over the last 7 days. Acceptable-risk breach (data-loss window > 5s).
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 604800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: histogram_quantile(0.99, sum(rate(llm_client_checkpoint_recovery_duration_ms_bucket[5m])) by (le))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 5000
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: max
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+      - uid: hybrid-exact-term-regression
+        title: Hybrid exact_term recall regression
+        condition: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: >-
+            Hybrid exact_term recall@5 improvement regressed by {{ $values.A.Value }}%
+            over the last 7 days (threshold: drop > 5%). ADR-020 quality regression.
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 604800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: delta(hybrid_recall_improvement_percentage[7d])
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - -5
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: min
                   type: query
               data:
                 source: A
