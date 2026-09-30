@@ -2,6 +2,7 @@
 
 import logging
 import time
+from dataclasses import replace
 from typing import Any
 
 from llm_client.observability.forensic_writer import ForensicStreamWriter
@@ -274,6 +275,103 @@ async def _mock_rrf_fusion(
 # ── RagPipeline (AG-6, Phase 2) ──────────────────────────────────────────────
 
 
+#: Maps G-4 UI settings keys onto ``RetrieverConfig`` fields. Anything outside
+#: this mapping (``max_results`` targets web_search, ``tools_enabled`` the tool
+#: layer) is intentionally ignored here.
+_OVERRIDE_FIELDS = {
+    "retrieval_strategy": "retrieval_strategy",
+    "reranker": "reranker_name",
+    "top_k": "reranker_top_k",
+}
+
+
+def _apply_retriever_overrides(
+    config: RetrieverConfig,
+    overrides: dict[str, Any] | None,
+) -> RetrieverConfig:
+    """Return a copy of *config* with the G-4 UI settings applied.
+
+    Overrides arrive straight off the wire, so every value is validated before
+    use: unparseable or non-positive entries are logged and dropped, and an
+    override set that fails ``RetrieverConfig`` validation falls back to the
+    unmodified env config rather than raising.
+    """
+    if not overrides:
+        return config
+
+    updates: dict[str, Any] = {}
+
+    strategy = overrides.get("retrieval_strategy")
+    if strategy is not None:
+        try:
+            updates["retrieval_strategy"] = RetrievalStrategy(strategy)
+        except ValueError:
+            logger.warning(
+                "Unknown retrieval_strategy %r — keeping %s",
+                strategy,
+                config.retrieval_strategy.value,
+            )
+
+    reranker = overrides.get("reranker")
+    if reranker is not None and str(reranker).strip():
+        updates["reranker_name"] = str(reranker).strip()
+    elif reranker is not None:
+        logger.warning("Empty 'reranker' override — keeping %s", config.reranker_name)
+
+    top_k = overrides.get("top_k")
+    if top_k is not None:
+        try:
+            parsed_top_k = int(top_k)
+        except (TypeError, ValueError):
+            logger.warning("Non-integer top_k override %r — keeping %s", top_k, config.reranker_top_k)
+        else:
+            if parsed_top_k > 0:
+                updates["reranker_top_k"] = parsed_top_k
+            else:
+                logger.warning(
+                    "Non-positive top_k override %r — keeping %s", top_k, config.reranker_top_k
+                )
+
+    if not updates:
+        return config
+
+    try:
+        # replace() re-runs __post_init__, so the resulting config is validated.
+        return replace(config, **updates)
+    except ValueError as exc:
+        logger.warning("RAG settings overrides rejected (%s) — using env config", exc)
+        return config
+
+
+def _build_retriever(config: RetrieverConfig) -> Any:
+    """Instantiate the retriever described by *config* (ADR-003 / ADR-020)."""
+    from .retrieval import BM25Retriever, HybridRetriever
+    from .retrieval.vector_store_factory import create_vector_retriever
+
+    vector_retriever = create_vector_retriever(config)
+
+    if config.retrieval_strategy == RetrievalStrategy.HYBRID:
+        if vector_retriever is None:
+            logger.warning(
+                "HYBRID strategy requested but no vector store available — "
+                "falling back to vector-only (empty results until vector "
+                "store is configured)"
+            )
+            return _EmptyRetriever()
+        return HybridRetriever(
+            vector_retriever=vector_retriever,
+            bm25_retriever=BM25Retriever(pg_pool=None),  # type: ignore[arg-type]
+            config=config,
+        )
+
+    if config.retrieval_strategy == RetrievalStrategy.BM25:
+        return BM25Retriever(pg_pool=None)  # type: ignore[arg-type]
+
+    if vector_retriever is not None:
+        return vector_retriever
+    return _EmptyRetriever()
+
+
 class RagPipeline:
     """Composes retriever + reranker based on RetrieverConfig.
 
@@ -306,40 +404,33 @@ class RagPipeline:
         retriever (vector-only, hybrid, or BM25-only), and wires in the
         reranker registry.
         """
-        from .retrieval import BM25Retriever, HybridRetriever
-        from .retrieval.vector_store_factory import create_vector_retriever
+        return cls.from_settings_with_overrides(app_settings, None)
 
-        config = RetrieverConfig.from_env()
-        reranker_registry_inst = default_reranker_registry
+    @classmethod
+    def from_settings_with_overrides(
+        cls,
+        app_settings: Any,
+        overrides: dict[str, Any] | None = None,
+    ) -> "RagPipeline":
+        """Build a pipeline from env config with per-request UI overrides (G-4).
 
-        vector_retriever = create_vector_retriever(config)
+        Environment config remains the baseline; ``overrides`` carries the
+        retrieval knobs exposed by the UI settings panel — ``retrieval_strategy``
+        (ADR-020), ``reranker`` (ADR-017), and ``top_k``. Unknown keys are
+        ignored, invalid values are logged and dropped, and if an override would
+        produce a config that fails validation the env config is kept intact.
 
-        if config.retrieval_strategy == RetrievalStrategy.HYBRID:
-            if vector_retriever is not None:
-                bm25_retriever = BM25Retriever(pg_pool=None)  # type: ignore[arg-type]
-                retriever = HybridRetriever(
-                    vector_retriever=vector_retriever,
-                    bm25_retriever=bm25_retriever,
-                    config=config,
-                )
-            else:
-                logger.warning(
-                    "HYBRID strategy requested but no vector store available — "
-                    "falling back to vector-only (empty results until vector "
-                    "store is configured)"
-                )
-                retriever = _EmptyRetriever()
-        elif config.retrieval_strategy == RetrievalStrategy.BM25:
-            retriever = BM25Retriever(pg_pool=None)  # type: ignore[arg-type]
-        else:
-            if vector_retriever is not None:
-                retriever = vector_retriever
-            else:
-                retriever = _EmptyRetriever()
+        Args:
+            app_settings: Application Settings (kept for signature parity with
+                ``from_settings``; base config still comes from the environment).
+            overrides: Optional per-request settings dict. None = env only.
+        """
+        config = _apply_retriever_overrides(RetrieverConfig.from_env(), overrides)
+        retriever = _build_retriever(config)
 
         return cls(
             retriever=retriever,
-            reranker_registry=reranker_registry_inst,
+            reranker_registry=default_reranker_registry,
             config=config,
         )
 

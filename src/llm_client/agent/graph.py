@@ -35,6 +35,9 @@ class AgentState(TypedDict, total=False):
     ``messages`` uses ``add_messages`` so successive nodes append rather than
     replace — required for the planner ↔ tool_executor loop.
     ``retrieved_docs`` is populated by the rag_retriever node (Phase 2 AG-6).
+    ``rag_top_k`` is the per-run retrieval depth override; it must stay declared
+    here or LangGraph drops it from the input state and the rag_retriever
+    fallback silently degrades to its own default.
     """
 
     messages: Annotated[list, add_messages]
@@ -46,6 +49,7 @@ class AgentState(TypedDict, total=False):
     max_iterations: int
     final_answer: str | None
     retrieved_docs: list[dict[str, Any]]
+    rag_top_k: int
 
 
 # ── Node functions ────────────────────────────────────────────────────────────
@@ -72,7 +76,13 @@ def _final_answer_node(state: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _tool_executor_node(state: dict[str, Any], tools: list[Any]) -> dict[str, Any]:
-    """Execute every tool_call in the last AIMessage and return ToolMessages."""
+    """Execute every tool_call in the last AIMessage and return ToolMessages.
+
+    Each dispatch is isolated: an unknown tool or a raising tool yields an error
+    ToolMessage for that call only, so one failure cannot abort the rest of the
+    batch or crash the graph. Result payloads are JSON-encoded when they are
+    dicts or lists, which keeps them parseable by the SSE layer (H-4).
+    """
     messages = state.get("messages") or []
     if not messages:
         return {"messages": []}
@@ -89,20 +99,38 @@ async def _tool_executor_node(state: dict[str, Any], tools: list[Any]) -> dict[s
         args = tc["args"]
         matched = tools_by_name.get(name)
         if matched is not None:
-            result = await matched.ainvoke(args)
-            result_str = json.dumps(result) if isinstance(result, dict) else str(result)
+            try:
+                result = await matched.ainvoke(args)
+            except Exception as exc:
+                logger.exception("Tool %s failed", name)
+                result_str = json.dumps({"error": f"Error: {exc}"})
+            else:
+                result_str = (
+                    json.dumps(result) if isinstance(result, (dict, list)) else str(result)
+                )
         else:
             result_str = json.dumps({"error": f"Unknown tool: {name}"})
         results.append(ToolMessage(content=result_str, tool_call_id=tc["id"], name=name))
     return {"messages": results}
 
 
-async def _rag_retriever_node(state: dict[str, Any], pipeline: Any) -> dict[str, Any]:
+async def _rag_retriever_node(
+    state: dict[str, Any],
+    pipeline: Any,
+    top_k: int | None = None,
+) -> dict[str, Any]:
     """Retrieve documents from RAG corpus based on last user message.
 
     Called when planner decides 'rag_first' strategy. Updates
     state['retrieved_docs'] for final_answer node to use as context.
+
+    ``top_k`` is the graph-level override coming from the UI settings panel
+    (G-4, see ``build_agent_graph(settings=...)``). It takes precedence over the
+    per-run ``state['rag_top_k']`` value.
     """
+    if pipeline is None:
+        return {"retrieved_docs": []}
+
     messages = state.get("messages") or []
     last_user_msg = None
     for m in reversed(messages):
@@ -113,16 +141,36 @@ async def _rag_retriever_node(state: dict[str, Any], pipeline: Any) -> dict[str,
         return {"retrieved_docs": []}
 
     query = last_user_msg.content if hasattr(last_user_msg, "content") else str(last_user_msg)
-    top_k = state.get("rag_top_k", 5)
+    effective_top_k = top_k if top_k is not None else state.get("rag_top_k", 5)
 
-    if pipeline is None:
-        return {"retrieved_docs": []}
-
-    result = await pipeline.retrieve(query, top_k=top_k)
+    result = await pipeline.retrieve(query, top_k=effective_top_k)
     return {"retrieved_docs": result["chunks"]}
 
 
 # ── Graph builder ─────────────────────────────────────────────────────────────
+
+
+def _resolve_top_k_override(settings: dict[str, Any] | None) -> int | None:
+    """Extract the ``top_k`` retrieval override from the UI settings payload.
+
+    Returns None when absent or invalid, so the rag_retriever node falls back to
+    ``state['rag_top_k']`` (and then to its own default). Settings come straight
+    off the wire (G-4), hence the defensive coercion.
+    """
+    if not settings or "top_k" not in settings:
+        return None
+
+    raw = settings["top_k"]
+    try:
+        top_k = int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid settings['top_k']=%r — ignoring override", raw)
+        return None
+
+    if top_k <= 0:
+        logger.warning("Non-positive settings['top_k']=%r — ignoring override", raw)
+        return None
+    return top_k
 
 
 def build_agent_graph(
@@ -134,6 +182,7 @@ def build_agent_graph(
     checkpointer: Any | None = None,
     rag_pipeline: Any | None = None,
     rag_triggers: tuple[str, ...] | None = None,
+    settings: dict[str, Any] | None = None,
 ) -> Any:
     """Construct and compile the agent graph (Phase 1 + Phase 2).
 
@@ -148,10 +197,14 @@ def build_agent_graph(
         llm:    LangChain chat model.
         token:  Optional CancellationToken — checked between nodes (C-4).
         tools:  Optional tool list (e.g. ``[file_export, web_search, rag_query]``).
+                Filtered upstream by the ``settings['tools_enabled']`` list.
         monitor: Optional IterationMonitor — cycle detection.
         checkpointer: Optional LangGraph checkpointer.
         rag_pipeline: Optional RagPipeline — enables rag_retriever node.
         rag_triggers: Optional tuple of trigger words for rag_first routing.
+        settings: Optional UI settings panel payload (G-4). Only ``top_k`` is
+            consumed here, and it is applied via the node closure rather than
+            threaded through graph state.
 
     Returns:
         Compiled LangGraph graph ready for ``graph.astream(state)``.
@@ -165,6 +218,7 @@ def build_agent_graph(
             logger.warning("LLM does not support bind_tools (%s); tool calls disabled", exc)
 
     triggers = rag_triggers or _RAG_TRIGGERS
+    top_k_override = _resolve_top_k_override(settings)
 
     graph = StateGraph(AgentState)
 
@@ -180,7 +234,7 @@ def build_agent_graph(
         return await _tool_executor_node(state, tools or [])
 
     async def rag_retriever(state: dict[str, Any]) -> dict[str, Any]:
-        return await _rag_retriever_node(state, rag_pipeline)
+        return await _rag_retriever_node(state, rag_pipeline, top_k=top_k_override)
 
     graph.add_node("planner", planner)
     graph.add_node("final_answer", final_answer)

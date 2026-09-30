@@ -4,7 +4,7 @@ from .cycle_detection import IterationMonitor, compute_state_delta
 from .graph import AgentState, build_agent_graph
 from .provider import LLMProviderFactory, TokenUsageTracker, create_retry_decorator
 from .service import format_sse_event
-from .tools import file_export, web_search
+from .tools import file_export, rag_query, web_search
 
 __all__ = [
     "AgentState",
@@ -16,5 +16,6 @@ __all__ = [
     "create_retry_decorator",
     "file_export",
     "format_sse_event",
+    "rag_query",
     "web_search",
 ]

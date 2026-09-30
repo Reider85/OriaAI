@@ -117,6 +117,45 @@ class ChatResponse(BaseModel):
 
 _sessions: dict[str, dict[str, Any]] = {}
 
+# ── Tool registry (H-3) ────────────────────────────────────────────────────────
+
+#: All Phase 2 tools available to the agent, keyed by the name the UI uses in
+#: ``settings['tools_enabled']``. Unknown names are ignored rather than raising so
+#: that a stale client build cannot 500 the chat endpoint.
+TOOL_REGISTRY: dict[str, Any] = {
+    "file_export": file_export,
+    "web_search": web_search,
+    "rag_query": rag_query,
+}
+
+#: Tool set used when the request omits ``settings['tools_enabled']`` entirely.
+DEFAULT_TOOLS_ENABLED: tuple[str, ...] = ("file_export", "web_search", "rag_query")
+
+
+def resolve_tools(settings: dict[str, Any] | None) -> list[Any]:
+    """Resolve the enabled tool list from the request settings payload (G-4).
+
+    ``settings['tools_enabled']`` selects a subset of ``TOOL_REGISTRY``. An
+    explicit empty list means "no tools" and is honoured as such — it is
+    distinct from omitting the key, which falls back to ``DEFAULT_TOOLS_ENABLED``.
+    """
+    enabled = settings.get("tools_enabled") if settings else None
+    if enabled is None:
+        enabled = DEFAULT_TOOLS_ENABLED
+
+    if not isinstance(enabled, (list, tuple)):
+        logger.warning("settings['tools_enabled'] is %s, not a list — using defaults", type(enabled).__name__)
+        enabled = DEFAULT_TOOLS_ENABLED
+
+    tools: list[Any] = []
+    for name in enabled:
+        tool = TOOL_REGISTRY.get(name)
+        if tool is None:
+            logger.warning("Unknown tool in settings['tools_enabled']: %r — ignoring", name)
+            continue
+        tools.append(tool)
+    return tools
+
 
 # ── Application factory ───────────────────────────────────────────────────────
 
@@ -211,23 +250,30 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         # Build iteration monitor for cycle detection
         monitor = IterationMonitor()
 
+        # Resolve tool set from the UI settings panel (G-4). Omitting
+        # ``tools_enabled`` keeps the full Phase 2 tool set; an explicit subset
+        # (including an empty one) disables the tools left out.
+        request_settings: dict[str, Any] = body.settings or {}
+        enabled_tools = resolve_tools(request_settings)
+
         # Compile and build the graph (AG-4: file_export tool wired in)
         # Phase 2: rag_query tool added, rag_pipeline enables rag_retriever node
         rag_pipeline = None
         try:
             from ..rag.pipeline import RagPipeline
 
-            rag_pipeline = RagPipeline.from_settings(settings)
+            rag_pipeline = RagPipeline.from_settings_with_overrides(settings, request_settings)
         except (ImportError, ValueError, RuntimeError) as exc:
             logger.debug("RAG pipeline not available (%s) — rag_retriever disabled", exc)
 
         graph = build_agent_graph(
             llm,
             token=token,
-            tools=[file_export, web_search, rag_query],
+            tools=enabled_tools,
             monitor=monitor,
             checkpointer=checkpointer_bundle.checkpointer,
             rag_pipeline=rag_pipeline,
+            settings=request_settings,
         )
 
         # Queue for streaming chunks from background task to SSE generator

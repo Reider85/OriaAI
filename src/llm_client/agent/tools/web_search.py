@@ -7,7 +7,7 @@ Architecture contract: ARCHITECT.md v1.2.0 §5.2.4 строки 435-443.
 import logging
 
 import httpx
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from ...config import settings
@@ -67,5 +67,13 @@ async def _web_search_impl(query: str, max_results: int = 5) -> list[dict]:
     return results
 
 
-# Create and export the tool instance
-web_search = tool(_web_search_impl, args_schema=WebSearchArgs)
+# Create and export the tool instance.
+# ``tool()`` derives the exposed name from the function __name__, which would
+# advertise ``_web_search_impl`` to the LLM and leak an internal symbol. Name it
+# explicitly so bind_tools registers the contract name (ADR-005 Tool Layer).
+web_search = StructuredTool.from_function(
+    coroutine=_web_search_impl,
+    name="web_search",
+    description="Search the public web via Tavily and return normalized results.",
+    args_schema=WebSearchArgs,
+)

@@ -1,14 +1,39 @@
 """Tests for AG-1 LangGraph agent graph."""
 
+import json
+from typing import Any
+
 import pytest
 from langchain_core.language_models import FakeListChatModel
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 
 from llm_client.agent.cycle_detection import IterationMonitor
-from llm_client.agent.graph import build_agent_graph
+from llm_client.agent.graph import _tool_executor_node, build_agent_graph
 from llm_client.transport.cancel import CancellationToken
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+class _MockTool:
+    """Minimal BaseTool stand-in — records invocations, no network."""
+
+    def __init__(self, name: str, result: Any = None, raises: Exception | None = None):
+        self.name = name
+        self._result = result
+        self._raises = raises
+        self.calls: list[dict] = []
+
+    async def ainvoke(self, args: dict) -> Any:
+        self.calls.append(args)
+        if self._raises is not None:
+            raise self._raises
+        return self._result
+
+
+def _ai_message_with_tool_calls(*tool_calls: dict) -> Any:
+    """AIMessage carrying tool_calls, without going through a real LLM."""
+    return AIMessage(content="", tool_calls=list(tool_calls))
 
 
 def _initial_state(
@@ -543,3 +568,168 @@ async def test_tool_executor_dispatches_rag_query():
     messages = result["messages"]
     assert len(messages) == 1
     assert messages[0].tool_call_id == "tc1"
+
+
+# ── H-3: multi-tool dispatch + settings wiring ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_route_after_planner_tool_calls():
+    """An AIMessage carrying tool_calls must be routed to tool_executor."""
+    tool = _MockTool("mock_tool", result={"ok": True})
+    llm = FakeMessagesListChatModel(
+        responses=[
+            _ai_message_with_tool_calls(
+                {"name": "mock_tool", "args": {"query": "q"}, "id": "tc1"}
+            ),
+            AIMessage(content="done"),
+        ]
+    )
+    graph = build_agent_graph(llm, tools=[tool])
+
+    chunks = []
+    async for chunk in graph.astream(_initial_state("run the tool")):
+        chunks.append(chunk)
+
+    assert any("tool_executor" in c for c in chunks), "tool_executor node did not run"
+    assert tool.calls == [{"query": "q"}]
+
+
+@pytest.mark.asyncio
+async def test_tool_executor_dispatches_web_search():
+    """A web_search tool_call is dispatched and its list[dict] payload is JSON."""
+    snippets = [
+        {"title": "T1", "url": "http://a", "snippet": "s1", "score": 0.9},
+        {"title": "T2", "url": "http://b", "snippet": "s2", "score": 0.7},
+    ]
+    tool = _MockTool("web_search", result=snippets)
+    state = {
+        "messages": [
+            _ai_message_with_tool_calls(
+                {"name": "web_search", "args": {"query": "test", "max_results": 5}, "id": "tc1"}
+            )
+        ]
+    }
+
+    result = await _tool_executor_node(state, [tool])
+    messages = result["messages"]
+
+    assert len(messages) == 1
+    assert messages[0].tool_call_id == "tc1"
+    assert messages[0].name == "web_search"
+    assert tool.calls == [{"query": "test", "max_results": 5}]
+    # H-4 parses this content with json.loads, so it must be valid JSON.
+    assert json.loads(messages[0].content) == snippets
+
+
+@pytest.mark.asyncio
+async def test_tool_executor_unknown_tool():
+    """An unknown tool_call yields an error ToolMessage instead of raising."""
+    from llm_client.agent.tools import file_export
+
+    state = {
+        "messages": [
+            _ai_message_with_tool_calls(
+                {"name": "unknown_tool", "args": {}, "id": "tc1"}
+            )
+        ]
+    }
+
+    result = await _tool_executor_node(state, [file_export])
+    messages = result["messages"]
+
+    assert len(messages) == 1
+    assert messages[0].tool_call_id == "tc1"
+    payload = json.loads(messages[0].content)
+    assert "Unknown tool: unknown_tool" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_tool_executor_tool_error():
+    """A raising tool is isolated: error ToolMessage, remaining calls still run."""
+    failing = _MockTool("boom", raises=RuntimeError("upstream 503"))
+    working = _MockTool("mock_tool", result={"ok": True})
+    state = {
+        "messages": [
+            _ai_message_with_tool_calls(
+                {"name": "boom", "args": {}, "id": "tc1"},
+                {"name": "mock_tool", "args": {"x": 1}, "id": "tc2"},
+            )
+        ]
+    }
+
+    result = await _tool_executor_node(state, [failing, working])
+    messages = result["messages"]
+
+    assert len(messages) == 2
+    error_payload = json.loads(messages[0].content)
+    assert "upstream 503" in error_payload["error"]
+    # The failure of one tool must not prevent the others from running.
+    assert json.loads(messages[1].content) == {"ok": True}
+    assert working.calls == [{"x": 1}]
+
+
+def test_settings_filter_tools_enabled():
+    """settings['tools_enabled'] selects a subset of the tool registry."""
+    from llm_client.agent.service import DEFAULT_TOOLS_ENABLED, TOOL_REGISTRY, resolve_tools
+    from llm_client.agent.tools import file_export, rag_query, web_search
+
+    # Explicit subset — only file_export.
+    tools = resolve_tools({"tools_enabled": ["file_export"]})
+    assert tools == [file_export]
+
+    # Omitting the key falls back to the full Phase 2 tool set.
+    assert resolve_tools(None) == [file_export, web_search, rag_query]
+    assert resolve_tools({}) == [file_export, web_search, rag_query]
+
+    # An explicit empty list means "no tools", not "all tools".
+    assert resolve_tools({"tools_enabled": []}) == []
+
+    # Unknown names are ignored rather than raising.
+    assert resolve_tools({"tools_enabled": ["nope", "rag_query"]}) == [rag_query]
+
+    # A malformed value falls back to the defaults.
+    assert resolve_tools({"tools_enabled": "file_export"}) == [file_export, web_search, rag_query]
+
+    # Every default tool is present in the registry.
+    for name in DEFAULT_TOOLS_ENABLED:
+        assert name in TOOL_REGISTRY
+
+
+# ── H-3: settings.top_k override for rag_retriever ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_rag_retriever_uses_settings_top_k():
+    """settings['top_k'] overrides the graph-level default (G-4)."""
+    pipeline = _MockRagPipeline(
+        chunks=[
+            {"source_uri": f"d{i}", "title": f"T{i}", "page": i, "content_preview": "p", "score": 1.0}
+            for i in range(8)
+        ]
+    )
+    llm = FakeListChatModel(responses=["ok"])
+    graph = build_agent_graph(llm, rag_pipeline=pipeline, settings={"top_k": 2})
+
+    async for _ in graph.astream({**_initial_state("найди документацию"), "rag_top_k": 7}):
+        pass
+
+    assert pipeline.retrieve_calls[-1]["top_k"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rag_retriever_invalid_settings_top_k_ignored():
+    """A malformed settings['top_k'] falls back to the state value."""
+    pipeline = _MockRagPipeline(
+        chunks=[
+            {"source_uri": f"d{i}", "title": f"T{i}", "page": i, "content_preview": "p", "score": 1.0}
+            for i in range(8)
+        ]
+    )
+    llm = FakeListChatModel(responses=["ok"])
+    graph = build_agent_graph(llm, rag_pipeline=pipeline, settings={"top_k": "not-a-number"})
+
+    async for _ in graph.astream({**_initial_state("найди документацию"), "rag_top_k": 3}):
+        pass
+
+    assert pipeline.retrieve_calls[-1]["top_k"] == 3
