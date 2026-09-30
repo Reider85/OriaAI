@@ -29,10 +29,10 @@ pytest tests -v
 | MinIO API | 9000 | S3-compatible storage (mandatory for dev) |
 | MinIO Console | 9001 | Login from `.env` MINIO_ROOT_USER/PASSWORD |
 | Vault | 8200 | Dev mode, root token = `root` |
-| PostgreSQL | 5432 | Database: `llm_client` |
+| PostgreSQL | 5434 | Host port 5434 (5432 may be in use). `postgres:5432` inside compose network. Database: `llm_client` |
 | Prometheus | 9090 | |
 | Grafana | 3000 | admin/admin by default |
-| Agent Service | 8000 | FastAPI, health at `/health` |
+| Agent Service | 8000 | FastAPI, health at `/health`; ingestion `POST /documents` |
 | Streamlit UI | 8501 | Started via `scripts/start.ps1` |
 
 ## Commands
@@ -80,8 +80,11 @@ CI runs: `ruff check` → `ruff format --check` → `mypy` → `pytest tests/uni
 
 ```bash
 alembic upgrade head
-alembic current
+alembic current   # expected: 008 (fix_documents_search_schema)
 ```
+
+Head chain: `004 baseline → 005 messages PII → 006 documents → 007 tsvector → 008 corrective`.  
+Fresh DBs: 007 creates `search_vector tsvector GENERATED ALWAYS AS STORED` + unique `content_hash`. 008 repairs DBs that applied the broken 007.
 
 ### RAG Evaluation (Phase 2)
 

@@ -41,7 +41,7 @@ REPORTS_DIR = Path(__file__).resolve().parents[2] / "reports"
 
 REDIS_URL = os.getenv("REDIS_CHECKPOINT_URL", "redis://127.0.0.1:6379/1")
 PG_DSN_ASYNC = os.getenv(
-    "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client"
+    "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client"
 )
 PG_DSN = PG_DSN_ASYNC.replace("postgresql+asyncpg://", "postgresql://").split("?")[0]
 

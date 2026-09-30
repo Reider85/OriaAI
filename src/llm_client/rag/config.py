@@ -35,6 +35,7 @@ class RetrieverConfig:
     vector_search_type: str = "mmr"      # mmr|similarity
     vector_lambda_mult: float = 0.5      # diversity parameter for MMR
     vector_score_threshold: float = 0.0  # minimum score threshold
+    embedding_model: str = "text-embedding-3-small"
     
     # BM25 retrieval settings (D-1 placeholder)
     bm25_top_k: int = 20                 # number of documents to retrieve
@@ -65,6 +66,7 @@ class RetrieverConfig:
             vector_search_type=os.getenv("VECTOR_SEARCH_TYPE", "mmr"),
             vector_lambda_mult=float(os.getenv("VECTOR_LAMBDA_MULT", "0.5")),
             vector_score_threshold=float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.0")),
+            embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
             bm25_top_k=int(os.getenv("BM25_TOP_K", "20")),
             bm25_weight=float(os.getenv("RAG_BM25_WEIGHT", "0.5")),
             vector_weight=float(os.getenv("RAG_VECTOR_WEIGHT", "0.5")),

@@ -23,19 +23,21 @@ _CHECKPOINT_THREAD_NAMESPACE = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 @dataclass
 class CheckpointerBundle:
     """Bundle containing the checkpointer and its resources.
-    
+
     Attributes:
         checkpointer: The main checkpointer (composite or single-layer)
         redis_client: Redis client (if created, None for postgres_only)
         pg_pool: PostgreSQL connection pool (if created, None for redis_only)
         postgres_checkpointer: PostgreSQL checkpointer (if created, None for redis_only)
         backend: The backend that was actually created
+        owns_pg_pool: True when this factory created pg_pool and must close it
     """
     checkpointer: Any
     redis_client: aioredis.Redis | None
     pg_pool: asyncpg.Pool | None
     postgres_checkpointer: PostgresCheckpointer | None
     backend: str
+    owns_pg_pool: bool = True
 
 
 def build_checkpointer(
@@ -43,27 +45,32 @@ def build_checkpointer(
     *,
     operational_writer: Any | None = None,
     on_total_failure: Any | None = None,
+    pg_pool: asyncpg.Pool | None = None,
 ) -> CheckpointerBundle:
     """Build a checkpointer based on the configured backend.
-    
+
     Args:
         settings: Application settings with checkpoint backend configuration
         operational_writer: Optional operational writer for logging events
         on_total_failure: Optional callback for when both layers fail
-        
+        pg_pool: Optional existing asyncpg pool to reuse (shared app pool).
+            When provided the caller owns its lifecycle — this factory will
+            not close it.
+
     Returns:
         CheckpointerBundle containing the checkpointer and its resources
-        
+
     Raises:
         ValueError: If the backend is invalid or required dependencies are missing
     """
     backend = settings.checkpoint_backend
-    
+
     # Initialize resources as None
     redis_client = None
-    pg_pool = None
+    owns_pg_pool = pg_pool is None
     postgres_checkpointer = None
-    
+    checkpointer: Any = None
+
     # Create metrics
     metrics = CheckpointMetrics() if settings.environment != "test" else NullCheckpointMetrics()
 
@@ -74,34 +81,41 @@ def build_checkpointer(
                 settings.redis_checkpoint_url,
                 decode_responses=False,  # We need bytes for hex encoding
             )
-            
+
             # Test connection
             loop = asyncio.get_event_loop()
             try:
                 loop.run_until_complete(redis_client.ping())
-            except (aioredis.RedisError, Exception) as exc:
+            except (aioredis.RedisError, Exception) as exc:  # noqa: BLE001
                 logger.warning("Redis checkpoint connection failed: %s", exc)
                 redis_client = None  # Fall through to postgres_only if available
-        
+
         if backend in {"redis_postgres", "postgres_only"}:
-            # Create PostgreSQL connection pool
-            # Normalize URL for asyncpg (remove +asyncpg)
-            pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-            pg_pool = asyncpg.create_pool(
-                pg_url,
-                min_size=1,
-                max_size=5,
-                command_timeout=60,
-            )
-            
-            # Test connection
-            loop = asyncio.get_event_loop()
-            try:
-                loop.run_until_complete(pg_pool.acquire())
-                loop.run_until_complete(pg_pool.release())
-            except (asyncpg.PostgresError, Exception) as exc:
-                logger.warning("PostgreSQL checkpoint connection failed: %s", exc)
-                pg_pool = None  # Fall through to redis_only if available
+            if pg_pool is None:
+                # Create PostgreSQL connection pool (async — must be awaited)
+                pg_url = settings.database_url.replace(
+                    "postgresql+asyncpg://", "postgresql://"
+                )
+                pg_pool = asyncio.get_event_loop().run_until_complete(
+                    asyncpg.create_pool(
+                        pg_url,
+                        min_size=1,
+                        max_size=5,
+                        command_timeout=60,
+                    )
+                )
+
+                # Test connection
+                loop = asyncio.get_event_loop()
+                try:
+                    conn = loop.run_until_complete(pg_pool.acquire())
+                    loop.run_until_complete(pg_pool.release(conn))
+                except (asyncpg.PostgresError, Exception) as exc:  # noqa: BLE001
+                    logger.warning("PostgreSQL checkpoint connection failed: %s", exc)
+                    loop.run_until_complete(pg_pool.close())
+                    pg_pool = None  # Fall through to redis_only if available
+            else:
+                logger.info("Reusing injected pg_pool for checkpointing")
         
         # Create the appropriate checkpointer based on what succeeded
         if backend == "redis_postgres" and redis_client and pg_pool:
@@ -155,12 +169,12 @@ def build_checkpointer(
                 bool(pg_pool),
             )
             checkpointer = None
-            # Clear resources to avoid leaks
+            # Clear resources to avoid leaks (only if we own them)
             if redis_client:
                 loop = asyncio.get_event_loop()
                 loop.run_until_complete(redis_client.aclose())
                 redis_client = None
-            if pg_pool:
+            if pg_pool and owns_pg_pool:
                 loop = asyncio.get_event_loop()
                 loop.run_until_complete(pg_pool.close())
                 pg_pool = None
@@ -172,15 +186,16 @@ def build_checkpointer(
             pg_pool=pg_pool,
             postgres_checkpointer=postgres_checkpointer,
             backend=backend,
+            owns_pg_pool=owns_pg_pool,
         )
         
     except Exception as exc:
-        # Clean up resources on error
+        # Clean up resources on error (only pools/clients we created)
         logger.error("Failed to build checkpointer: %s", exc)
         if redis_client:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(redis_client.aclose())
-        if pg_pool:
+        if pg_pool and owns_pg_pool:
             loop = asyncio.get_event_loop()
             loop.run_until_complete(pg_pool.close())
         raise

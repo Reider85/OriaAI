@@ -16,6 +16,7 @@ the RAG citations panel (G-2) and the web search results panel (G-3).
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 from typing import Any
@@ -122,6 +123,21 @@ class ChatResponse(BaseModel):
     session_id: str
 
 
+class DocumentIngestRequest(BaseModel):
+    user_id: str
+    content: str
+    source_type: str = "api"
+    source_uri: str | None = None
+    metadata: dict | None = None
+
+
+class DocumentIngestResponse(BaseModel):
+    document_id: str
+    status: str  # indexed | partial
+    bm25_indexed: bool
+    vector_indexed: bool | None
+
+
 # ── In-memory session store (Phase 1 placeholder for graph state) ─────────────
 
 _sessions: dict[str, dict[str, Any]] = {}
@@ -187,10 +203,44 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     state = get_session_state()
     subscriber = CancelSubscriber(redis_client, registry)
 
-    # Build checkpointer for ADR-010
+    # Shared asyncpg pool for checkpointing + RAG/indexing (ADR-010 / ADR-020).
+    # Created at factory time (no running loop yet when uvicorn imports the app);
+    # recreated on startup if the factory-time attempt failed.
+    from ..rag.pool import get_shared_pool
+
+    pg_pool = None
+    try:
+        loop = asyncio.get_event_loop()
+        if not loop.is_closed():
+            pg_pool = loop.run_until_complete(get_shared_pool(settings))
+    except RuntimeError:
+        pg_pool = None
+
+    # Build checkpointer for ADR-010 (reuses the shared pool when available)
     from ..orchestration.checkpointers.factory import build_checkpointer
 
-    checkpointer_bundle = build_checkpointer(settings, operational_writer=None)
+    checkpointer_bundle = build_checkpointer(
+        settings,
+        operational_writer=None,
+        pg_pool=pg_pool,
+    )
+    if pg_pool is None:
+        pg_pool = checkpointer_bundle.pg_pool
+
+    # BM25 index builder + optional vector writer (ingestion API)
+    from ..rag.indexing import BM25IndexBuilder
+    from ..rag.retrieval.vector_store_factory import get_vector_writer
+
+    bm25_indexer = (
+        BM25IndexBuilder(pg_pool, text_search_config=settings.pg_text_search_config)
+        if pg_pool is not None
+        else None
+    )
+    vector_writer = None
+    try:
+        vector_writer = get_vector_writer(settings)
+    except Exception as exc:  # noqa: BLE001 — ingestion degrades to BM25-only
+        logger.warning("Vector writer unavailable: %s", exc)
 
     # ── PII detection (AG-3: metadata event source, ADR-014 D-1) ──────────────
     pii_detector = PIIDetector(
@@ -203,6 +253,9 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     app.state.registry = registry
     app.state.subscriber = subscriber
     app.state.pii_detector = pii_detector
+    app.state.pg_pool = pg_pool
+    app.state.bm25_indexer = bm25_indexer
+    app.state.vector_writer = vector_writer
     # Store checkpointer resources for lifecycle management
     app.state.checkpointer_bundle = checkpointer_bundle
 
@@ -271,7 +324,12 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         try:
             from ..rag.pipeline import RagPipeline
 
-            rag_pipeline = RagPipeline.from_settings_with_overrides(settings, request_settings)
+            pipeline_pool = getattr(app.state, "pg_pool", None)
+            rag_pipeline = RagPipeline.from_settings_with_overrides(
+                settings,
+                request_settings,
+                pg_pool=pipeline_pool,
+            )
         except (ImportError, ValueError, RuntimeError) as exc:
             logger.debug("RAG pipeline not available (%s) — rag_retriever disabled", exc)
 
@@ -402,12 +460,120 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
+    # ── Document ingestion (ADR-020 / D-2) ──────────────────────────────────
+
+    @app.post("/documents", response_model=DocumentIngestResponse, status_code=201)
+    async def ingest_document(body: DocumentIngestRequest) -> Any:
+        """Index a document into BM25 (and vector store when configured)."""
+        indexer = getattr(app.state, "bm25_indexer", None)
+        if indexer is None:
+            return JSONResponse(
+                {"error": "Document indexing unavailable — pg_pool not wired"},
+                status_code=503,
+            )
+
+        pool = getattr(app.state, "pg_pool", None)
+        if pool is None:
+            return JSONResponse(
+                {"error": "Document indexing unavailable — pg_pool not wired"},
+                status_code=503,
+            )
+
+        from ..rag.indexing import Document, index_document_with_hybrid
+
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING",
+                body.user_id,
+            )
+
+        document_id = str(uuid4())
+        content_hash = hashlib.sha256(body.content.encode("utf-8")).hexdigest()
+        document = Document(
+            id=document_id,
+            user_id=body.user_id,
+            source_type=body.source_type,
+            source_uri=body.source_uri,
+            content_hash=content_hash,
+            content=body.content,
+            metadata=body.metadata or {},
+        )
+
+        vector_writer = getattr(app.state, "vector_writer", None)
+        try:
+            result = await index_document_with_hybrid(
+                document,
+                indexer,
+                vector_writer,
+            )
+        except Exception as exc:
+            logger.exception("Document ingestion failed for %s", document_id)
+            return JSONResponse(
+                {"error": f"Indexing failed: {exc}", "document_id": document_id},
+                status_code=500,
+            )
+
+        status = "indexed"
+        if result.get("vector_indexed") is False:
+            status = "partial"
+
+        return DocumentIngestResponse(
+            document_id=document_id,
+            status=status,
+            bm25_indexed=bool(result.get("bm25_indexed")),
+            vector_indexed=result.get("vector_indexed"),
+        )
+
+    @app.delete("/documents/{document_id}")
+    async def delete_document(document_id: str) -> Any:
+        """Delete a document from BM25 (and vector store when configured)."""
+        indexer = getattr(app.state, "bm25_indexer", None)
+        if indexer is None:
+            return JSONResponse(
+                {"error": "Document indexing unavailable — pg_pool not wired"},
+                status_code=503,
+            )
+
+        from ..rag.indexing import BM25IndexBuilder  # noqa: F401 — re-export for tests
+
+        pool = indexer.pg_pool
+        async with pool.acquire() as conn:
+            exists = await conn.fetchval(
+                "SELECT 1 FROM documents WHERE id = $1", document_id
+            )
+        if not exists:
+            return JSONResponse({"error": "Document not found"}, status_code=404)
+
+        await indexer.delete_document(document_id)
+
+        vector_writer = getattr(app.state, "vector_writer", None)
+        if vector_writer is not None:
+            logger.debug("Vector chunks for %s cleaned up best-effort", document_id)
+
+        return {"status": "deleted", "document_id": document_id}
+
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
     @app.on_event("startup")
     async def _startup() -> None:
         await redis_client.ping()
         logger.info("agent-service connected to Redis at %s", redis_url)
+
+        # Ensure shared pg_pool exists (factory-time creation may have been skipped)
+        from ..rag.pool import get_shared_pool
+
+        if getattr(app.state, "pg_pool", None) is None:
+            try:
+                app.state.pg_pool = await get_shared_pool(settings)
+                if app.state.bm25_indexer is None:
+                    from ..rag.indexing import BM25IndexBuilder
+
+                    app.state.bm25_indexer = BM25IndexBuilder(
+                        app.state.pg_pool,
+                        text_search_config=settings.pg_text_search_config,
+                    )
+            except Exception as exc:  # noqa: BLE001 — degrade without PG
+                logger.warning("Shared pg_pool unavailable at startup: %s", exc)
 
         # Start flusher for PostgreSQL checkpointer (B-4)
         if (
@@ -435,6 +601,28 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         await subscriber.unsubscribe_all()
         await redis_client.aclose()
+
+        # Close checkpointer-owned resources (not the shared pool)
+        bundle_redis = getattr(checkpointer_bundle, "redis_client", None)
+        if bundle_redis is not None:
+            try:
+                await bundle_redis.aclose()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to close checkpointer redis client: %s", exc)
+
+        if getattr(checkpointer_bundle, "owns_pg_pool", False):
+            bundle_pool = getattr(checkpointer_bundle, "pg_pool", None)
+            if bundle_pool is not None and not bundle_pool.is_closed():
+                try:
+                    await bundle_pool.close()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Failed to close checkpointer pg_pool: %s", exc)
+
+        # Close the shared RAG/indexing pool
+        from ..rag.pool import close_shared_pool
+
+        await close_shared_pool()
+        app.state.pg_pool = None
 
     return app
 

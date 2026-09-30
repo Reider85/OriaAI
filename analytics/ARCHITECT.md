@@ -563,14 +563,20 @@ CREATE TABLE documents (
     user_id UUID NOT NULL REFERENCES users(id),
     source_type TEXT NOT NULL,
     source_uri TEXT,
-    content_hash TEXT NOT NULL,
+    content_hash TEXT NOT NULL UNIQUE,   -- idempotent upsert target (D-2)
     content TEXT NOT NULL,        -- полный текст документа для полнотекстового поиска
     metadata JSONB DEFAULT '{}',  -- метаданные документа (title, author и др.)
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    search_vector tsvector,       -- tsvector индекс для полнотекстового поиска (BM25)
-    CONSTRAINT idx_documents_search_vector 
+    search_vector tsvector GENERATED ALWAYS AS (
+        setweight(to_tsvector('english', coalesce(content, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(metadata->>'title', '')), 'B')
+    ) STORED,                     -- auto-recomputed on content/metadata UPDATE
+    CONSTRAINT idx_documents_search_vector
       USING GIN(search_vector)   -- GIN индекс для быстрого поиска
 );
+-- Дополнительно: unique index idx_documents_content_hash_unique (content_hash),
+-- trigram index idx_documents_content_trgm (content gin_trgm_ops) для fuzzy.
+-- Vector-хранилище (chroma/pgvector) — отдельно от documents; documents — BM25-сторона ADR-020.
 
 CREATE TABLE llm_calls (
     id UUID PRIMARY KEY,

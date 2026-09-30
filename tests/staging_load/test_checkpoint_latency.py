@@ -105,7 +105,7 @@ async def test_handle():
         await redis_client.aclose()
         
         # Test PostgreSQL
-        conn = await asyncpg.connect("postgresql://postgres:postgres@localhost:5432/llm_client")
+        conn = await asyncpg.connect("postgresql://postgres:postgres@localhost:5434/llm_client")
         await conn.close()
     except (ConnectionError, TimeoutError):
         pytest.skip("Staging services not available")
@@ -114,7 +114,7 @@ async def test_handle():
     settings = Settings()
     settings.checkpoint_backend = "redis_postgres"
     settings.redis_checkpoint_url = "redis://127.0.0.1:6379/1"
-    settings.database_url = "postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client"
+    settings.database_url = "postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client"
     settings.redis_checkpoint_ttl_seconds = 86400
     settings.checkpoint_flush_interval_seconds = 5
     settings.checkpoint_flush_batch_size = 50

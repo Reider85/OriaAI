@@ -120,10 +120,10 @@ class TestBM25Retriever:
         
         # Verify fuzzy SQL is used
         sql_call = mock_pool.connection.fetch_calls[0]
-        sql, args = sql_call
+        sql, _args = sql_call
         assert "similarity($1, d.content) AS fuzzy_score" in sql
-        assert "OR d.content % $1" in sql
-        assert "(bm25_score + fuzzy_score * 0.3)" in sql
+        assert "similarity($1, d.content) > 0.05" in sql
+        assert "ts_rank(d.search_vector, query) + similarity($1, d.content) * 0.3" in sql
     
     @pytest.mark.asyncio
     async def test_retrieve_empty_query(self, mock_retriever, mock_pool):
@@ -147,34 +147,27 @@ class TestBM25Retriever:
     
     @pytest.mark.asyncio
     async def test_retrieve_text_search_config(self, mock_retriever, mock_pool, sample_documents):
-        """Test retrieval with custom text search config."""
+        """Test retrieval with custom text search config (substituted into SQL)."""
         mock_pool.connection.fetch_results = sample_documents
-        
-        # Create retriever with russian config
+
         retriever = BM25Retriever(mock_pool, text_search_config="russian", fuzzy_enabled=False)
         await retriever.retrieve("test query", "user-123", top_k=10)
-        
-        # Verify SET command was called with russian config
-        set_calls = [
-            call for call in mock_pool.connection.execute_calls if call[0].startswith("SET")
-        ]
-        assert len(set_calls) == 1
-        sql, config = set_calls[0]
-        assert sql == "SET search_config = 'russian'"
-        assert config == ()
-    
+
+        assert len(mock_pool.connection.fetch_calls) == 1
+        sql, _args = mock_pool.connection.fetch_calls[0]
+        assert "'russian'" in sql
+        assert "$PG_TEXT_SEARCH_CONFIG" not in sql
+
     @pytest.mark.asyncio
     async def test_retrieve_connection_error(self, mock_retriever, mock_pool):
-        """Test handling of connection errors."""
-        # Mock connection to raise an exception
+        """Test handling of connection errors on the fetch path."""
         class ConnectionError(Exception):
             pass
-        
-        async def failing_execute(*args, **kwargs):
+
+        async def failing_fetch(*args, **kwargs):
             raise ConnectionError("Connection failed")
-        mock_pool.connection.execute = failing_execute
-        
-        # Should raise the exception
+        mock_pool.connection.fetch = failing_fetch
+
         with pytest.raises(ConnectionError, match="Connection failed"):
             await mock_retriever.retrieve("test query", "user-123", top_k=10)
     
@@ -223,7 +216,7 @@ class TestBM25Retriever:
         
         # Verify LIMIT parameter
         sql_call = mock_pool.connection.fetch_calls[0]
-        sql, args = sql_call
+        _sql, args = sql_call
         assert args == ("test query", "user-123", 1)
     
     def test_retriever_initialization(self):

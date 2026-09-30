@@ -35,8 +35,10 @@ async def rag_query(query: str, top_k: int = 5) -> dict[str, Any]:
     """
     from ...config import settings
     from ...rag.pipeline import RagPipeline
+    from ...rag.pool import resolve_pool
 
-    pipeline = RagPipeline.from_settings(settings)
+    pg_pool = resolve_pool(settings)
+    pipeline = RagPipeline.from_settings(settings, pg_pool=pg_pool)
     result = await pipeline.retrieve(query, top_k=top_k)
     logger.info(
         "rag_query query=%r top_k=%d returned=%d chunks",
@@ -47,4 +49,4 @@ async def rag_query(query: str, top_k: int = 5) -> dict[str, Any]:
     return result
 
 
-rag_query = tool(rag_query, args_schema=RagQueryArgs)
+rag_query = tool(rag_query, args_schema=RagQueryArgs)  # type: ignore[assignment]

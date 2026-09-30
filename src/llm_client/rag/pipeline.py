@@ -81,7 +81,7 @@ async def rerank_after_fusion(
                 logger.error("No valid rerankers found in fallback chain")
                 return _identity_fallback(fused_docs, config.reranker_top_k)
 
-            reranker = RerankerChain(chain_rerankers)
+            reranker: Any = RerankerChain(chain_rerankers)
         else:
             # Use single reranker (existing behavior)
             reranker = registry.get(config.reranker_name)
@@ -343,7 +343,7 @@ def _apply_retriever_overrides(
         return config
 
 
-def _build_retriever(config: RetrieverConfig) -> Any:
+def _build_retriever(config: RetrieverConfig, pg_pool: Any = None) -> Any:
     """Instantiate the retriever described by *config* (ADR-003 / ADR-020)."""
     from .retrieval import BM25Retriever, HybridRetriever
     from .retrieval.vector_store_factory import create_vector_retriever
@@ -351,21 +351,29 @@ def _build_retriever(config: RetrieverConfig) -> Any:
     vector_retriever = create_vector_retriever(config)
 
     if config.retrieval_strategy == RetrievalStrategy.HYBRID:
+        if vector_retriever is None and pg_pool is None:
+            logger.warning(
+                "HYBRID strategy requested but neither vector store nor pg_pool "
+                "is available — returning empty retriever"
+            )
+            return _EmptyRetriever()
         if vector_retriever is None:
             logger.warning(
                 "HYBRID strategy requested but no vector store available — "
-                "falling back to vector-only (empty results until vector "
-                "store is configured)"
+                "degrading to BM25-only"
             )
-            return _EmptyRetriever()
+            return BM25Retriever(pg_pool=pg_pool)
         return HybridRetriever(
             vector_retriever=vector_retriever,
-            bm25_retriever=BM25Retriever(pg_pool=None),  # type: ignore[arg-type]
+            bm25_retriever=BM25Retriever(pg_pool=pg_pool),
             config=config,
         )
 
     if config.retrieval_strategy == RetrievalStrategy.BM25:
-        return BM25Retriever(pg_pool=None)  # type: ignore[arg-type]
+        if pg_pool is None:
+            logger.warning("BM25 strategy requested but pg_pool is not wired")
+            return _EmptyRetriever()
+        return BM25Retriever(pg_pool=pg_pool)
 
     if vector_retriever is not None:
         return vector_retriever
@@ -397,20 +405,25 @@ class RagPipeline:
         self._config = config
 
     @classmethod
-    def from_settings(cls, app_settings: Any) -> "RagPipeline":
+    def from_settings(
+        cls,
+        app_settings: Any,
+        pg_pool: Any = None,
+    ) -> "RagPipeline":
         """Factory method — called at agent-service startup.
 
         Reads RetrieverConfig from environment, creates the appropriate
         retriever (vector-only, hybrid, or BM25-only), and wires in the
         reranker registry.
         """
-        return cls.from_settings_with_overrides(app_settings, None)
+        return cls.from_settings_with_overrides(app_settings, None, pg_pool=pg_pool)
 
     @classmethod
     def from_settings_with_overrides(
         cls,
         app_settings: Any,
         overrides: dict[str, Any] | None = None,
+        pg_pool: Any = None,
     ) -> "RagPipeline":
         """Build a pipeline from env config with per-request UI overrides (G-4).
 
@@ -421,12 +434,19 @@ class RagPipeline:
         produce a config that fails validation the env config is kept intact.
 
         Args:
-            app_settings: Application Settings (kept for signature parity with
-                ``from_settings``; base config still comes from the environment).
+            app_settings: Application Settings. Used for pg_pool lookup when
+                ``pg_pool`` is not passed explicitly.
             overrides: Optional per-request settings dict. None = env only.
+            pg_pool: Optional asyncpg pool for BM25 retrieval. Falls back to
+                ``app_settings.pg_pool`` then the shared singleton.
         """
+        if pg_pool is None:
+            from .pool import resolve_pool
+
+            pg_pool = resolve_pool(app_settings)
+
         config = _apply_retriever_overrides(RetrieverConfig.from_env(), overrides)
-        retriever = _build_retriever(config)
+        retriever = _build_retriever(config, pg_pool=pg_pool)
 
         return cls(
             retriever=retriever,
@@ -434,18 +454,33 @@ class RagPipeline:
             config=config,
         )
 
-    async def retrieve(self, query: str, top_k: int = 5) -> dict[str, Any]:
+    async def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
         """Retrieve and rerank documents for a query.
+
+        Args:
+            query: Search query.
+            top_k: Number of chunks after reranker.
+            user_id: Optional tenant filter. None/empty retrieves across all
+                users (dev-friendly); a real id scopes BM25 SQL.
 
         Returns:
             dict with keys: chunks, chunk_count, top_score, source_uris.
         """
         from .retrieval import HybridRetriever
 
+        effective_user = user_id or ""
+
         # Step 1: Retrieval
         docs: list[dict[str, Any]] = []
         if isinstance(self._retriever, HybridRetriever):
-            vector_docs, bm25_docs = await self._retriever.aretrieve(query, user_id="")
+            vector_docs, bm25_docs = await self._retriever.aretrieve(
+                query, user_id=effective_user
+            )
             docs = rrf_fusion(
                 vector_docs,
                 bm25_docs,
@@ -454,7 +489,7 @@ class RagPipeline:
                 bm25_weight=self._config.bm25_weight,
             )
         elif hasattr(self._retriever, "aretrieve"):
-            docs = await self._retriever.aretrieve(query, user_id="")
+            docs = await self._retriever.aretrieve(query, user_id=effective_user)
         elif hasattr(self._retriever, "aget_relevant_documents"):
             raw_docs = await self._retriever.aget_relevant_documents(query)
             docs = _normalize_langchain_docs(raw_docs)

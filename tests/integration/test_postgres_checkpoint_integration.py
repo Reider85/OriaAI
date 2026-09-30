@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS agent_checkpoints (
 
 def _dsn() -> str:
     """Build an asyncpg DSN from DATABASE_URL (which uses the SQLAlchemy scheme)."""
-    url = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client")
+    url = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client")
     return url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 

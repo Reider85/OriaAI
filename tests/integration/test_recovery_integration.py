@@ -22,7 +22,7 @@ from llm_client.orchestration.checkpointers.postgres_checkpointer import Postgre
 from llm_client.orchestration.checkpointers.redis_checkpointer import RedisCheckpointer
 
 REDIS_URL = "redis://127.0.0.1:6379/1"
-PG_DSN = "postgresql://postgres:postgres@localhost:5432/llm_client"
+PG_DSN = "postgresql://postgres:postgres@localhost:5434/llm_client"
 
 AGENT_CHECKPOINTS_DDL = """
 CREATE TABLE IF NOT EXISTS agent_checkpoints (

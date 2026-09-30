@@ -24,7 +24,7 @@ services:
     networks:
       - llm-network
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5434:5432"
 
   # ── Redis 7 ──────────────────────────────────────────────
   redis:
@@ -171,6 +171,11 @@ services:
       - ./src:/repo/src:ro
       - ./pyproject.toml:/repo/pyproject.toml:ro
       - ./models:/app/models:ro
+      - ./migrations:/repo/migrations:ro
+      - ./alembic.ini:/repo/alembic.ini:ro
+      - ./chroma_db:/app/chroma_db
+    env_file:
+      - .env
     environment:
       - AGENT_SERVICE_PORT=8000
       - REDIS_URL=redis://redis:6379/0
@@ -187,8 +192,15 @@ services:
       - KMS_PROVIDER=local
       - PII_DETECTOR_ENABLED=false
       - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - PG_TEXT_SEARCH_CONFIG=${PG_TEXT_SEARCH_CONFIG:-english}
+      - VECTOR_STORE_KIND=${VECTOR_STORE_KIND:-none}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - CHROMA_PERSIST_DIR=/app/chroma_db
+      - RAG_RETRIEVAL_STRATEGY=${RAG_RETRIEVAL_STRATEGY:-hybrid}
     command: >
       sh -c "pip install --quiet -e . &&
+             alembic upgrade head &&
              exec python -m llm_client.agent"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]

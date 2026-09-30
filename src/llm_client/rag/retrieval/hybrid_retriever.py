@@ -6,7 +6,7 @@ from typing import Any
 
 from llm_client.rag.config import RetrieverConfig
 from llm_client.rag.metrics import RerankerMetrics, default_reranker_metrics
-from llm_client.rag.retrieval.bm25_retriever import BM25Retriever
+from llm_client.rag.retrieval.bm25_retriever import BM25Retriever, RetrievalError
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +167,4 @@ class HybridRetriever:
         
         return normalized_docs
 
-
-class RetrievalError(Exception):
-    """Exception raised when hybrid retrieval fails completely."""
+__all__ = ["HybridRetriever", "RetrievalError"]

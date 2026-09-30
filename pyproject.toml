@@ -42,6 +42,11 @@ dependencies = [
 
 [project.optional-dependencies]
 rerank = ["cohere>=5.0.0"]
+vector = [
+    "chromadb>=0.5.0",
+    "langchain-chroma>=0.2.0",
+    "langchain-text-splitters>=0.3.0",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
@@ -72,6 +77,27 @@ line-length = 100
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "asyncpg.*",
+    "chromadb.*",
+    "cohere.*",
+    "langchain_chroma.*",
+    "langchain_postgres.*",
+    "langchain_community.*",
+    "langchain_text_splitters.*",
+    "langchain.text_splitter.*",
+    "redis.*",
+    "presidio_analyzer.*",
+    "spacy.*",
+    "hvac.*",
+]
+ignore_missing_imports = true
 
 [project.entry-points."llm_client.rerankers"]
 identity = "llm_client.rag.rerankers.identity:IdentityReranker"

@@ -408,7 +408,7 @@ PostgreSQL 16 добавлен для полнотекстового поиск�
 
 | Сервис | URL / порт | Назначение |
 |---|---|---|
-| PostgreSQL | `localhost:5432` (host) / `postgres:5432` (compose network) | База данных для документов, full-text search |
+| PostgreSQL | `localhost:5434` (host) / `postgres:5432` (compose network) | База данных для документов, full-text search |
 
 ### healthcheck
 
@@ -464,8 +464,25 @@ alembic upgrade head
 
 # Проверить статус
 alembic current
-# → 007 (add_tsvector_to_documents)
+# → 008 (fix_documents_search_schema)
 ```
+
+Схема: `search_vector tsvector GENERATED ALWAYS AS STORED` (пересчитывается при UPDATE content/metadata), unique index на `content_hash` (idempotent upsert в `BM25IndexBuilder`).
+
+### Ingestion API (ADR-020 / D-2)
+
+```bash
+# Индексировать документ (BM25 + опционально vector)
+curl -X POST http://localhost:8000/documents \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"u1","content":"Error code 1234: ...","source_type":"api"}'
+
+# Удалить
+curl -X DELETE http://localhost:8000/documents/{document_id}
+```
+
+Ответ: `{"document_id","status":"indexed|partial","bm25_indexed","vector_indexed"}`.  
+Auth отсутствует (dev-only). Vector-нога включается через `VECTOR_STORE_KIND=chroma` + `pip install -e ".[vector]"`.
 
 ### Конфигурация
 
@@ -473,6 +490,9 @@ alembic current
 
 - `PG_TEXT_SEARCH_CONFIG=english` — конфигурация полнотекстового поиска
 - `PG_FUZZY_MATCHING_ENABLED=false` — включить fuzzy matching через pg_trgm
+- `VECTOR_STORE_KIND=none|chroma|pgvector` — vector write-path (default: none)
+- `EMBEDDING_PROVIDER=openai|none`, `EMBEDDING_MODEL=text-embedding-3-small`
+- `CHROMA_PERSIST_DIR=./chroma_db` — каталог Chroma (при `VECTOR_STORE_KIND=chroma`)
 
 ---
 
@@ -606,7 +626,7 @@ For local CI testing, ensure environment variables are set in `.env`:
 # Required for integration tests
 REDIS_URL=redis://localhost:6379/0
 REDIS_CHECKPOINT_URL=redis://localhost:6379/1
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client
 S3_ENDPOINT=http://localhost:9000
 S3_ACCESS_KEY=minioadmin
 S3_SECRET_KEY=minioadmin

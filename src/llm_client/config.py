@@ -34,9 +34,12 @@ class Settings(BaseSettings):
     s3_forensic_bucket: str = "llm-client-forensic"
 
     # PostgreSQL (for ADR-010)
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client"
     checkpoint_flush_interval_seconds: int = 5
     checkpoint_flush_batch_size: int = 50
+    # PostgreSQL full-text search (ADR-020 / A-3)
+    pg_text_search_config: str = "english"
+    pg_fuzzy_matching_enabled: bool = False
 
     # Vault
     vault_addr: str = "http://127.0.0.1:8200"
@@ -52,6 +55,11 @@ class Settings(BaseSettings):
 
     # RAG Pipeline (ADR-017/020, Phase 2)
     reranker_enabled: bool = True  # Enable/disable reranking in RAG pipeline
+    # Vector write-path (ADR-003 / ADR-020)
+    vector_store_kind: str = "none"  # none | chroma | pgvector
+    embedding_model: str = "text-embedding-3-small"
+    embedding_provider: str = "openai"  # openai | none
+    chroma_persist_dir: str = "./chroma_db"
 
     # Web Search (AG-5, Phase 2)
     tavily_api_key: str = ""

@@ -96,4 +96,10 @@ def capturing_sink():
 @pytest.fixture
 def database_url():
     """Database URL for integration tests."""
-    return "postgresql://postgres:postgres@localhost:5432/llm_client"
+    import os
+
+    url = os.getenv(
+        "DATABASE_URL",
+        "postgresql://postgres:postgres@localhost:5434/llm_client",
+    )
+    return url.replace("postgresql+asyncpg://", "postgresql://")

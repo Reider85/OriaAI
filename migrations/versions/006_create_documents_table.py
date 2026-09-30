@@ -4,51 +4,50 @@ Revision ID: 006
 Revises: 005
 Create Date: 2026-09-26
 """
-from typing import Sequence, Union
+
+from collections.abc import Sequence
 
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision: str = "006"
-down_revision: Union[str, None] = "005"
-branch_labels: Union[str, None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "005"
+branch_labels: str | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Create users table first (foreign key dependency)
-    op.create_table(
-        "users",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.PrimaryKeyConstraint("id"),
+    op.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id UUID PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
     )
-    
-    # Create documents table for RAG full-text search
-    op.create_table(
-        "documents",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("source_type", sa.Text(), nullable=False),
-        sa.Column("source_uri", sa.Text(), nullable=True),
-        sa.Column("content_hash", sa.Text(), nullable=False),
-        sa.Column("content", sa.Text(), nullable=False),  # Full text for search
-        sa.Column("metadata", postgresql.JSONB(), nullable=True, server_default=sa.text("'{}'")),
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.ForeignKeyConstraint(["user_id"], ["users(id)"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+    op.execute(
+        """
+        CREATE TABLE IF NOT EXISTS documents (
+            id UUID PRIMARY KEY,
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            source_type TEXT NOT NULL,
+            source_uri TEXT,
+            content_hash TEXT NOT NULL,
+            content TEXT NOT NULL,
+            metadata JSONB DEFAULT '{}',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
     )
-    
-    # Create indexes for performance
-    op.create_index("idx_documents_user_id", "documents", ["user_id"])
-    op.create_index("idx_documents_source_type", "documents", ["source_type"])
-    op.create_index("idx_documents_content_hash", "documents", ["content_hash"])
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents (user_id)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_source_type ON documents (source_type)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents (content_hash)"
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("idx_documents_content_hash", table_name="documents")
-    op.drop_index("idx_documents_source_type", table_name="documents")
-    op.drop_index("idx_documents_user_id", table_name="documents")
-    op.drop_table("documents")
-    op.drop_table("users")
+    op.execute("DROP TABLE IF EXISTS documents")

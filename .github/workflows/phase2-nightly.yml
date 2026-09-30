@@ -36,7 +36,7 @@ jobs:
           
           # Output service URLs
           echo "redis-url=redis://localhost:6379/0" >> $GITHUB_OUTPUT
-          echo "postgres-url=postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client" >> $GITHUB_OUTPUT
+          echo "postgres-url=postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client" >> $GITHUB_OUTPUT
           echo "minio-url=http://localhost:9000" >> $GITHUB_OUTPUT
           echo "vault-url=http://localhost:8200" >> $GITHUB_OUTPUT
 

@@ -28,7 +28,7 @@ async def _are_services_available():
     
     try:
         # Check PostgreSQL
-        conn = await asyncpg.connect("postgresql://postgres:postgres@localhost:5432/postgres")
+        conn = await asyncpg.connect("postgresql://postgres:postgres@localhost:5434/postgres")
         await conn.close()
         postgres_available = True
     except Exception:
@@ -86,7 +86,7 @@ async def redis_client():
 @pytest.fixture
 async def pg_pool():
     """PostgreSQL connection pool."""
-    dsn = "postgresql://postgres:postgres@localhost:5432/llm_client"
+    dsn = "postgresql://postgres:postgres@localhost:5434/llm_client"
     try:
         pool = await asyncpg.create_pool(dsn, min_size=1, max_size=5)
         async with pool.acquire() as conn:
@@ -104,7 +104,7 @@ def settings():
     return Settings(
         checkpoint_backend="redis_postgres",
         redis_checkpoint_url="redis://127.0.0.1:6379/1",
-        database_url="postgresql://postgres:postgres@localhost:5432/llm_client",
+        database_url="postgresql://postgres:postgres@localhost:5434/llm_client",
         redis_checkpoint_ttl_seconds=60,  # Short TTL for testing
     )
 
@@ -197,7 +197,7 @@ class TestCompositeCheckpointIntegration:
         
         # Create new PostgreSQL pool that will be closed (simulating restart)
         new_pool = await asyncpg.create_pool(
-            "postgresql://postgres:postgres@localhost:5432/llm_client",
+            "postgresql://postgres:postgres@localhost:5434/llm_client",
             min_size=1,
             max_size=5,
         )

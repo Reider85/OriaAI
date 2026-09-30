@@ -55,7 +55,7 @@ TOTAL_CHECKPOINTS = SESSIONS_COUNT * CHECKPOINTS_PER_SESSION
 
 # Services
 REDIS_URL = "redis://127.0.0.1:6379/1"
-PG_DSN = "postgresql://postgres:postgres@localhost:5432/llm_client"
+PG_DSN = "postgresql://postgres:postgres@localhost:5434/llm_client"
 CONTAINER_NAMES = ["llm-redis", "llm-postgres"]
 
 
@@ -134,7 +134,7 @@ def _build_checkpointer() -> RedisPostgresCheckpointer:
     settings = Settings()
     settings.checkpoint_backend = "redis_postgres"
     settings.redis_checkpoint_url = REDIS_URL
-    settings.database_url = "postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client"
+    settings.database_url = "postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client"
     settings.redis_checkpoint_ttl_seconds = 86400
     settings.checkpoint_flush_interval_seconds = 5
     settings.checkpoint_flush_batch_size = 50
