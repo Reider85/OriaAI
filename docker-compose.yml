@@ -175,6 +175,7 @@ services:
       - ./migrations:/repo/migrations:ro
       - ./alembic.ini:/repo/alembic.ini:ro
       - ./chroma_db:/app/chroma_db
+      - agent-pip-cache:/root/.cache/pip
     env_file:
       - .env
     environment:
@@ -200,7 +201,7 @@ services:
       - CHROMA_PERSIST_DIR=/app/chroma_db
       - RAG_RETRIEVAL_STRATEGY=${RAG_RETRIEVAL_STRATEGY:-hybrid}
     command: >
-      sh -c "pip install --quiet -e . &&
+      sh -c "pip install --quiet --retries 5 --timeout 120 --cache-dir /root/.cache/pip -e . &&
              alembic upgrade head &&
              exec python -m llm_client.agent"
     healthcheck:
@@ -262,7 +263,7 @@ services:
     networks:
       - llm-network
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
 
   # ── Ideality exporter (ROADMAP §18.2, G-2) ───────────────
   idealidad-exporter:
@@ -296,6 +297,7 @@ volumes:
   minio-data:
   postgres-data:
   prometheus-data:
+  agent-pip-cache:
 
 networks:
   llm-network:

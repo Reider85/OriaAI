@@ -2,8 +2,8 @@
 param(
     [ValidateRange(1, 65535)]
     [int]$Port = 8501,
-    [ValidateRange(30, 900)]
-    [int]$StartupTimeoutSeconds = 180,
+    [ValidateRange(30, 3600)]
+    [int]$StartupTimeoutSeconds = 300,
     [switch]$SkipModelDownload
 )
 
@@ -30,6 +30,10 @@ function Get-EnvValue {
         return $Default
     }
 
+    # Last occurrence wins, matching docker compose / dotenv semantics.
+    $resolved = $Default
+    $found = $false
+
     foreach ($line in Get-Content -LiteralPath $EnvFile) {
         $trimmed = $line.Trim()
         if ($trimmed.StartsWith("#")) {
@@ -46,11 +50,13 @@ function Get-EnvValue {
             continue
         }
 
-        $value = $trimmed.Substring($separatorIndex + 1).Trim()
-        if ($value.Length -eq 0) {
-            return $Default
-        }
-        return $value.Trim('"').Trim("'")
+        $found = $true
+        $value = $trimmed.Substring($separatorIndex + 1).Trim().Trim('"').Trim("'")
+        $resolved = if ($value.Length -eq 0) { $Default } else { $value }
+    }
+
+    if ($found) {
+        return $resolved
     }
 
     return $Default
@@ -306,7 +312,10 @@ function Test-TcpPort {
 }
 
 function Wait-ForAgentService {
-    param([int]$TimeoutSeconds = 30)
+    param(
+        [string]$DockerPath,
+        [int]$TimeoutSeconds
+    )
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
 
@@ -317,7 +326,14 @@ function Wait-ForAgentService {
         Start-Sleep -Seconds 2
     }
 
-    throw "Agent service did not become ready within $TimeoutSeconds seconds on port 8000."
+    $logs = Invoke-DockerExec -DockerPath $DockerPath -Arguments @(
+        "logs",
+        "--tail",
+        "20",
+        "llm-agent-service"
+    )
+    $logText = if ($logs) { "`nLast container output:`n$logs" } else { "" }
+    throw "Agent service did not become ready within $TimeoutSeconds seconds on port 8000. It runs 'pip install -e .' on every start, so the first start after an image rebuild takes much longer (subsequent starts reuse the pip cache volume).$logText"
 }
 
 function Invoke-DockerExec {
@@ -447,10 +463,95 @@ function Ensure-BgeModel {
     return $true
 }
 
+function Get-GrafanaPort {
+    $raw = Get-EnvValue -Name "GRAFANA_PORT"
+    $parsed = 0
+    if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -ge 1 -and $parsed -le 65535) {
+        return $parsed
+    }
+    return 3000
+}
+
+function Get-ConflictingContainer {
+    param(
+        [string]$DockerPath,
+        [int]$PortNumber
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $lines = & $DockerPath ps --format "{{.Names}}|{{.Ports}}" 2>$null
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    foreach ($line in @($lines)) {
+        if (-not $line) {
+            continue
+        }
+        $parts = $line -split "\|", 2
+        if ($parts.Count -lt 2) {
+            continue
+        }
+
+        $name = $parts[0].Trim()
+        $portPattern = '(?i)(?:^|[:,])' + $PortNumber + '(?:->|:|$)'
+        if ($parts[1] -match $portPattern) {
+            return $name
+        }
+    }
+
+    return $null
+}
+
+function Assert-HostPortsAvailable {
+    param(
+        [string]$DockerPath,
+        [int[]]$PortNumbers
+    )
+
+    $conflicts = @()
+    foreach ($portNumber in $PortNumbers) {
+        if (-not (Test-TcpPort -PortNumber $portNumber)) {
+            continue
+        }
+
+        $owners = @(
+            Get-NetTCPConnection -LocalPort $portNumber -State Listen -ErrorAction SilentlyContinue |
+                Where-Object { $_.OwningProcess } |
+                ForEach-Object { (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName } |
+                Where-Object { $_ } |
+                Sort-Object -Unique
+        )
+
+        $isDockerOwned = $owners -contains "com.docker.backend"
+        if ($isDockerOwned) {
+            $container = Get-ConflictingContainer -DockerPath $DockerPath -PortNumber $portNumber
+            if (-not $container) {
+                continue
+            }
+            if ($container.StartsWith("llm-")) {
+                continue
+            }
+            $conflicts += "  ${portNumber}: container '$container' from another compose project"
+            continue
+        }
+
+        $conflicts += "  ${portNumber}: process $($owners -join ', ')"
+    }
+
+    if ($conflicts.Count -gt 0) {
+        throw "Host ports are already in use:`n$($conflicts -join "`n")`nStop those owners, or override the port in .env (e.g. GRAFANA_PORT)."
+    }
+}
+
 function Wait-ForInfrastructure {
     param(
         [string]$DockerPath,
-        [int]$TimeoutSeconds
+        [int]$TimeoutSeconds,
+        [int]$GrafanaPort
     )
 
     $checks = @(
@@ -459,7 +560,7 @@ function Wait-ForInfrastructure {
         [pscustomobject]@{ Name = "MinIO"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9000/minio/health/ready" } },
         [pscustomobject]@{ Name = "Vault"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:8200/v1/sys/health" } },
         [pscustomobject]@{ Name = "Prometheus"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9090/-/healthy" } },
-        [pscustomobject]@{ Name = "Grafana"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:3000/api/health" } },
+        [pscustomobject]@{ Name = "Grafana"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:$GrafanaPort/api/health" } },
         [pscustomobject]@{ Name = "Ideality exporter"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9101/metrics" } }
     )
 
@@ -628,16 +729,18 @@ if (-not (Get-EnvValue -Name "TAVILY_API_KEY")) {
 }
 
 $docker = Resolve-DockerExecutable
+$grafanaPort = Get-GrafanaPort
 Write-Host "Waiting for Docker Desktop..." -ForegroundColor Cyan
 Wait-DockerEngine -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
+Assert-HostPortsAvailable -DockerPath $docker -PortNumbers @(5434, 6380, 8000, 8200, 9000, 9001, 9090, 9101, $grafanaPort)
 Write-Host "Starting infrastructure..." -ForegroundColor Cyan
 Invoke-Compose -DockerPath $docker -Arguments @("up", "-d")
 Wait-ForInitContainers -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
-Wait-ForInfrastructure -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
+Wait-ForInfrastructure -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds -GrafanaPort $grafanaPort
 Write-Host "Verifying checkpoint WAL (ADR-010)..." -ForegroundColor Cyan
 Test-CheckpointRedis -DockerPath $docker
-Write-Host "Waiting for agent-service..." -ForegroundColor Cyan
-Wait-ForAgentService -TimeoutSeconds 30
+Write-Host "Waiting for agent-service (first start installs dependencies, this can take a while)..." -ForegroundColor Cyan
+Wait-ForAgentService -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
 Write-Host "Starting Streamlit UI..." -ForegroundColor Cyan
 Start-Streamlit -Python $python -PortNumber $Port
 
@@ -656,7 +759,7 @@ Write-Host "  Agent:       http://127.0.0.1:8000"
 Write-Host "  PostgreSQL:  127.0.0.1:5434 (db llm_client)"
 Write-Host "  Redis:       127.0.0.1:6380 (db 0 pub/sub, db 1 checkpoint WAL)"
 Write-Host "  MinIO:       http://127.0.0.1:9001"
-Write-Host "  Grafana:     http://127.0.0.1:3000"
+Write-Host "  Grafana:     http://127.0.0.1:$grafanaPort"
 Write-Host "  Prometheus:  http://127.0.0.1:9090"
 Write-Host "  Vault:       http://127.0.0.1:8200"
 Write-Host "  Ideality:    http://127.0.0.1:9101/metrics"
