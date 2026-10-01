@@ -157,7 +157,7 @@ function Stop-Infrastructure {
         throw "docker compose down failed with exit code $exitCode."
     }
 
-    Write-Host "Infrastructure stopped. Persistent volumes were preserved." -ForegroundColor Green
+    Write-Host "Infrastructure stopped (agent-service, PostgreSQL, Redis, MinIO, Vault, Prometheus, Grafana, ideality exporter). Persistent volumes were preserved." -ForegroundColor Green
 }
 
 Stop-Streamlit

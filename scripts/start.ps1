@@ -3,7 +3,8 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port = 8501,
     [ValidateRange(30, 900)]
-    [int]$StartupTimeoutSeconds = 180
+    [int]$StartupTimeoutSeconds = 180,
+    [switch]$SkipModelDownload
 )
 
 Set-StrictMode -Version Latest
@@ -18,6 +19,42 @@ $RuntimeDir = Join-Path $PSScriptRoot ".runtime"
 $PidFile = Join-Path $RuntimeDir "streamlit.pid"
 $StdoutLog = Join-Path $RuntimeDir "streamlit.stdout.log"
 $StderrLog = Join-Path $RuntimeDir "streamlit.stderr.log"
+
+function Get-EnvValue {
+    param(
+        [string]$Name,
+        [string]$Default = ""
+    )
+
+    if (-not (Test-Path -LiteralPath $EnvFile)) {
+        return $Default
+    }
+
+    foreach ($line in Get-Content -LiteralPath $EnvFile) {
+        $trimmed = $line.Trim()
+        if ($trimmed.StartsWith("#")) {
+            continue
+        }
+
+        $separatorIndex = $trimmed.IndexOf("=")
+        if ($separatorIndex -le 0) {
+            continue
+        }
+
+        $key = $trimmed.Substring(0, $separatorIndex).Trim()
+        if ($key -ne $Name) {
+            continue
+        }
+
+        $value = $trimmed.Substring($separatorIndex + 1).Trim()
+        if ($value.Length -eq 0) {
+            return $Default
+        }
+        return $value.Trim('"').Trim("'")
+    }
+
+    return $Default
+}
 
 function Invoke-NativeQuiet {
     param(
@@ -283,11 +320,142 @@ function Wait-ForAgentService {
     throw "Agent service did not become ready within $TimeoutSeconds seconds on port 8000."
 }
 
+function Invoke-DockerExec {
+    param(
+        [string]$DockerPath,
+        [string[]]$Arguments
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & $DockerPath exec $Arguments 2>$null
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($exitCode -ne 0) {
+        return $null
+    }
+
+    return (($output | Where-Object { $_ }) -join " ").Trim()
+}
+
+function Test-PostgresReady {
+    param([string]$DockerPath)
+
+    if (-not (Test-TcpPort -PortNumber 5434)) {
+        return $false
+    }
+
+    $output = Invoke-DockerExec -DockerPath $DockerPath -Arguments @(
+        "llm-postgres",
+        "pg_isready",
+        "-U",
+        "postgres",
+        "-d",
+        "llm_client"
+    )
+    return $null -ne $output -and $output -match "accepting connections"
+}
+
+function Test-CheckpointRedis {
+    param([string]$DockerPath)
+
+    $ping = Invoke-DockerExec -DockerPath $DockerPath -Arguments @(
+        "llm-redis",
+        "redis-cli",
+        "-n",
+        "1",
+        "PING"
+    )
+    if ($null -eq $ping -or $ping -notmatch "PONG") {
+        throw "Redis checkpoint WAL (DB 1) is not reachable in container llm-redis."
+    }
+
+    $policy = Invoke-DockerExec -DockerPath $DockerPath -Arguments @(
+        "llm-redis",
+        "redis-cli",
+        "CONFIG",
+        "GET",
+        "maxmemory-policy"
+    )
+    $expectedPolicy = "noeviction"
+    if ($null -eq $policy -or $policy -notmatch [regex]::Escape($expectedPolicy)) {
+        Write-Host "Warning: Redis maxmemory-policy is '$policy' but ADR-010 requires '$expectedPolicy' for the checkpoint WAL (A-1)." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "Redis checkpoint WAL (DB 1) is ready with maxmemory-policy=$expectedPolicy." -ForegroundColor DarkGray
+}
+
+function Ensure-BgeModel {
+    param(
+        [pscustomobject]$Python,
+        [switch]$Skip
+    )
+
+    if ($Skip) {
+        Write-Host "Skipping BGE reranker model check (-SkipModelDownload)." -ForegroundColor DarkGray
+        return $false
+    }
+
+    $rerankerDefault = (Get-EnvValue -Name "RERANKER_DEFAULT")
+    if (-not $rerankerDefault) {
+        $rerankerDefault = "bge"
+    }
+
+    if ($rerankerDefault -ne "bge") {
+        Write-Host "RERANKER_DEFAULT=$rerankerDefault; BGE model download is not required." -ForegroundColor DarkGray
+        return $false
+    }
+
+    $modelDir = Get-EnvValue -Name "RERANKER_MODEL_DIR"
+    if (-not $modelDir) {
+        $modelDir = "./models/bge-reranker-base"
+    }
+    if (-not [System.IO.Path]::IsPathRooted($modelDir)) {
+        $modelDir = Join-Path $RepoRoot $modelDir.TrimStart(".", "/", "\")
+    }
+
+    if (Test-Path -LiteralPath (Join-Path $modelDir "config.json")) {
+        Write-Host "BGE reranker model is present at $modelDir." -ForegroundColor DarkGray
+        return $true
+    }
+
+    Write-Host "Downloading BGE reranker model (ADR-017, ~600MB, one-time)..." -ForegroundColor Cyan
+    $downloadScript = Join-Path $RepoRoot "scripts\download_bge_reranker.py"
+    if (-not (Test-Path -LiteralPath $downloadScript)) {
+        throw "BGE reranker model is missing and scripts\download_bge_reranker.py was not found."
+    }
+
+    $previousLocation = Get-Location
+    try {
+        Set-Location -LiteralPath $RepoRoot
+        $exitCode = Invoke-Python -Python $Python -Arguments @("scripts\download_bge_reranker.py")
+    }
+    finally {
+        Set-Location -LiteralPath $previousLocation
+    }
+
+    if ($exitCode -ne 0) {
+        throw "BGE reranker download failed with exit code $exitCode. Run manually: $($Python.Path) scripts\download_bge_reranker.py"
+    }
+
+    return $true
+}
+
 function Wait-ForInfrastructure {
-    param([int]$TimeoutSeconds)
+    param(
+        [string]$DockerPath,
+        [int]$TimeoutSeconds
+    )
 
     $checks = @(
         [pscustomobject]@{ Name = "Redis"; Test = { Test-TcpPort -PortNumber 6380 } },
+        [pscustomobject]@{ Name = "PostgreSQL"; Test = { Test-PostgresReady -DockerPath $DockerPath } },
         [pscustomobject]@{ Name = "MinIO"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9000/minio/health/ready" } },
         [pscustomobject]@{ Name = "Vault"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:8200/v1/sys/health" } },
         [pscustomobject]@{ Name = "Prometheus"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9090/-/healthy" } },
@@ -453,26 +621,46 @@ if ($dependencyCheck -ne 0) {
     throw "UI dependencies are missing. Run: $($python.Path) -m pip install -e `"$RepoRoot`""
 }
 
+$bgeModelReady = Ensure-BgeModel -Python $python -Skip:$SkipModelDownload
+
+if (-not (Get-EnvValue -Name "TAVILY_API_KEY")) {
+    Write-Host "Warning: TAVILY_API_KEY is empty. The web_search tool (AG-5) will not reach Tavily." -ForegroundColor Yellow
+}
+
 $docker = Resolve-DockerExecutable
 Write-Host "Waiting for Docker Desktop..." -ForegroundColor Cyan
 Wait-DockerEngine -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
 Write-Host "Starting infrastructure..." -ForegroundColor Cyan
 Invoke-Compose -DockerPath $docker -Arguments @("up", "-d")
 Wait-ForInitContainers -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
-Wait-ForInfrastructure -TimeoutSeconds $StartupTimeoutSeconds
+Wait-ForInfrastructure -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
+Write-Host "Verifying checkpoint WAL (ADR-010)..." -ForegroundColor Cyan
+Test-CheckpointRedis -DockerPath $docker
 Write-Host "Waiting for agent-service..." -ForegroundColor Cyan
 Wait-ForAgentService -TimeoutSeconds 30
 Write-Host "Starting Streamlit UI..." -ForegroundColor Cyan
 Start-Streamlit -Python $python -PortNumber $Port
 
+$rerankerStatus = (Get-EnvValue -Name "RERANKER_DEFAULT" "bge")
+if ($bgeModelReady) {
+    $rerankerStatus = "$rerankerStatus (model ready)"
+}
+elseif ($SkipModelDownload -or $rerankerStatus -ne "bge") {
+    $rerankerStatus = "$rerankerStatus (model not verified)"
+}
+
 Write-Host ""
 Write-Host "OriaAI is running:" -ForegroundColor Green
 Write-Host "  UI:          http://127.0.0.1:$Port"
 Write-Host "  Agent:       http://127.0.0.1:8000"
+Write-Host "  PostgreSQL:  127.0.0.1:5434 (db llm_client)"
+Write-Host "  Redis:       127.0.0.1:6380 (db 0 pub/sub, db 1 checkpoint WAL)"
 Write-Host "  MinIO:       http://127.0.0.1:9001"
 Write-Host "  Grafana:     http://127.0.0.1:3000"
 Write-Host "  Prometheus:  http://127.0.0.1:9090"
 Write-Host "  Vault:       http://127.0.0.1:8200"
+Write-Host "  Ideality:    http://127.0.0.1:9101/metrics"
+Write-Host "  Reranker:    $rerankerStatus"
 Write-Host "  Logs:        $RuntimeDir"
 Write-Host ""
 Write-Host "Stop everything with: powershell -ExecutionPolicy Bypass -File scripts\stop.ps1"

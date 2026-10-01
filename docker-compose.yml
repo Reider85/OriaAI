@@ -31,7 +31,7 @@ services:
     image: redis:7-alpine
     container_name: llm-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --databases 16
+    command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
       - redis-data:/data
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
@@ -170,6 +170,7 @@ services:
     volumes:
       - ./src:/repo/src:ro
       - ./pyproject.toml:/repo/pyproject.toml:ro
+      - ./README.md:/repo/README.md:ro
       - ./models:/app/models:ro
       - ./migrations:/repo/migrations:ro
       - ./alembic.ini:/repo/alembic.ini:ro

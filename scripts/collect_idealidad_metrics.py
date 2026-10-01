@@ -52,6 +52,7 @@ import importlib.util
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from types import ModuleType
@@ -159,26 +160,6 @@ _last_ab: dict[str, float] = {
     "hybrid_recall_latency_overhead": 0.0,
     "reranker_fallback_count": 0.0,
 }
-
-_GAUGES = (
-    LOC_TOTAL,
-    ADR_COUNT,
-    CAPABILITY_COUNT,
-    DEPENDENCY_COUNT,
-    CAPABILITY_MARKERS,
-    IDEALIDAD_RATIO,
-    PHASE_CAP_DELTA,
-    PHASE_CPLX_DELTA,
-    PHASE_MIN_REQUIRED,
-    PHASE_IS_ACTIVE,
-    AG_EXTENSIONS_RATIO_GAUGE,
-    UI_EXTENSIONS_RATIO_GAUGE,
-    HYBRID_RECALL_IMPROVEMENT,
-    HYBRID_RECALL_LATENCY_OVERHEAD,
-    HYBRID_RECALL_SUBTYPE_COMPLIANCE,
-    RERANKER_RECALL_AT_5,
-    RERANKER_FALLBACK_COUNT,
-)
 
 
 def _resolve_root() -> Path:
@@ -320,10 +301,23 @@ def _write_output(path: Path, summary: dict[str, float]) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+REFRESH_INTERVAL_SECONDS = 30.0
+
+
 def _install_scrape_hooks() -> None:
-    """Recompute signals lazily on every Prometheus scrape."""
-    for gauge in _GAUGES:
-        gauge.set_function(refresh)
+    """Prime all gauges so the first scrape serves values immediately."""
+    refresh()
+
+
+def _refresh_loop() -> None:
+    """Keep gauges warm between scrapes (collect_snapshot re-reads the repo)."""
+    while True:
+        time.sleep(REFRESH_INTERVAL_SECONDS)
+        try:
+            refresh()
+        except Exception as exc:  # noqa: BLE001 - a refresh failure must not kill the exporter
+            print(f"Ideality refresh failed: {exc}", file=sys.stderr, flush=True)
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -358,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     _install_scrape_hooks()
+    threading.Thread(target=_refresh_loop, daemon=True).start()
     start_http_server(args.port, registry=REGISTRY)
     print(f"Ideality metric exporter listening on :{args.port}/metrics", flush=True)
     try:
