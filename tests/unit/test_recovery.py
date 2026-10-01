@@ -82,7 +82,7 @@ class FakeLayer:
             return None
         return self._maybe_corrupt(found).checkpoint
 
-    async def aput(self, config: dict, checkpoint: dict, metadata: dict) -> dict:
+    async def aput(self, config: dict, checkpoint: dict, metadata: dict, new_versions: dict | None = None) -> dict:
         if not self.available:
             raise ConnectionError(f"{self.name} unavailable")
         thread_id = config["configurable"]["thread_id"]

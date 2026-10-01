@@ -7,6 +7,7 @@ After a token is cancelled, an optional ``cancel_event_handler`` receives the pa
 cancel event for dual-stream logging (C-6): forensic (full trace) + operational
 (masked user_id).
 """
+
 import asyncio
 import json
 import logging

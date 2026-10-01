@@ -548,8 +548,8 @@ async def test_build_agent_graph_phase2_rag_first_stores_retrieved_docs():
 @pytest.mark.asyncio
 async def test_tool_executor_dispatches_rag_query():
     """tool_executor should be able to dispatch rag_query tool calls."""
-    from llm_client.agent.tools import rag_query
     from llm_client.agent.graph import _tool_executor_node
+    from llm_client.agent.tools import rag_query
 
     state = {
         "messages": [

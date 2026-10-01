@@ -99,7 +99,7 @@ async def test_hybrid_retriever_partial_failure():
     # Create failing vector retriever
     class FailingVectorRetriever:
         async def aget_relevant_documents(self, query, k):
-            raise Exception("Vector service unavailable")
+            raise RuntimeError("Vector service unavailable")
     
     # Working BM25 retriever
     mock_bm25 = AsyncMock()

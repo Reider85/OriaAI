@@ -15,6 +15,7 @@ from typing import Any
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 from tenacity import (
     RetryCallState,
     retry,
@@ -170,7 +171,7 @@ class LLMProviderFactory:
                 return ChatOpenAI(
                     model=model,
                     streaming=streaming,
-                    api_key=api_key,
+                    api_key=SecretStr(api_key) if api_key else None,
                     **kwargs,
                 )
             case "anthropic":

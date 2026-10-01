@@ -103,12 +103,10 @@ class TestRRFFusion:
         ]
         
         # With BM25 weight higher, BM25 docs should rank higher
-        result_balanced = rrf_fusion(vector_docs, bm25_docs, vector_weight=0.5, bm25_weight=0.5)
         result_bm25_favored = rrf_fusion(vector_docs, bm25_docs, vector_weight=0.3, bm25_weight=0.7)
         
         # Doc3 and doc4 (BM25) should rank higher when bm25_weight is higher
         bm25_ids_favored = {doc["id"] for doc in result_bm25_favored[:2]}
-        vector_ids_favored = {doc["id"] for doc in result_balanced[:2]}
         
         # BM25 docs should appear earlier when weight is higher
         assert "doc3" in bm25_ids_favored
@@ -154,7 +152,6 @@ class TestRRFFusion:
         
         # Sort by ID to ensure consistent ordering
         result1_sorted = sorted(result1, key=lambda x: x["id"])
-        result2_sorted = sorted(result2, key=lambda x: x["id"])
         
         assert result1_sorted[0]["id"] == "doc1"
         assert result1_sorted[1]["id"] == "doc2"

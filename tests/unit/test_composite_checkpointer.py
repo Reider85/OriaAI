@@ -135,7 +135,7 @@ class MockRedisCheckpointer:
         if self.should_fail:
             raise RedisCheckpointWriteError("Redis delete failed")
         
-        keys_to_delete = [k for k in self.data.keys() if k.startswith(f"checkpoint:{thread_id}:")]
+        keys_to_delete = [k for k in self.data if k.startswith(f"checkpoint:{thread_id}:")]
         for key in keys_to_delete:
             del self.data[key]
         
@@ -259,7 +259,7 @@ class MockPostgresCheckpointer:
         if self.should_fail:
             raise PostgresCheckpointWriteError("PostgreSQL delete failed")
         
-        keys_to_delete = [k for k in self.data.keys() if k.startswith(f"checkpoint:{thread_id}:")]
+        keys_to_delete = [k for k in self.data if k.startswith(f"checkpoint:{thread_id}:")]
         for key in keys_to_delete:
             del self.data[key]
         

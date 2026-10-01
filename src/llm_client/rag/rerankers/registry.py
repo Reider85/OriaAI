@@ -21,7 +21,7 @@ class RerankerRegistry:
             try:
                 eps = entry_points(group='llm_client.rerankers')
                 self._available = [ep.name for ep in eps]
-            except Exception:
+            except Exception:  # noqa: BLE001 — degrade to identity on any importlib failure
                 # Fallback for environments without entry_points support
                 self._available = ['identity']  # identity always available
         return self._available

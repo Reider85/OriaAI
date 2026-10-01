@@ -38,11 +38,11 @@ class ToolCallingFakeLLM(FakeListChatModel):
         self._bound_tools: list[Any] | None = None
         self._call_count: int = 0
 
-    def bind_tools(self, tools: list[Any], **kwargs: Any) -> ToolCallingFakeLLM:
+    def bind_tools(self, tools: list[Any], **kwargs: Any) -> ToolCallingFakeLLM:  # type: ignore[override]
         self._bound_tools = tools
         return self
 
-    async def ainvoke(self, messages: Any, **kwargs: Any) -> AIMessage:
+    async def ainvoke(self, messages: Any, **kwargs: Any) -> AIMessage:  # type: ignore[override]
         self._call_count += 1
         if self._call_count == 1 and self._bound_tools:
             tool = self._bound_tools[0]
@@ -267,7 +267,7 @@ def _create_artifact_test_app(storage: InMemoryFileStorage):
             return JSONResponse({"error": "Not found"}, status_code=404)
         if meta.get("status") == STATUS_GENERATING:
             return JSONResponse({"status": "generating"}, status_code=503)
-        s3_key = meta.get("s3_key", "")
+        s3_key = str(meta.get("s3_key", ""))
         if not s3_key:
             return JSONResponse({"error": "Invalid metadata"}, status_code=404)
         try:

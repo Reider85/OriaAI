@@ -42,13 +42,13 @@ SIMULATED_MINUTES_PER_HOUR = 60
 SIMULATED_SECONDS_PER_MINUTE = 60
 
 # Derived timing (in real seconds)
-REAL_SECONDS_PER_SIMULATED_HOUR = (3600 / SPEEDUP)  # 3600s / 100 = 36s
+REAL_SECONDS_PER_SIMULATED_HOUR = 3600 / SPEEDUP  # 3600s / 100 = 36s
 REAL_SECONDS_PER_SIMULATED_DAY = REAL_SECONDS_PER_SIMULATED_HOUR * SIMULATED_HOURS_PER_DAY  # 864s
 REAL_SECONDS_PER_SIMULATED_WEEK = REAL_SECONDS_PER_SIMULATED_DAY * SIMULATED_DAYS  # 6048s
 
 # Event timing
 PLANNED_RESTART_INTERVAL_SIM_HOURS = 5  # Every 5 simulated hours
-REDIS_RESTART_INTERVAL_SIM_HOURS = 24   # Every 24 simulated hours
+REDIS_RESTART_INTERVAL_SIM_HOURS = 24  # Every 24 simulated hours
 CHECKPOINTS_PER_SESSION = 10
 SESSIONS_COUNT = 1000
 TOTAL_CHECKPOINTS = SESSIONS_COUNT * CHECKPOINTS_PER_SESSION
@@ -88,14 +88,14 @@ async def _services_ready() -> bool:
         redis_ok = True
     except (ConnectionError, TimeoutError):
         redis_ok = False
-    
+
     try:
         conn = await asyncpg.connect(PG_DSN)
         await conn.close()
         pg_ok = True
     except (ConnectionError, TimeoutError):
         pg_ok = False
-    
+
     return redis_ok and pg_ok
 
 
@@ -103,6 +103,7 @@ def _kill_container(container_name: str) -> None:
     """Kill a Docker container with SIGKILL."""
     try:
         import subprocess
+
         subprocess.run(
             ["docker", "kill", container_name],
             check=True,
@@ -117,6 +118,7 @@ def _restart_container(container_name: str) -> None:
     """Restart a Docker container."""
     try:
         import subprocess
+
         subprocess.run(
             ["docker", "restart", container_name],
             check=True,
@@ -138,43 +140,47 @@ def _build_checkpointer() -> RedisPostgresCheckpointer:
     settings.redis_checkpoint_ttl_seconds = 86400
     settings.checkpoint_flush_interval_seconds = 5
     settings.checkpoint_flush_batch_size = 50
-    
+
     bundle = build_checkpointer(settings)
     if not bundle.checkpointer or not isinstance(bundle.checkpointer, RedisPostgresCheckpointer):
         raise RuntimeError("Could not build RedisPostgresCheckpointer")
-    
+
     return bundle.checkpointer
 
 
-async def _write_session_checkpoints(checkpointer: RedisPostgresCheckpointer, session_id: str) -> list[dict]:
+async def _write_session_checkpoints(
+    checkpointer: RedisPostgresCheckpointer, session_id: str
+) -> list[dict]:
     """Write checkpoints for a single session."""
     checkpoints = []
     config = config_for(session_id)
-    
+
     for node_num in range(CHECKPOINTS_PER_SESSION):
         checkpoint = make_checkpoint(session_id, node_num)
         await checkpointer.aput(config, checkpoint, {"node": node_num})
         checkpoints.append(checkpoint)
         # Small delay between nodes
         await asyncio.sleep(0.01)
-    
+
     return checkpoints
 
 
-async def _verify_checkpoints(checkpointer: RedisPostgresCheckpointer, session_id: str, expected_checkpoints: list[dict]) -> bool:
+async def _verify_checkpoints(
+    checkpointer: RedisPostgresCheckpointer, session_id: str, expected_checkpoints: list[dict]
+) -> bool:
     """Verify that all checkpoints for a session are retrievable."""
     config = config_for(session_id)
-    
+
     # Get the latest checkpoint
     latest = await checkpointer.aget(config)
     if not latest:
         return False
-    
+
     # Verify the last checkpoint matches
     expected_last = expected_checkpoints[-1]
     if latest["id"] != expected_last["id"]:
         return False
-    
+
     # List all checkpoints and count them
     all_checkpoints = list(checkpointer.alist(config, limit=CHECKPOINTS_PER_SESSION + 1))
     return len(all_checkpoints) >= len(expected_checkpoints)
@@ -188,70 +194,72 @@ async def test_checkpoint_durability_7day_simulation():
     """B-6: 7-day durability simulation with fast-forward time."""
     if not await _services_ready():
         pytest.skip("Staging services not available")
-    
+
     checkpointer = _build_checkpointer()
-    
+
     # Track simulation state
     simulation_start = time.monotonic()
     written_sessions: dict[str, list[dict]] = {}
     lost_sessions = set()
-    
+
     print(f"[durability] Starting 7-day simulation at {SPEEDUP}x speed")
     print(f"[durability] Expected duration: ~{REAL_SECONDS_PER_SIMULATED_WEEK:.0f}s real time")
-    
+
     # Phase 1: Write all checkpoints (simulated sessions over time)
     for session_num in range(SESSIONS_COUNT):
         session_id = f"b6-dur-{session_num:04d}"
-        
+
         # Write checkpoints for this session
         checkpoints = await _write_session_checkpoints(checkpointer, session_id)
         written_sessions[session_id] = checkpoints
-        
+
         # Simulate time passing between sessions
         await asyncio.sleep(0.1)  # 100ms between sessions
-        
+
         # Periodic progress reporting
         if session_num % 100 == 0:
             elapsed = time.monotonic() - simulation_start
             progress = session_num / SESSIONS_COUNT * 100
-            print(f"[durability] Progress: {progress:.1f}% ({session_num}/{SESSIONS_COUNT} sessions, {elapsed:.1f}s elapsed)")
-    
+            print(
+                f"[durability] Progress: {progress:.1f}% ({session_num}/{SESSIONS_COUNT} sessions, {elapsed:.1f}s elapsed)"
+            )
+
     # Phase 2: Simulate periodic events during the week
     current_sim_hours = 0
-    
+
     while current_sim_hours < SIMULATED_DAYS * SIMULATED_HOURS_PER_DAY:
         # Check for planned restart event (every 5 simulated hours)
         if current_sim_hours % PLANNED_RESTART_INTERVAL_SIM_HOURS == 0 and current_sim_hours > 0:
             print(f"[durability] Planned restart at {current_sim_hours}h simulated")
             # Simulate app restart by creating new checkpointer
             checkpointer = _build_checkpointer()
-            
+
             # Verify all sessions still work
             for session_id, checkpoints in written_sessions.items():
                 if not await _verify_checkpoints(checkpointer, session_id, checkpoints):
                     lost_sessions.add(session_id)
                     print(f"[durability] Lost session during restart: {session_id}")
-        
+
         # Check for Redis restart event (every 24 simulated hours)
         if current_sim_hours % REDIS_RESTART_INTERVAL_SIM_HOURS == 0 and current_sim_hours > 0:
             print(f"[durability] Redis restart at {current_sim_hours}h simulated")
             _kill_container("llm-redis")
             await asyncio.sleep(1)
             _restart_container("llm-redis")
-            
+
             # Simulate process restart with new checkpointer
             checkpointer = _build_checkpointer()
-            
+
             # Verify all sessions still work
             for session_id, checkpoints in written_sessions.items():
                 if not await _verify_checkpoints(checkpointer, session_id, checkpoints):
                     lost_sessions.add(session_id)
                     print(f"[durability] Lost session during Redis restart: {session_id}")
-        
+
         # Advance time (1 simulated hour)
         await asyncio.sleep(REAL_SECONDS_PER_SIMULATED_HOUR)
         current_sim_hours += 1
-    
+
     # Phase 3: Final simultaneous crash and recovery
     print("[durability] Final simultaneous crash at end of week")
     _kill_container("llm-redis")
@@ -259,19 +267,19 @@ async def test_checkpoint_durability_7day_simulation():
     await asyncio.sleep(1)
     _restart_container("llm-redis")
     _restart_container("llm-postgres")
-    
+
     # Simulate process restart with new checkpointer
     final_checkpointer = _build_checkpointer()
-    
+
     # Final verification
     recovered_sessions = 0
     for session_id, checkpoints in written_sessions.items():
         if await _verify_checkpoints(final_checkpointer, session_id, checkpoints):
             recovered_sessions += 1
-    
+
     # Calculate durability score
     durability_score = recovered_sessions / SESSIONS_COUNT
-    
+
     # Report results
     elapsed = time.monotonic() - simulation_start
     report = {
@@ -285,15 +293,15 @@ async def test_checkpoint_durability_7day_simulation():
         "pass_threshold": 0.999,
         "budget_met": durability_score >= 0.999,
     }
-    
+
     print(f"[durability] {json.dumps(report, sort_keys=True)}")
-    
+
     # Assert pass criterion
     assert durability_score >= 0.999, (
         f"Durability score {durability_score:.4f} below threshold 0.999 "
         f"(recovered {recovered_sessions}/{SESSIONS_COUNT} sessions)"
     )
-    
+
     # Additional assertions
     assert len(lost_sessions) <= SESSIONS_COUNT * 0.001, (
         f"Too many lost sessions: {len(lost_sessions)} (max allowed: {SESSIONS_COUNT * 0.001})"
@@ -311,7 +319,7 @@ async def test_checkpoint_durability_smoke():
     """Quick smoke test with 10x speedup for local development."""
     original_speedup = os.environ.get("DURABILITY_SPEEDUP")
     os.environ["DURABILITY_SPEEDUP"] = "10"
-    
+
     try:
         await test_checkpoint_durability_7day_simulation()
     finally:

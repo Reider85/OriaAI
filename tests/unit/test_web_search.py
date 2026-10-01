@@ -109,9 +109,9 @@ async def test_web_search_max_results_validation():
 @pytest.mark.asyncio
 async def test_web_search_missing_api_key():
     """Test that RuntimeError is raised when TAVILY_API_KEY is not set."""
-    with patch.object(settings, "tavily_api_key", ""):
-        with pytest.raises(RuntimeError, match="web_search tool requires TAVILY_API_KEY"):
-            await _web_search_impl("test query")
+    with patch.object(settings, "tavily_api_key", ""), \
+         pytest.raises(RuntimeError, match="web_search tool requires TAVILY_API_KEY"):
+        await _web_search_impl("test query")
 
 
 @pytest.mark.asyncio

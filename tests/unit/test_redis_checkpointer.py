@@ -21,7 +21,7 @@ class MockRedisClient:
         self.data = {}
         self.operations = []
     
-    async def set(self, key: str, value: str | bytes, ex: int = None) -> None:
+    async def set(self, key: str, value: str | bytes, ex: int | None = None) -> None:
         """Mock SET command."""
         self.operations.append(("set", key, ex))
         self.data[key] = value
@@ -39,7 +39,7 @@ class MockRedisClient:
     async def scan(self, cursor: int, match: str, count: int) -> tuple[int, list[str]]:
         """Mock SCAN command."""
         self.operations.append(("scan", match))
-        matching_keys = [k for k in self.data.keys() if k.startswith(match.replace("*", ""))]
+        matching_keys = [k for k in self.data if k.startswith(match.replace("*", ""))]
         return 0, matching_keys
 
 
@@ -249,7 +249,7 @@ class TestRedisCheckpointer:
         original_set = checkpointer._redis_client.set
         call_count = 0
         
-        async def mock_set(key: str, value: str | bytes, ex: int = None):
+        async def mock_set(key: str, value: str | bytes, ex: int | None = None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -273,7 +273,7 @@ class TestRedisCheckpointer:
     async def test_retry_logic_raises_after_max_attempts(self, checkpointer, sample_checkpoint, sample_config):
         """Test that retry logic raises CheckpointWriteError after max attempts."""
         # Arrange - mock Redis to always fail
-        async def mock_set(key: str, value: str | bytes, ex: int = None):
+        async def mock_set(key: str, value: str | bytes, ex: int | None = None):
             import redis.asyncio as aioredis
             raise aioredis.ConnectionError("Persistent failure")
         

@@ -78,6 +78,6 @@ class CohereRerankAdapter(Reranker):
             # Cheap API call to check connectivity
             await client.models.list()
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001 — health probe must never raise
             # Catch any cohere-related errors (APIError, RateLimitError, UnauthorizedError, etc.)
             return False

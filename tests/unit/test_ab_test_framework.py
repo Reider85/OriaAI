@@ -7,6 +7,8 @@ import pytest
 from llm_client.rag.config import RetrieverConfig
 from llm_client.rag.eval.evaluator import RAGEvaluator
 
+pytestmark = pytest.mark.eval
+
 
 class TestABTestFramework:
     """Test cases for A/B test framework functionality."""
@@ -130,7 +132,7 @@ class TestABTestFramework:
     @pytest.mark.asyncio
     async def test_ab_test_per_category_breakdown(self):
         """Test that per-category results are correctly calculated."""
-        evaluator = MagicMock(spec=RAGEEvaluator)
+        evaluator = MagicMock(spec=RAGEvaluator)
         
         # Mock detailed results with per-category breakdown
         baseline_report = MagicMock()

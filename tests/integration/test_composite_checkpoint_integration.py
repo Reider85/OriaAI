@@ -23,7 +23,7 @@ async def _are_services_available():
         await redis_client.ping()
         await redis_client.close()
         redis_available = True
-    except Exception:
+    except Exception:  # noqa: BLE001 — degrade gracefully if Redis unavailable for test setup
         redis_available = False
     
     try:
@@ -31,7 +31,7 @@ async def _are_services_available():
         conn = await asyncpg.connect("postgresql://postgres:postgres@localhost:5434/postgres")
         await conn.close()
         postgres_available = True
-    except Exception:
+    except Exception:  # noqa: BLE001 — degrade gracefully if PostgreSQL unavailable for test setup
         postgres_available = False
     
     return redis_available and postgres_available
@@ -77,7 +77,7 @@ async def redis_client():
     try:
         await client.ping()
         yield client
-    except Exception:
+    except Exception:  # noqa: BLE001 — skip test if Redis unavailable
         pytest.skip("Redis checkpoint DB not available")
     finally:
         await client.aclose()
@@ -92,7 +92,7 @@ async def pg_pool():
         async with pool.acquire() as conn:
             await conn.execute(AGENT_CHECKPOINTS_DDL)
         yield pool
-    except Exception:
+    except Exception:  # noqa: BLE001 — skip test if PostgreSQL unavailable
         pytest.skip("PostgreSQL not available")
     finally:
         await pool.close()

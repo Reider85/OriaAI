@@ -36,12 +36,12 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from redis import asyncio as aioredis
 
 from llm_client.transport.cancel import CancellationTokenRegistry
 from llm_client.transport.endpoint import SessionState, build_cancel_router
 from llm_client.transport.publisher import CancelPublisher
 from llm_client.transport.subscriber import CancelSubscriber
+from redis import asyncio as aioredis
 
 pytestmark = [pytest.mark.staging_load]
 

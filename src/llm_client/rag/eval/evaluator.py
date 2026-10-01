@@ -60,7 +60,7 @@ class RAGEvaluator:
         """Validate one dataset entry, raising ValueError with a precise location."""
         where = f"{path}:{lineno}"
         if not isinstance(entry, dict):
-            raise ValueError(f"{where}: entry must be a JSON object, got {type(entry).__name__}")
+            raise TypeError(f"{where}: entry must be a JSON object, got {type(entry).__name__}")
         for field in ("query", "category"):
             if not isinstance(entry.get(field), str) or not entry[field].strip():
                 raise ValueError(f"{where}: '{field}' must be a non-empty string")

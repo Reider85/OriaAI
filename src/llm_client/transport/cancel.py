@@ -3,6 +3,7 @@
 Implements the CancellationToken & CancellationTokenRegistry abstractions from
 MVP-PROMPTS.md Block C-1 (used here by Block B-1 Quick Win).
 """
+
 import asyncio
 import logging
 from collections.abc import Callable, Coroutine

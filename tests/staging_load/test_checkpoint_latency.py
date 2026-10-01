@@ -25,7 +25,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 import asyncpg
 import httpx
@@ -55,13 +55,13 @@ class TestHandle:
 
 def _build_app(checkpointer):
     """A minimal ADR-010 app: create session + simulate graph node execution.
-    
+
     The endpoint simulates a LangGraph node loop that writes checkpoints between
     nodes exactly as ADR-010 requires.
     """
-    
+
     app = FastAPI(title="B-6 checkpoint latency app")
-    
+
     @app.post("/sessions")
     async def create_session() -> dict:
         session_id = f"b6-{uuid.uuid4().hex[:12]}"
@@ -71,7 +71,7 @@ def _build_app(checkpointer):
     async def simulate_node(session_id: str) -> dict:
         """Simulate a node execution with checkpoint write."""
         thread_id = f"b6-{session_id}"
-        
+
         # Simulate checkpoint data for this node
         checkpoint = {
             "id": str(uuid.uuid4()),
@@ -81,14 +81,14 @@ def _build_app(checkpointer):
             "versions_seen": {},
             "updated_channels": [],
         }
-        
+
         config = {"configurable": {"thread_id": thread_id}}
-        
+
         # Write checkpoint and measure latency
         start_time = time.perf_counter()
         await checkpointer.aput(config, checkpoint, {"node": "simulated"})
         latency_ms = (time.perf_counter() - start_time) * 1000
-        
+
         return {"latency_ms": latency_ms, "checkpoint_id": checkpoint["id"]}
 
     return app
@@ -103,7 +103,7 @@ async def test_handle():
         redis_client = aioredis.from_url("redis://127.0.0.1:6379/1", decode_responses=False)
         await redis_client.ping()
         await redis_client.aclose()
-        
+
         # Test PostgreSQL
         conn = await asyncpg.connect("postgresql://postgres:postgres@localhost:5434/llm_client")
         await conn.close()
@@ -118,17 +118,17 @@ async def test_handle():
     settings.redis_checkpoint_ttl_seconds = 86400
     settings.checkpoint_flush_interval_seconds = 5
     settings.checkpoint_flush_batch_size = 50
-    
+
     bundle = build_checkpointer(settings)
     if not bundle.checkpointer:
         pytest.skip("Could not build RedisPostgresCheckpointer")
-    
+
     try:
         # Build FastAPI app with the checkpointer
         app = _build_app(bundle.checkpointer)
         transport = httpx.ASGITransport(app=app)
         client = httpx.AsyncClient(transport=transport, base_url="http://test", timeout=30.0)
-        
+
         yield TestHandle(checkpointer=bundle.checkpointer, http=client)
     finally:
         await client.aclose()
@@ -137,18 +137,18 @@ async def test_handle():
 async def _run_session(handle: TestHandle, session_id: str) -> list[float]:
     """One session: create → simulate N nodes → collect latencies."""
     latencies = []
-    
+
     # Simulate N nodes for this session
     for node_num in range(NODES_PER_SESSION):
         await asyncio.sleep(NODE_DELAY_S)  # Simulate work between nodes
-        
+
         resp = await handle.http.post(f"/sessions/{session_id}/nodes")
         if resp.status_code != 200:
             return []  # Session failed
-        
+
         result = resp.json()
         latencies.append(result["latency_ms"])
-    
+
     return latencies
 
 
@@ -208,7 +208,7 @@ async def test_checkpoint_latency_p99_below_2ms(test_handle):
 
     # Report shape for CI artifacts (B-6 DoD: p50/p95/p99 reported).
     report = {
-        "date": datetime.now().isoformat(),
+        "date": datetime.now(UTC).isoformat(),
         "samples": len(samples),
         "spawned": spawned,
         "load": {"concurrent": SESSIONS_CONCURRENT, "start_rps": SESSION_START_RPS},
@@ -220,12 +220,16 @@ async def test_checkpoint_latency_p99_below_2ms(test_handle):
         "wall_s": round(time.monotonic() - started_at, 1),
     }
     print(f"[checkpoint-latency] {json.dumps(report, sort_keys=True)}")
-    
+
     # Save report to file for trend tracking
     os.makedirs("reports", exist_ok=True)
-    report_file = f"reports/checkpoint_latency_{datetime.now().strftime('%Y-%m-%d')}.json"
-    with open(report_file, "w") as f:
-        json.dump(report, f, indent=2)
+    report_file = f"reports/checkpoint_latency_{datetime.now(UTC).strftime('%Y-%m-%d')}.json"
+
+    def _write_report():
+        with open(report_file, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+
+    await asyncio.to_thread(_write_report)
 
     assert p99 < P99_BUDGET_MS, (
         f"checkpoint p99 latency {p99:.2f} ms exceeds the {P99_BUDGET_MS:.0f} ms budget "

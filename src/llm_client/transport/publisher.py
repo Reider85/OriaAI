@@ -3,6 +3,7 @@
 Channel naming convention: ``session:{session_id}:cancel``.
 Publishes fire-and-forget; latency logged for observability.
 """
+
 import json
 import logging
 import time

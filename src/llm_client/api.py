@@ -8,6 +8,7 @@ is mandatory (startup fails fast if unreachable).
 import logging
 
 from fastapi import FastAPI
+
 from redis import asyncio as aioredis
 
 from .config import Settings

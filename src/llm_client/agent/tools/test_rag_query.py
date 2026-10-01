@@ -3,9 +3,9 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from llm_client.agent.tools.rag_query import RagQueryArgs, rag_query
-
 
 # ── RagQueryArgs schema tests ─────────────────────────────────────────────────
 
@@ -22,9 +22,9 @@ def test_rag_query_args_custom_top_k():
 
 
 def test_rag_query_args_top_k_bounds():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         RagQueryArgs(query="test", top_k=0)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         RagQueryArgs(query="test", top_k=21)
 
 

@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated, Any, TypedDict
+from collections.abc import Hashable
+from typing import Annotated, Any, TypedDict, cast
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import ToolMessage
@@ -283,7 +284,7 @@ def build_agent_graph(
     bound_llm = llm
     if tools:
         try:
-            bound_llm = llm.bind_tools(tools)
+            bound_llm = cast("BaseChatModel", llm.bind_tools(tools))
         except (NotImplementedError, AttributeError) as exc:
             logger.warning("LLM does not support bind_tools (%s); tool calls disabled", exc)
 
@@ -306,12 +307,12 @@ def build_agent_graph(
     async def rag_retriever(state: dict[str, Any]) -> dict[str, Any]:
         return await _rag_retriever_node(state, rag_pipeline, top_k=top_k_override)
 
-    graph.add_node("planner", planner)
-    graph.add_node("final_answer", final_answer)
+    graph.add_node("planner", planner)  # type: ignore[type-var]
+    graph.add_node("final_answer", final_answer)  # type: ignore[type-var]
     if tools:
-        graph.add_node("tool_executor", tool_executor)
+        graph.add_node("tool_executor", tool_executor)  # type: ignore[type-var]
     if rag_pipeline is not None:
-        graph.add_node("rag_retriever", rag_retriever)
+        graph.add_node("rag_retriever", rag_retriever)  # type: ignore[type-var]
 
     # ── Edges ────────────────────────────────────────────────────────────────
 
@@ -371,12 +372,12 @@ def build_agent_graph(
 
     graph.set_entry_point("planner")
 
-    planner_routes: dict[str, Any] = {"final_answer": "final_answer", END: END}
+    planner_routes: dict[str, str] = {"final_answer": "final_answer", END: END}
     if tools:
         planner_routes["tool_executor"] = "tool_executor"
     if rag_pipeline is not None:
         planner_routes["rag_retriever"] = "rag_retriever"
-    graph.add_conditional_edges("planner", route_after_planner, planner_routes)
+    graph.add_conditional_edges("planner", route_after_planner, cast("dict[Hashable, str]", planner_routes))
 
     if tools:
         graph.add_edge("tool_executor", "planner")

@@ -3,11 +3,11 @@ import asyncio
 import os
 
 import pytest
-from redis import asyncio as aioredis
 
 from llm_client.transport.cancel import CancellationTokenRegistry
 from llm_client.transport.publisher import CancelPublisher
 from llm_client.transport.subscriber import CancelSubscriber
+from redis import asyncio as aioredis
 
 pytestmark = [pytest.mark.integration]
 

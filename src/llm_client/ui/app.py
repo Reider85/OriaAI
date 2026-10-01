@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from collections.abc import MutableMapping
 from typing import Any, Literal, cast
 
 import streamlit as st
@@ -60,7 +61,7 @@ session_id = session.init_state()
 
 # Streamlit-specific, not in UIClient interface.
 selected = sidebar.render_sidebar()
-settings = render_settings_panel(st.session_state)
+settings = render_settings_panel(cast(MutableMapping[str, Any], st.session_state))
 if selected is None:
     session.new_session()
     st.session_state[PENDING_ARTIFACTS_KEY] = []

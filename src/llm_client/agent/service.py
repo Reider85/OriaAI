@@ -19,12 +19,13 @@ import asyncio
 import hashlib
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from langchain_core.messages import HumanMessage, ToolMessage
+from prometheus_client.registry import Collector
 from pydantic import BaseModel, Field
 
 from redis import asyncio as aioredis
@@ -44,6 +45,7 @@ from .provider import LLMProviderFactory
 from .tools import file_export, rag_query, web_search
 
 # Prometheus default registry used by /metrics (F-2).
+_PROMETHEUS_DEFAULT_REGISTRY: Any | None = None
 try:
     from prometheus_client import REGISTRY as _PROMETHEUS_DEFAULT_REGISTRY
 except ImportError:  # pragma: no cover — prometheus_client is a hard dependency
@@ -292,7 +294,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 continue
             seen.add(id(registry))
             try:
-                parts.append(generate_latest(registry))
+                parts.append(generate_latest(cast(Collector, registry)))
             except Exception as exc:  # noqa: BLE001 — never break /metrics on one bad collector
                 logger.debug("Skipping prometheus registry in /metrics: %s", exc)
                 continue
@@ -474,7 +476,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 status_code=503,
             )
 
-        s3_key = meta.get("s3_key", "")
+        s3_key = str(meta.get("s3_key", ""))
         if not s3_key:
             return JSONResponse({"error": "Artifact metadata invalid"}, status_code=404)
 
@@ -487,7 +489,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         ext = _Path(s3_key).suffix.lower()
         media_type = _MIME_BY_EXT.get(ext, "application/octet-stream")
-        filename = meta.get("filename", _Path(s3_key).name)
+        filename = str(meta.get("filename", _Path(s3_key).name))
         return Response(
             content=content,
             media_type=media_type,

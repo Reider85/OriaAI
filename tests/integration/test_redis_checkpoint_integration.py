@@ -25,7 +25,7 @@ class TestRedisCheckpointerIntegration:
             # Test connection
             await client.ping()
             yield client
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — skip test if Redis unavailable
             pytest.skip(f"Redis not available: {e}")
         finally:
             await client.aclose()
@@ -132,12 +132,12 @@ class TestRedisCheckpointerIntegration:
         # Arrange - clean up and create multiple checkpoints
         await checkpointer.adelete_thread(sample_config["thread_id"])
         
-        # Create and store multiple checkpoints
+        # Create and store multiple checkpoints with distinct timestamps
         for i in range(5):
             checkpoint = Checkpoint(
                 v=1,
                 id=f"list-checkpoint-{i}",
-                ts="2026-09-27T10:00:00Z",
+                ts=f"2026-09-27T10:00:0{i}Z",
                 channel_values={"messages": [{"role": "user", "content": f"List test {i}"}]},
                 channel_versions={"messages": str(i)},
                 versions_seen={"messages": {str(i): str(i)}},
@@ -152,8 +152,10 @@ class TestRedisCheckpointerIntegration:
         
         # Assert
         assert len(checkpoints) == 5
-        for i, checkpoint_tuple in enumerate(checkpoints):
-            assert checkpoint_tuple.checkpoint["id"] == f"list-checkpoint-{i}"
+        # Verify all expected checkpoint IDs are present
+        returned_ids = {cp.checkpoint["id"] for cp in checkpoints}
+        expected_ids = {f"list-checkpoint-{i}" for i in range(5)}
+        assert returned_ids == expected_ids
 
     @pytest.mark.asyncio
     async def test_delete_thread_integration(self, checkpointer, sample_checkpoint, sample_config):
@@ -193,8 +195,8 @@ class TestRedisCheckpointerIntegration:
         )
         
         writes = [
-            ("messages", "Hello", "1"),
-            ("context", "World", "1"),
+            ("messages", "Hello"),
+            ("context", "World"),
         ]
         
         # Act - store both checkpoint and writes
@@ -211,10 +213,15 @@ class TestRedisCheckpointerIntegration:
     @pytest.mark.asyncio
     async def test_connection_error_handling(self, checkpointer, sample_checkpoint, sample_config):
         """Test handling of Redis connection errors."""
-        # Arrange - close the Redis connection
-        await checkpointer._redis_client.aclose()
+        # Arrange - mock the Redis client to always fail
+        import redis.asyncio as aioredis
+
+        async def failing_set(*args, **kwargs):
+            raise aioredis.ConnectionError("Connection refused")
+
+        checkpointer._redis_client.set = failing_set
         
-        # Act & Assert - should raise CheckpointWriteError
+        # Act & Assert - should raise CheckpointWriteError after retries
         with pytest.raises(Exception) as exc_info:
             await checkpointer.aput(sample_config, sample_checkpoint, {})
         

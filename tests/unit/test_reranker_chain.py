@@ -12,6 +12,7 @@ from llm_client.rag.pipeline import rerank_after_fusion
 from llm_client.rag.rerankers.base import RerankResult
 from llm_client.rag.rerankers.chain import RerankerChain
 from llm_client.rag.rerankers.identity import IdentityReranker
+from llm_client.rag.rerankers.registry import RerankerNotFoundError
 
 
 class MockReranker:
@@ -362,7 +363,7 @@ async def test_pipeline_with_fallback_chain_registry_error(sample_documents, moc
     
     def mock_get(name):
         if name == "missing":
-            raise Exception("Reranker not found")
+            raise RerankerNotFoundError("Reranker not found")
         return {"primary": primary, "fallback": fallback}[name]
     
     mock_registry.get.side_effect = mock_get

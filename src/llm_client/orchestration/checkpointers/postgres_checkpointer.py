@@ -21,7 +21,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import asyncpg
 from langgraph.checkpoint.base import (
@@ -338,8 +338,8 @@ class PostgresCheckpointer(BaseCheckpointSaver):
             k for k, pending in self._buffer.items() if str(pending.thread_id) == str(thread_id)
         ]:
             del self._buffer[key]
-        for key in [k for k in self._writes_buffer if k[0] == thread_id]:
-            del self._writes_buffer[key]
+        for write_key in [k for k in self._writes_buffer if k[0] == thread_id]:
+            del self._writes_buffer[write_key]
 
         await self._pg_pool.execute(_DELETE_THREAD_SQL, _as_uuid(thread_id, "thread_id"))
 
@@ -444,7 +444,7 @@ class PostgresCheckpointer(BaseCheckpointSaver):
 
             try:
                 await self._flush()
-            except (asyncpg.PostgresError, Exception) as exc:
+            except (asyncpg.PostgresError, Exception) as exc:  # noqa: BLE001 — log but continue on shutdown failure
                 logger.error("Final flush failed during shutdown: %s", exc)
 
             logger.info(
@@ -478,10 +478,10 @@ class PostgresCheckpointer(BaseCheckpointSaver):
                 logger.info("Received shutdown signal, performing final flush")
                 try:
                     await self._flush()
-                except (asyncpg.PostgresError, Exception) as final_exc:
+                except (asyncpg.PostgresError, Exception) as final_exc:  # noqa: BLE001 — log but continue on shutdown failure
                     logger.error("Final flush failed during shutdown: %s", final_exc)
                 break
-            except (asyncpg.PostgresError, Exception) as e:
+            except (asyncpg.PostgresError, Exception) as e:  # noqa: BLE001 — flusher is critical, never dies
                 # Log error, continue loop (flusher is critical, never dies)
                 self._consecutive_failures += 1
                 if self._metrics:
@@ -814,7 +814,7 @@ def _load_checkpoint(serde: SerializerProtocol, row: Any) -> Checkpoint:
 
 
 def _row_to_tuple(serde: SerializerProtocol, row: Any, thread_id: str) -> CheckpointTuple:
-    metadata = _as_dict(row["metadata"])
+    metadata = cast(CheckpointMetadata, _as_dict(row["metadata"]))
     parent_id = row["parent_id"]
     return CheckpointTuple(
         config={
@@ -838,13 +838,13 @@ def _matches_filter(metadata: CheckpointMetadata | dict | None, filter: dict[str
     """Check metadata against LangGraph's simple ``key == value`` filter semantics."""
     if not filter:
         return True
-    metadata = metadata or {}
+    metadata_dict = cast(dict[str, Any], metadata or {})
     for key, expected in filter.items():
-        if key not in metadata:
+        if key not in metadata_dict:
             return False
         if isinstance(expected, (list, tuple, set)):
-            if metadata[key] not in expected:
+            if metadata_dict[key] not in expected:
                 return False
-        elif metadata[key] != expected:
+        elif metadata_dict[key] != expected:
             return False
     return True

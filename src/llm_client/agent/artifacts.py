@@ -18,6 +18,8 @@ import json
 import logging
 from pathlib import Path
 
+from llm_client.storage.base import FileStorage
+
 logger = logging.getLogger(__name__)
 
 ARTIFACT_PREFIX = "artifacts"
@@ -64,19 +66,18 @@ def stem_of(filename: str) -> str:
 
 
 async def save_artifact_meta(
-    storage: object,
+    storage: FileStorage,
     artifact_id: str,
     meta: dict[str, object],
 ) -> None:
     """Persist the metadata sidecar to S3."""
     key = artifact_meta_key(artifact_id)
     body = json.dumps(meta, separators=(",", ":")).encode()
-    # type: ignore[union-attr]
     await storage.save(body, key)
 
 
 async def load_artifact_meta(
-    storage: object,
+    storage: FileStorage,
     artifact_id: str,
 ) -> dict[str, object] | None:
     """Read the metadata sidecar, or ``None`` when not found."""
