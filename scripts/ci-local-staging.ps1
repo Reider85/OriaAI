@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("checkpoint-latency", "checkpoint-recovery", "reranker-ab-test", "hybrid-rag-ab-test", "web-search-integration", "rag-query-integration", "sse-tool-events", "idealidad", "all")]
+    [ValidateSet("checkpoint-latency", "checkpoint-recovery", "reranker-ab-test", "hybrid-rag-ab-test", "web-search-integration", "rag-query-integration", "sse-tool-events", "idealidad", "forensic", "all")]
     [string[]]$Target = @("all"),
     [ValidateRange(1, 65535)]
     [int]$Port = 8501,
@@ -450,6 +450,73 @@ function Run-IdealidadMetric {
     }
 }
 
+function Run-ForensicStaging {
+    Write-Host "Running forensic staging tests..." -ForegroundColor Cyan
+    
+    # Set forensic environment
+    $envVars = @{
+        "ENVIRONMENT" = "staging"
+        "FORENSIC_STREAM_ENABLED" = "true"
+        "KMS_PROVIDER" = "vault"
+        "VAULT_ADDR" = "http://127.0.0.1:8200"
+        "VAULT_TOKEN" = "root"
+        "VAULT_TRANSIT_KEY" = "forensic-aes256-gcm"
+        "S3_ENDPOINT" = "http://127.0.0.1:9000"
+        "S3_ACCESS_KEY" = "minioadmin"
+        "S3_SECRET_KEY" = "minioadmin"
+        "S3_FORENSIC_BUCKET" = "llm-client-forensic"
+        "REDIS_URL" = "redis://localhost:6380/0"
+        "OPENAI_API_KEY" = "sk-test-placeholder"
+    }
+    
+    # Initialize Vault transit
+    Write-Host "Initializing Vault transit engine..." -ForegroundColor Cyan
+    docker run --rm --network host `
+        -e VAULT_ADDR=http://127.0.0.1:8200 `
+        -e VAULT_TOKEN=root `
+        hashicorp/vault:latest `
+        sh -c 'vault secrets enable transit && vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96'
+    
+    # Create MinIO forensic bucket
+    Write-Host "Creating MinIO forensic bucket..." -ForegroundColor Cyan
+    docker run --rm --network host quay.io/minio/mc:latest `
+        sh -c 'mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && mc mb -p local/llm-client-forensic'
+    
+    # Run forensic e2e test
+    Write-Host "Running forensic e2e test..." -ForegroundColor Cyan
+    $testResult = Run-Test -TestName "forensic-e2e" -TestCommand "tests/integration/test_forensic_stream_e2e.py" -TimeoutSeconds 300 -Environment $envVars
+    if ($testResult -ne 0) { return $testResult }
+    
+    # Run integration tests with forensic enabled
+    Write-Host "Running integration tests with forensic enabled..." -ForegroundColor Cyan
+    $testResult = Run-Test -TestName "integration-forensic" -TestCommand "tests/integration -m integration" -TimeoutSeconds 600 -Environment $envVars
+    if ($testResult -ne 0) { return $testResult }
+    
+    # Validate staging settings
+    Write-Host "Validating staging settings..." -ForegroundColor Cyan
+    $arguments = @($python.Prefix) + @("-c", "from llm_client.config import Settings; s=Settings(); assert s.environment=='staging' and s.forensic_stream_enabled and s.vault_token=='root'")
+    $result = Invoke-Python -Python $python -Arguments $arguments
+    if ($result -ne 0) { return $result }
+    
+    # Validate prod settings (positive case)
+    Write-Host "Validating prod settings (positive case)..." -ForegroundColor Cyan
+    $arguments = @($python.Prefix) + @("-c", "from llm_client.config import Settings; s=Settings(); assert s.environment=='prod' and s.forensic_stream_enabled")
+    $result = Invoke-Python -Python $python -Arguments $arguments
+    if ($result -ne 0) { return $result }
+    
+    # Validate prod settings (negative case - should fail)
+    Write-Host "Validating prod settings (negative case)..." -ForegroundColor Cyan
+    $arguments = @($python.Prefix) + @("-c", "from llm_client.config import Settings; s=Settings(); assert s.environment=='prod' and not s.forensic_stream_enabled")
+    $result = Invoke-Python -Python $python -Arguments $arguments
+    if ($result -eq 0) {
+        Write-Host "ERROR: Prod settings should have failed when forensic_stream_enabled=false" -ForegroundColor Red
+        return 1
+    }
+    Write-Host "✅ Prod settings correctly failed when forensic_stream_enabled=false" -ForegroundColor Green
+    
+    return 0
+}
+
 function Invoke-Python {
     param(
         [pscustomobject]$Python,
@@ -527,6 +594,10 @@ foreach ($target in $Target) {
             $exitCode = Run-IdealidadMetric
             $totalExitCode = $totalExitCode -bor $exitCode
         }
+        "forensic" {
+            $exitCode = Run-ForensicStaging
+            $totalExitCode = $totalExitCode -bor $exitCode
+        }
         "all" {
             $exitCode = Run-CheckpointLatency
             $totalExitCode = $totalExitCode -bor $exitCode
@@ -550,6 +621,9 @@ foreach ($target in $Target) {
             $totalExitCode = $totalExitCode -bor $exitCode
             
             $exitCode = Run-IdealidadMetric
+            $totalExitCode = $totalExitCode -bor $exitCode
+            
+            $exitCode = Run-ForensicStaging
             $totalExitCode = $totalExitCode -bor $exitCode
         }
     }

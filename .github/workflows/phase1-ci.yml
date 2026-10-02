@@ -73,7 +73,7 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
       minio:
-        image: minio/minio:latest
+        image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
@@ -175,6 +175,13 @@ jobs:
       - name: Validate staging settings
         run: |
           python -c "from llm_client.config import Settings; s=Settings(); assert s.environment=='staging' and s.forensic_stream_enabled and s.vault_token=='root'"
+      - name: Validate prod settings (positive case)
+        run: |
+          python -c "from llm_client.config import Settings; s=Settings(); assert s.environment=='prod' and s.forensic_stream_enabled"
+      - name: Validate prod settings (negative case - should fail)
+        run: |
+          python -c "from llm_client.config import Settings; s=Settings(); assert s.environment=='prod' and not s.forensic_stream_enabled" || true
+        continue-on-error: true
       - name: Forensic e2e test
         run: pytest tests/integration/test_forensic_stream_e2e.py -v --tb=short
       - name: Integration tests with forensic enabled

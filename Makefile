@@ -8,7 +8,7 @@
 #
 # On Windows: Git Bash / MSYS / WSL required for make. PowerShell scripts (.ps1) remain available.
 
-.PHONY: ci-local ci-local-quick ci-local-staging ci-local-integration-stall
+.PHONY: ci-local ci-local-quick ci-local-staging ci-local-integration-staging
 
 ci-local: ci-local-quick
 

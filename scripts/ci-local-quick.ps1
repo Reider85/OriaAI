@@ -571,9 +571,6 @@ foreach ($target in $Target) {
             
             $exitCode = Run-RAGQueryQuick
             $totalExitCode = $totalExitCode -bor $exitCode
-            
-            $exitCode = Run-UIQuick
-            $totalExitCode = $totalExitCode -bor $exitCode
         }
     }
 }

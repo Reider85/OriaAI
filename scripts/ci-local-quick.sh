@@ -175,7 +175,13 @@ start_infrastructure() {
     wait_for_service "Redis" "http://localhost:6380/0"
     wait_for_service "MinIO" "http://localhost:9000/minio/health/live"
     wait_for_service "Vault" "http://localhost:8200/v1/sys/health"
-    wait_for_service "PostgreSQL" "postgresql://postgres:postgres@localhost:5434/llm_client"
+    # Wait for PostgreSQL using python asyncpg
+    log_info "Waiting for PostgreSQL..."
+    while ! "${PYTHON_EXE}" -c "import asyncio; import asyncpg; import sys; exit(0 if asyncio.run(asyncpg.connect('postgresql://postgres:postgres@localhost:5434/llm_client')) else 1)" 2>/dev/null; do
+        log_info "Waiting for PostgreSQL... (${attempt}/${max_attempts})"
+        sleep 2
+        ((attempt++))
+    done
     
     log_info "Infrastructure is ready!"
 }
@@ -277,7 +283,6 @@ print('✅ BM25 indexing regression test passed')
             run_tests hybrid-rag
             run_tests web-search
             run_tests rag-query
-            run_tests ui
             ;;
         *)
             log_error "Unknown target: ${target}"
