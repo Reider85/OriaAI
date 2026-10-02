@@ -1,5 +1,7 @@
 """Integration tests for RedisPostgresCheckpointer (B-3)."""
 
+pytestmark = [pytest.mark.integration]
+
 import uuid
 
 import asyncpg

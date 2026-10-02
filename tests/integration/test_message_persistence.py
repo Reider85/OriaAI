@@ -1,4 +1,6 @@
 """Integration tests for message persistence with PII metadata."""
+
+pytestmark = [pytest.mark.integration]
 import asyncio
 import json
 import uuid

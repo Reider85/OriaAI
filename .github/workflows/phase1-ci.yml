@@ -43,8 +43,22 @@ jobs:
           tests/staging_load
       - name: Typecheck (mypy)
         run: mypy src/llm_client
-      - name: Unit tests + PII leak audit (F-2)
-        run: pytest tests/unit --maxfail=1
+      - name: Unit tests + PII leak audit (F-2) + coverage
+        run: >-
+          pytest tests/unit --maxfail=1
+          --cov=src/llm_client
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-report=html
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-unit
+          path: |
+            coverage.xml
+            htmlcov/
+          retention-days: 14
       - name: G-2 Ideality metrics collect (verify no crash)
         run: python scripts/collect_idealidad_metrics.py --once > /dev/null
 
@@ -71,7 +85,7 @@ jobs:
       vault:
         image: hashicorp/vault:latest
         env:
-          VAULT_DEV_ROOT_TOKEN_ID: root-token
+          VAULT_DEV_ROOT_TOKEN_ID: root
           VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
         ports: ['8200:8200']
         command: server -dev
@@ -86,8 +100,85 @@ jobs:
           cache: pip
       - name: Install package + dev deps
         run: pip install -e '.[dev]'
+      - name: Initialize Vault transit engine
+        run: |
+          docker run --rm --network host \
+            -e VAULT_ADDR=http://127.0.0.1:8200 \
+            -e VAULT_TOKEN=root \
+            hashicorp/vault:latest \
+            sh -c 'vault secrets enable transit && vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96'
       - name: Integration tests (F-3 parity on dev MinIO + B-1 infra)
         run: pytest tests/integration --maxfail=1
+
+  # F-4 integration-staging: forensic stream enabled + Vault (staging environment)
+  integration-staging:
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: staging
+      FORENSIC_STREAM_ENABLED: 'true'
+      KMS_PROVIDER: vault
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_TOKEN: root
+      VAULT_TRANSIT_KEY: forensic-aes256-gcm
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_FORENSIC_BUCKET: llm-client-forensic
+      REDIS_URL: redis://127.0.0.1:6380/0
+      OPENAI_API_KEY: sk-test-placeholder
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6380:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      minio:
+        image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ['9000:9000']
+        command: server /data
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      vault:
+        image: hashicorp/vault:latest
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: root
+          VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+        ports: ['8200:8200']
+        command: server -dev
+        options: >-
+          --health-cmd "wget -qO- http://localhost:8200/v1/sys/health || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install package + dev deps
+        run: pip install -e '.[dev]'
+      - name: Initialize Vault transit engine
+        run: |
+          docker run --rm --network host \
+            -e VAULT_ADDR=http://127.0.0.1:8200 \
+            -e VAULT_TOKEN=root \
+            hashicorp/vault:latest \
+            sh -c 'vault secrets enable transit && vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96'
+      - name: Create MinIO forensic bucket
+        run: |
+          docker run --rm --network host quay.io/minio/mc:latest \
+            sh -c 'mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && mc mb -p local/llm-client-forensic'
+      - name: Validate staging settings
+        run: |
+          python -c "from llm_client.config import Settings; s=Settings(); assert s.environment=='staging' and s.forensic_stream_enabled and s.vault_token=='root'"
+      - name: Forensic e2e test
+        run: pytest tests/integration/test_forensic_stream_e2e.py -v --tb=short
+      - name: Integration tests with forensic enabled
+        run: pytest tests/integration -m integration --maxfail=1
 
   # F-1 cancel latency on dev Redis (fast sample) — quick feedback on merge/PR.
   cancel-latency-dev:

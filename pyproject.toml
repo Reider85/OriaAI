@@ -104,3 +104,11 @@ identity = "llm_client.rag.rerankers.identity:IdentityReranker"
 bge = "llm_client.rag.rerankers.bge:BgeRerankerAdapter"
 cohere = "llm_client.rag.rerankers.cohere:CohereRerankAdapter"
 chain = "llm_client.rag.rerankers.chain:RerankerChain"
+
+[tool.coverage.run]
+source = ["src/llm_client"]
+branch = false
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

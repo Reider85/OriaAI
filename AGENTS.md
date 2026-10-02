@@ -56,10 +56,28 @@ pytest tests/unit/test_cancel_token.py -v
 pytest tests/unit/test_cancel_token.py::test_function_name -v
 
 # With coverage
-pytest tests --cov=src/llm_client --cov-report=term-missing
+pytest tests --cov=src/llm_client --cov-report=term-missing --cov-report=xml
 ```
 
 **Test markers:** `integration` (needs docker-compose services), `staging_load` (nightly), `eval` (A/B test framework)
+
+### Local CI Pipeline (cross-platform)
+
+```bash
+# PR pipeline (quick validation)
+make ci-local-quick
+
+# Full staging pipeline (nightly jobs locally)
+make ci-local-staging
+
+# Forensic integration staging (test forensic path end-to-end)
+make ci-local-integration-staging
+
+# Alias for ci-local-quick
+make ci-local
+```
+
+**Windows users:** PowerShell scripts remain available: `.\scripts\ci-local-quick.ps1`, `.\scripts\ci-local-staging.ps1`
 
 ### Lint & Typecheck
 
@@ -137,7 +155,7 @@ pytest tests/unit -m eval --cov=src/llm_client/rag/eval --cov-report=term-missin
 - **Redis DB separation:** DB 0 = pub/sub (cancel channel), DB 1 = checkpoint-WAL. Do NOT cross-use.
 - **MinIO is mandatory** for local dev. `LocalFileStorage` was removed; `S3CompatibleStorage` is the only backend.
 - **OPENAI_API_KEY** is required at import time when `LLM_PROVIDER=openai` (default). Tests set a placeholder via `conftest.py`.
-- **Vault** is only needed when `FORENSIC_STREAM_ENABLED=true` (prod/staging). In dev mode it's off.
+- **Vault** is only needed when `FORENSIC_STREAM_ENABLED=true` (prod/staging). In dev mode it's off. CI integration-staging job tests forensic path end-to-end.
 - **spaCy model** required for PII detection: `python -m spacy download en_core_web_md`
 - **Execution policy:** If `Activate.ps1` is blocked: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 - **Redis port 6379:** May be in use by other projects. Host access is on 6380; compose network uses 6379.
@@ -146,9 +164,13 @@ pytest tests/unit -m eval --cov=src/llm_client/rag/eval --cov-report=term-missin
 
 ## CI Workflows
 
-- **phase1-ci.yml:** On push/PR → lint → typecheck → unit tests → integration tests → cancel latency (dev sample)
+- **phase1-ci.yml:** On push/PR → lint → typecheck → unit tests + coverage → integration-dev → integration-staging (forensic+Vault) → cancel latency (dev sample)
 - **phase1-nightly.yml:** Full staging load (1000 samples), PII audit, S3 parity matrix, ideality metric
+- **phase2-ci.yml:** Phase 2 features → unit tests with coverage → integration-dev → checkpoint latency → reranker/hybrid/web-search/rag-query A/B tests
+- **phase2-nightly.yml:** Full staging pipeline with real services → forensic path validation in staging
 - **checkpoint-nightly.yml:** Checkpoint backend nightly tests
+
+**Forensic integration-staging:** New job in phase1-ci validates forensic path with `FORENSIC_STREAM_ENABLED=true` + Vault transit encryption + MinIO forensic bucket upload. Also runs prod settings validation.
 
 ## Code Style
 

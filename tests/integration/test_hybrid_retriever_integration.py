@@ -1,5 +1,7 @@
 """Integration test for HybridRetriever with real components."""
 
+pytestmark = [pytest.mark.integration]
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
