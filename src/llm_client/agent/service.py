@@ -32,11 +32,17 @@ from redis import asyncio as aioredis
 
 from ..config import Settings
 from ..orchestration.checkpointers.factory import generate_thread_id
-from ..security.pii_detector import PIIDetectionResult, PIIDetector
+from ..security.pii_detector import PIIDetectionResult
 from ..storage.factory import create_file_storage
 from ..transport.cancel import CancellationTokenRegistry
 from ..transport.endpoint import build_cancel_router, get_session_state
 from ..transport.publisher import CancelPublisher
+from ..transport.runtime_context import (
+    SessionRuntimeContext,
+    delete_runtime_context,
+    get_runtime_registry,
+    save_runtime_context,
+)
 from ..transport.subscriber import CancelSubscriber
 from .artifacts import load_artifact_meta
 from .cycle_detection import IterationMonitor
@@ -48,6 +54,12 @@ from .graph import (
     build_agent_graph,
     normalise_query,
 )
+from .message_store import (
+    detection_to_columns,
+    ensure_chat_parents,
+    insert_message,
+)
+from uuid import uuid4, UUID
 from .provider import LLMProviderFactory
 from .tools import file_export, rag_query, web_search
 
@@ -77,6 +89,9 @@ CHUNK_KEY_CANCELLED = "_cancelled"
 #: its tool-call previews by id, so one stable id is synthesised per stream to
 #: carry the ``retrieved_docs`` event.
 RAG_RETRIEVER_TOOL_CALL_ID = "rag-retriever"
+
+#: Known LangGraph node names used as a heuristic when classifying astream chunks.
+_KNOWN_GRAPH_NODES = frozenset({"planner", "final_answer", "tool_executor", "rag_retriever"})
 
 
 # ── SSE helper (reused in AG-3) ───────────────────────────────────────────────
@@ -198,6 +213,64 @@ def resolve_tools(settings: dict[str, Any] | None) -> list[Any]:
     return tools
 
 
+# ── Graph runtime context (C-6 forensic cancel fields) ───────────────────────
+
+
+def _message_key(message: Any) -> str:
+    mid = getattr(message, "id", None)
+    return str(mid) if mid else str(id(message))
+
+
+def _content_byte_size(content: Any) -> int | None:
+    if isinstance(content, str):
+        return len(content.encode("utf-8")) if content else None
+    return None
+
+
+def _update_runtime_from_chunk(
+    runtime: SessionRuntimeContext,
+    chunk: Any,
+    seen_message_keys: set[str],
+) -> SessionRuntimeContext:
+    """Fold a ``graph.astream`` update chunk into the session runtime snapshot."""
+    if not isinstance(chunk, dict):
+        return runtime
+
+    for key, value in chunk.items():
+        if key.startswith("_") or not isinstance(value, dict):
+            continue
+        if key not in _KNOWN_GRAPH_NODES and "messages" not in value and "final_answer" not in value:
+            continue
+
+        runtime.last_node_executed = key
+
+        messages = value.get("messages")
+        if isinstance(messages, list) and messages:
+            for msg in messages:
+                seen_message_keys.add(_message_key(msg))
+            runtime.messages_count = len(seen_message_keys)
+            last = messages[-1]
+            size = _content_byte_size(getattr(last, "content", None))
+            if size is not None:
+                runtime.partial_answer_size_bytes = size
+
+        final_answer = value.get("final_answer")
+        if isinstance(final_answer, str) and final_answer:
+            runtime.partial_answer_size_bytes = _content_byte_size(final_answer)
+
+    return runtime
+
+
+def _seed_runtime_from_state(state: dict[str, Any]) -> tuple[SessionRuntimeContext, set[str]]:
+    messages = state.get("messages") or []
+    seen = {_message_key(m) for m in messages}
+    runtime = SessionRuntimeContext(messages_count=len(seen))
+    if messages:
+        last = messages[-1]
+        runtime.partial_answer_size_bytes = _content_byte_size(getattr(last, "content", None))
+    return runtime, seen
+
+
 # ── Application factory ───────────────────────────────────────────────────────
 
 
@@ -217,7 +290,69 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     registry = CancellationTokenRegistry()
     publisher = CancelPublisher(redis_client)
     state = get_session_state()
-    subscriber = CancelSubscriber(redis_client, registry)
+    runtime_registry = get_runtime_registry()
+
+    # ── ADR-014 dual-stream logging (cancel events + C-6 forensic fields) ────
+    from ..observability.forensic_writer import ForensicStreamWriter, build_forensic_writer
+    from ..observability.kms_provider import (
+        KMSKeyProvider,
+        LocalDevKeyProvider,
+        VaultTransitKeyProvider,
+    )
+    from ..observability.operational_writer import build_operational_writer
+    from ..security.pii_detector import PIIDetector
+
+
+    pii_detector = PIIDetector(
+        spacy_model=settings.pii_detector_spacy_model,
+        enabled=settings.pii_detector_enabled,
+    )
+
+    forensic_writer: ForensicStreamWriter | None = None
+    kms_provider: KMSKeyProvider | None = None
+    if settings.forensic_stream_enabled:
+        if settings.kms_provider == "vault":
+            kms_provider = VaultTransitKeyProvider(
+                settings.vault_addr, settings.vault_token, settings.vault_transit_key
+            )
+            logger.info("KMS provider: Vault transit (%s)", settings.vault_transit_key)
+        else:
+            kms_provider = LocalDevKeyProvider()
+        from ..storage.factory import create_file_storage as _create_file_storage
+
+        forensic_writer = build_forensic_writer(
+            settings,
+            kms_provider,
+            _create_file_storage(),
+        )
+    else:
+        logger.warning("Forensic stream disabled — dev mode")
+
+    operational_writer = build_operational_writer(settings, pii_detector)
+
+    async def _on_cancel_event(event: dict) -> None:
+        await operational_writer.write(
+            {
+                "event_type": event["event_type"],
+                "session_id": event["session_id"],
+                "user_id": "[MASKED]" if event.get("user_id") else None,
+                "reason": event["reason"],
+                "timestamp": event["timestamp"],
+            }
+        )
+        if forensic_writer is not None:
+            await forensic_writer.write(event)
+
+    def _session_context_provider(session_id: str) -> dict[str, Any] | None:
+        ctx = runtime_registry.get(session_id)
+        return ctx.to_dict() if ctx is not None else None
+
+    subscriber = CancelSubscriber(
+        redis_client,
+        registry,
+        cancel_event_handler=_on_cancel_event,
+        session_context_provider=_session_context_provider,
+    )
 
     # Shared asyncpg pool for checkpointing + RAG/indexing (ADR-010 / ADR-020).
     # Created at factory time (no running loop yet when uvicorn imports the app);
@@ -258,12 +393,6 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     except Exception as exc:  # noqa: BLE001 — ingestion degrades to BM25-only
         logger.warning("Vector writer unavailable: %s", exc)
 
-    # ── PII detection (AG-3: metadata event source, ADR-014 D-1) ──────────────
-    pii_detector = PIIDetector(
-        spacy_model=settings.pii_detector_spacy_model,
-        enabled=settings.pii_detector_enabled,
-    )
-
     app = FastAPI(title="LLM Client — agent-service", version="0.1.0")
     app.state.redis = redis_client
     app.state.registry = registry
@@ -272,6 +401,8 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     app.state.pg_pool = pg_pool
     app.state.bm25_indexer = bm25_indexer
     app.state.vector_writer = vector_writer
+    app.state.operational_writer = operational_writer
+    app.state.forensic_writer = forensic_writer
     # Store checkpointer resources for lifecycle management
     app.state.checkpointer_bundle = checkpointer_bundle
 
@@ -419,31 +550,97 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             # Metadata disabled — resolve immediately with a zero score (D-1 no-op).
             metadata_future.set_result(PIIDetectionResult(score=0.0, entities=[]))
 
-        async def _run_graph() -> None:
-            """Execute graph.astream in background, push chunks to queue."""
+        # Persist user message after PII detection completes
+        async def _persist_user_message() -> None:
             try:
-                # Use thread_id for checkpointing if checkpointer is available
-                config = (
-                    {"configurable": {"thread_id": generate_thread_id(session_id)}}
-                    if checkpointer_bundle.checkpointer
-                    else None
+                detection = await metadata_future
+                score, entities = detection_to_columns(detection, settings.pii_metadata_enabled)
+                
+                # Ensure parents and get UUIDs
+                _, session_uuid = await ensure_chat_parents(
+                    pool=app.state.pg_pool,
+                    user_key=body.user_id or "anonymous",
+                    session_key=session_id,
+                    provider=settings.llm_provider,
+                    model_name=model_name,
                 )
                 
-                # Pass token via config for in-flight cancellation
-                if config is None:
-                    config = {}
-                config["configurable"] = config.get("configurable", {})
-                config["configurable"]["cancel_token"] = token
+                # Insert user message with PII metadata
+                message_uuid = uuid.UUID(message_id) if len(message_id) == 32 else uuid.uuid4()
+                await insert_message(
+                    pool=app.state.pg_pool,
+                    message_id=message_uuid,
+                    session_id=session_uuid,
+                    role="user",
+                    content={"text": body.message},
+                    pii_score=score,
+                    pii_entities=entities,
+                )
+                logger.debug("Persisted user message %s with PII score %s", message_id, score)
                 
+            except Exception:
+                logger.exception("Failed to persist user message for session %s", session_id)
+                # Never fail the chat due to persistence errors
+        
+        asyncio.create_task(_persist_user_message())
+
+        async def _run_graph() -> None:
+            """Execute graph.astream in background, push chunks to queue."""
+            runtime, seen_message_keys = _seed_runtime_from_state(initial_state)
+            runtime_registry.set(session_id, runtime)
+            await save_runtime_context(redis_client, session_id, runtime)
+            
+            # Buffer for assistant/tool messages to persist at completion
+            assistant_content = []
+            tool_messages = []
+            
+            try:
+                # Use thread_id for checkpointing if checkpointer is available
+                config: dict[str, Any] = (
+                    {"configurable": {"thread_id": generate_thread_id(session_id)}}
+                    if checkpointer_bundle.checkpointer
+                    else {}
+                )
+
+                # Pass token via config for in-flight cancellation
+                configurable = config.get("configurable")
+                if not isinstance(configurable, dict):
+                    configurable = {}
+                    config["configurable"] = configurable
+                configurable["cancel_token"] = token
+
                 # Register task cancellation for belt-and-suspenders
                 async def _abort_graph_task() -> None:
                     if not task.done():
                         task.cancel()
-                
+
                 token.on_cancel(_abort_graph_task)
 
                 async for chunk in graph.astream(initial_state, config=config):
+                    _update_runtime_from_chunk(runtime, chunk, seen_message_keys)
+                    runtime_registry.set(session_id, runtime)
+                    await save_runtime_context(redis_client, session_id, runtime)
                     await queue.put(chunk)
+                    
+                    # Extract assistant/tool messages for persistence
+                    for msg in _iter_stream_messages(chunk):
+                        if isinstance(msg, ToolMessage):
+                            tool_messages.append({
+                                "tool_call_id": str(getattr(msg, "tool_call_id", "") or ""),
+                                "tool_name": getattr(msg, "name", None) or "unknown",
+                                "text": str(msg.content) if msg.content else "",
+                            })
+                        elif hasattr(msg, "content"):
+                            content = msg.content if hasattr(msg, "content") else str(msg)
+                            if isinstance(content, list):
+                                # Content blocks (LangChain v1): concatenate plain text parts
+                                content = "".join(
+                                    part.get("text", "")
+                                    for part in content
+                                    if isinstance(part, dict) and part.get("type") == "text"
+                                )
+                            if content:
+                                assistant_content.append(content)
                     
             except GraphCancelled as exc:
                 logger.info("Graph cancelled for session %s: %s", session_id, exc.reason)
@@ -452,8 +649,17 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 cancelled_payload = {"reason": exc.reason}
                 if partial_answer:
                     cancelled_payload["final_answer"] = partial_answer
+                    runtime.partial_answer_size_bytes = _content_byte_size(partial_answer)
+                    runtime_registry.set(session_id, runtime)
+                    await save_runtime_context(redis_client, session_id, runtime)
                 await queue.put({CHUNK_KEY_CANCELLED: cancelled_payload})
                 
+                # Persist partial answer if available
+                if partial_answer:
+                    await _persist_assistant_final_answer(
+                        session_id, partial_answer, runtime_registry.get(session_id)
+                    )
+                    
             except GraphInvokeTimeout as exc:
                 logger.warning("Graph timeout for session %s: %s", session_id, exc)
                 await queue.put({CHUNK_KEY_ERROR: exc})
@@ -461,8 +667,105 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             except Exception as exc:
                 logger.exception("Graph execution failed for session %s", session_id)
                 await queue.put({CHUNK_KEY_ERROR: exc})
+                
+            finally:
+                # Persist assistant final answer and tool messages
+                final_answer = runtime.partial_answer_size_bytes if runtime.partial_answer_size_bytes else None
+                if final_answer:
+                    await _persist_assistant_final_answer(
+                        session_id, final_answer, runtime
+                    )
+                
+                if tool_messages:
+                    await _persist_tool_messages(session_id, tool_messages)
+                
+                await queue.put(None)  # Sentinel: stream is done
+                runtime_registry.clear(session_id)
+                await delete_runtime_context(redis_client, session_id)
+        
+        async def _persist_assistant_final_answer(session_id: str, content: str, runtime) -> None:
+            """Persist assistant final answer message."""
+            try:
+                # Get user and session UUIDs (already exist from user message)
+                _, session_uuid = await ensure_chat_parents(
+                    pool=app.state.pg_pool,
+                    user_key=body.user_id or "anonymous",
+                    session_key=session_id,
+                    provider=settings.llm_provider,
+                    model_name=model_name,
+                )
+                
+                # Generate message ID for assistant response
+                message_uuid = uuid.uuid4()
+                
+                await insert_message(
+                    pool=app.state.pg_pool,
+                    message_id=message_uuid,
+                    session_id=session_uuid,
+                    role="assistant",
+                    content={"text": content},
+                    pii_score=None,
+                    pii_entities=None,
+                )
+                logger.debug("Persisted assistant message %s", message_uuid)
+                
+            except Exception:
+                logger.exception("Failed to persist assistant message for session %s", session_id)
+        
+        async def _persist_tool_messages(session_id: str, tool_messages: list[dict]) -> None:
+            """Persist tool result messages."""
+            try:
+                # Get user and session UUIDs
+                _, session_uuid = await ensure_chat_parents(
+                    pool=app.state.pg_pool,
+                    user_key=body.user_id or "anonymous",
+                    session_key=session_id,
+                    provider=settings.llm_provider,
+                    model_name=model_name,
+                )
+                
+                for tool_msg in tool_messages:
+                    message_uuid = uuid.uuid4()
+                    await insert_message(
+                        pool=app.state.pg_pool,
+                        message_id=message_uuid,
+                        session_id=session_uuid,
+                        role="tool",
+                        content={
+                            "tool_call_id": tool_msg["tool_call_id"],
+                            "tool_name": tool_msg["tool_name"],
+                            "text": tool_msg["text"],
+                        },
+                        pii_score=None,
+                        pii_entities=None,
+                    )
+                logger.debug("Persisted %d tool messages for session %s", len(tool_messages), session_id)
+                
+            except Exception:
+                logger.exception("Failed to persist tool messages for session %s", session_id)
+
+            except GraphCancelled as exc:
+                logger.info("Graph cancelled for session %s: %s", session_id, exc.reason)
+                # Put cancelled event with partial answer
+                partial_answer = _partial_answer(initial_state)
+                cancelled_payload = {"reason": exc.reason}
+                if partial_answer:
+                    cancelled_payload["final_answer"] = partial_answer
+                    runtime.partial_answer_size_bytes = _content_byte_size(partial_answer)
+                    runtime_registry.set(session_id, runtime)
+                    await save_runtime_context(redis_client, session_id, runtime)
+                await queue.put({CHUNK_KEY_CANCELLED: cancelled_payload})
+
+            except Exception as exc:
+                if isinstance(exc, GraphInvokeTimeout):
+                    logger.warning("Graph timeout for session %s: %s", session_id, exc)
+                else:
+                    logger.exception("Graph execution failed for session %s", session_id)
+                await queue.put({CHUNK_KEY_ERROR: exc})
             finally:
                 await queue.put(None)  # Sentinel: stream is done
+                runtime_registry.clear(session_id)
+                await delete_runtime_context(redis_client, session_id)
 
         task = asyncio.create_task(_run_graph())
 
@@ -631,6 +934,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         await redis_client.ping()
         logger.info("agent-service connected to Redis at %s", redis_url)
 
+        await operational_writer.start()
+        if forensic_writer is not None:
+            await forensic_writer.start()
+
         # Ensure shared pg_pool exists (factory-time creation may have been skipped)
         from ..rag.pool import get_shared_pool
 
@@ -672,6 +979,9 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             logger.info("PostgreSQL checkpointer flusher stopped")
 
         await subscriber.unsubscribe_all()
+        await operational_writer.close()
+        if forensic_writer is not None:
+            await forensic_writer.close()
         await redis_client.aclose()
 
         # Close checkpointer-owned resources (not the shared pool)

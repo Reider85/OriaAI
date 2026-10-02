@@ -84,7 +84,11 @@ def create_app(redis_url: str | None = None, _settings: Settings | None = None) 
         if forensic_writer is not None:
             await forensic_writer.write(event)
 
-    subscriber = CancelSubscriber(redis_client, registry, cancel_event_handler=_on_cancel_event)
+    subscriber = CancelSubscriber(
+        redis_client,
+        registry,
+        cancel_event_handler=_on_cancel_event,
+    )
 
     app = FastAPI(title="LLM Client — ADR-013 control-plane", version="0.1.0")
     app.state.redis = redis_client

@@ -122,13 +122,13 @@ def test_migration_sql_no_separate_table():
 # ---------------------------------------------------------------------------
 
 def test_analytics_query_present_in_migration():
-    """D-5 Task 5: analytics SQL query must be documented (in comments)."""
-    from pathlib import Path
-
-    migration_path = Path(__file__).resolve().parent.parent.parent / "migrations" / "005_add_pii_score_to_messages.sql"
-    sql = migration_path.read_text()
-    assert "avg(pii_score)" in sql.lower() or "AVG(pii_score)" in sql
-    assert "high_pii_messages" in sql.lower() or "FILTER" in sql
+        """D-5 Task 5: analytics SQL query must be documented (in comments)."""
+        from pathlib import Path
+    
+        migration_path = Path(__file__).resolve().parent.parent.parent / "migrations" / "005_add_pii_score_to_messages.sql"
+        sql = migration_path.read_text()
+        # Check for reference to ops/pii_analytics.sql instead of the query itself
+        assert "ops/pii_analytics.sql" in sql.lower() or "analytics query moved" in sql.lower()
 
 
 # ---------------------------------------------------------------------------

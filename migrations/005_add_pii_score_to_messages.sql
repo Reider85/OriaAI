@@ -11,12 +11,6 @@ CREATE INDEX IF NOT EXISTS idx_messages_pii_score
     ON messages (pii_score)
     WHERE pii_score IS NOT NULL;
 
--- Analytics query for observability docs (README § Phase 1 KMS).
--- SELECT
---   DATE(created_at) AS day,
---   AVG(pii_score) AS avg_pii_score,
---   COUNT(*) FILTER (WHERE pii_score > 0.1) AS high_pii_messages
--- FROM messages
--- WHERE created_at > NOW() - INTERVAL '30 days'
--- GROUP BY day ORDER BY day;
+-- Analytics query moved to ops/pii_analytics.sql for execution.
+-- See README § D-5 for details and usage.
 --

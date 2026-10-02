@@ -5,7 +5,9 @@ registry and cancels it. Manages a background asyncio.Task per session.
 
 After a token is cancelled, an optional ``cancel_event_handler`` receives the parsed
 cancel event for dual-stream logging (C-6): forensic (full trace) + operational
-(masked user_id).
+(masked user_id). Forensic fields ``last_node_executed``, ``messages_count`` and
+``partial_answer_size_bytes`` are resolved from session runtime context (in-process
+provider or Redis mirror) instead of being hardcoded as ``None``.
 """
 
 import asyncio
@@ -16,6 +18,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .cancel import CancellationTokenRegistry
+from .runtime_context import extract_forensic_fields, load_runtime_context
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +31,12 @@ class CancelSubscriber:
         redis_client: Any,
         token_registry: CancellationTokenRegistry,
         cancel_event_handler: Callable[[dict], Awaitable[None]] | None = None,
+        session_context_provider: Callable[[str], Any] | None = None,
     ) -> None:
         self._redis = redis_client
         self._registry = token_registry
         self._on_cancel_event = cancel_event_handler
+        self._session_context_provider = session_context_provider
         self._tasks: dict[str, asyncio.Task] = {}
 
     async def subscribe(self, session_id: str) -> None:
@@ -67,13 +72,17 @@ class CancelSubscriber:
                                 session_id,
                                 reason,
                             )
+                            forensic_fields = await self._resolve_forensic_fields(session_id)
                             await self._emit_cancel_event(
                                 session_id,
                                 reason,
                                 user_id,
                                 started_at,
-                                last_node_executed=None,
-                                messages_count=None,
+                                last_node_executed=forensic_fields["last_node_executed"],
+                                messages_count=forensic_fields["messages_count"],
+                                partial_answer_size_bytes=forensic_fields[
+                                    "partial_answer_size_bytes"
+                                ],
                             )
                         token.cancel(reason)
                     # A cancel signal is terminal: stop listening for this session.
@@ -88,6 +97,23 @@ class CancelSubscriber:
                     logger.debug("Error closing pubsub for session %s", session_id, exc_info=True)
 
         self._tasks[session_id] = asyncio.create_task(_listener())
+
+    async def _resolve_forensic_fields(self, session_id: str) -> dict[str, Any]:
+        """Resolve C-6 forensic runtime fields for *session_id*."""
+        context: Any = None
+        if self._session_context_provider is not None:
+            try:
+                resolved = self._session_context_provider(session_id)
+                if inspect_awaitable(resolved):
+                    resolved = await resolved
+                context = resolved
+            except Exception:
+                logger.debug(
+                    "session_context_provider failed for session %s", session_id, exc_info=True
+                )
+        if context is None:
+            context = await load_runtime_context(self._redis, session_id)
+        return extract_forensic_fields(context)
 
     async def _emit_cancel_event(
         self,
@@ -138,3 +164,7 @@ class CancelSubscriber:
     async def unsubscribe_all(self) -> None:
         for session_id in list(self._tasks):
             await self.unsubscribe(session_id)
+
+
+def inspect_awaitable(value: Any) -> bool:
+    return asyncio.iscoroutine(value) or asyncio.isfuture(value) or hasattr(value, "__await__")

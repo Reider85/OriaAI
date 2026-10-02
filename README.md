@@ -339,10 +339,16 @@ IBAN, IP, US_SSN, URL + внутренние форматы `EMP-\d{6}` и `PRJ-
 
 ### D-5 — PII score в messages
 
-`PII_METADATA_ENABLED=true` → при записи сообщения `attach_pii_metadata()` считает
-`pii_score` и `pii_entities` (только {type, start, end}, никогда текст PII).
-Миграция: `migrations/005_add_pii_score_to_messages.sql` (применяется когда появится
-таблица `messages` в persistence-слое). Аналитический запрос — в том же файле.
+Реализовано: при записи сообщений `attach_pii_metadata()` считает `pii_score` и
+`pii_entities` (только {type, start, end}, никогда текст PII). Сохраняется в таблицу
+`messages` колонками `pii_score FLOAT` и `pii_entities JSONB`.
+
+- **User сообщения**: PII метадата сохраняется при записи в БД
+- **Assistant/tool сообщения**: `pii_score` и `pii_entities` = NULL (метрика только для user)
+- **Миграция**: `migrations/005_add_pii_score_to_messages.sql` (с индексом `idx_messages_pii_score`)
+- **Аналитика**: `ops/pii_analytics.sql` — ежедневные метрики PII по user-сообщениям
+
+**PII_METADATA_ENABLED=false** → колонки `pii_score` и `pii_entities` = NULL.
 
 ### D-6 — Local dev without Vault
 
