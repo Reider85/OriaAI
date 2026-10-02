@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from redis import asyncio as aioredis
 
+from ..config import DEFAULT_TOOLS_ENABLED as _DEFAULT_TOOLS_ENABLED
 from ..config import Settings
 from ..orchestration.checkpointers.factory import generate_thread_id
 from ..security.pii_detector import PIIDetectionResult
@@ -59,7 +60,6 @@ from .message_store import (
     ensure_chat_parents,
     insert_message,
 )
-from uuid import uuid4, UUID
 from .provider import LLMProviderFactory
 from .tools import file_export, rag_query, web_search
 
@@ -185,7 +185,8 @@ TOOL_REGISTRY: dict[str, Any] = {
 }
 
 #: Tool set used when the request omits ``settings['tools_enabled']`` entirely.
-DEFAULT_TOOLS_ENABLED: tuple[str, ...] = ("file_export", "web_search", "rag_query")
+# Re-export from config for backwards compatibility; actual value is in module-level DEFAULT_TOOLS_ENABLED
+DEFAULT_TOOLS_ENABLED: tuple[str, ...] = _DEFAULT_TOOLS_ENABLED
 
 
 def resolve_tools(settings: dict[str, Any] | None) -> list[Any]:

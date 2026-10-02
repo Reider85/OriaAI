@@ -34,7 +34,7 @@ async def _web_search_impl(query: str, max_results: int = 5) -> list[dict]:
 
     async with httpx.AsyncClient(timeout=settings.tavily_timeout_seconds) as client:
         response = await client.post(
-            "https://api.tavily.com/search",
+            settings.tavily_api_url,
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "query": query,

@@ -972,7 +972,7 @@ sequenceDiagram
 2. Внешний API: Tavily (`TAVILY_API_KEY` env var).
 3. Возвращает `list[dict]` `{title, url, snippet}`.
 4. Подключается в `bind_tools()` planner ноды; payload (list) парсится SSE-эмиттером как `event: tool_result`.
-5. При отсутствии `TAVILY_API_KEY` — tool unavailable (graceful degradation, warning).
+5. При отсутствии `TAVILY_API_KEY` — startup fail-fast when `tools_enabled` contains "web_search" (default includes it). Runtime graceful degradation if key missing after startup.
 **Consequences**:
 - (+) Агент получает актуальные веб-данные (G-3: ≥5 инструментов в проде).
 - (+) UI-1 web search results panel (G-3) получает источник событий.

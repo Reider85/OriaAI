@@ -1,6 +1,9 @@
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
+# Module-level constant for default tool selection (single source of truth)
+DEFAULT_TOOLS_ENABLED: tuple[str, ...] = ("file_export", "web_search", "rag_query")
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -62,10 +65,14 @@ class Settings(BaseSettings):
     chroma_persist_dir: str = "./chroma_db"
 
     # Web Search (AG-5, Phase 2)
+    tavily_api_url: str = "https://api.tavily.com/search"
     tavily_api_key: str = ""
     tavily_search_depth: str = "basic"
     tavily_timeout_seconds: float = 10.0
     tavily_snippet_max_chars: int = 500
+
+    # Tool selection (for startup validation) - stored as string, converted to list in validator
+    tools_enabled: str = "file_export,web_search,rag_query"
 
     # LLM Invoke Timeout (ADR-013 in-flight cancellation)
     llm_invoke_timeout_seconds: float = 120.0
@@ -74,6 +81,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_environment(self) -> "Settings":
+        # Parse tools_enabled if it's a string (from env var)
+        if isinstance(self.tools_enabled, str):
+            self.tools_enabled = self._parse_tools_enabled(self.tools_enabled)
+        
         if self.environment not in {"dev", "staging", "prod"}:
             raise ValueError(
                 f"ENVIRONMENT must be dev|staging|prod, got {self.environment!r}"
@@ -118,7 +129,38 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"CHECKPOINT_BACKEND must be redis_postgres|redis_only|postgres_only, got {self.checkpoint_backend!r}"
             )
+        
+        # Validate Tavily API URL
+        if not self.tavily_api_url:
+            raise ValueError("TAVILY_API_URL must be non-empty")
+        
+        # Parse tools_enabled string to list
+        self.tools_enabled = self._parse_tools_enabled(self.tools_enabled)
+        
+        # Validate tools_enabled format
+        if not isinstance(self.tools_enabled, list):
+            raise TypeError("TOOLS_ENABLED must be a list")
+        
+        # Validate TAVILY_API_KEY when web_search is enabled
+        if "web_search" in self.tools_enabled and not self.tavily_api_key:
+            raise ValueError(
+                "TAVILY_API_KEY required when tools_enabled contains 'web_search'"
+            )
+        
         return self
+    
+    @classmethod
+    def _parse_tools_enabled(cls, v):
+        """Parse TOOLS_ENABLED from env var: accepts JSON array or comma-separated string."""
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                import json
+                return json.loads(v)
+            if v == "":
+                return []
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v
 
 
 settings: Settings

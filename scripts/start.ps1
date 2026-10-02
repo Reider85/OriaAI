@@ -725,7 +725,14 @@ if ($dependencyCheck -ne 0) {
 $bgeModelReady = Ensure-BgeModel -Python $python -Skip:$SkipModelDownload
 
 if (-not (Get-EnvValue -Name "TAVILY_API_KEY")) {
-    Write-Host "Warning: TAVILY_API_KEY is empty. The web_search tool (AG-5) will not reach Tavily." -ForegroundColor Yellow
+    $toolsEnabled = Get-EnvValue -Name "TOOLS_ENABLED"
+    $defaultTools = "file_export,web_search,rag_query"
+    if (-not $toolsEnabled -or $toolsEnabled -eq $defaultTools -or $toolsEnabled.Contains("web_search")) {
+        Write-Host "Error: TAVILY_API_KEY is required when web_search is enabled (default in TOOLS_ENABLED). Set TAVILY_API_KEY or remove 'web_search' from TOOLS_ENABLED." -ForegroundColor Red
+        exit 1
+    } else {
+        Write-Host "Warning: TAVILY_API_KEY is empty, but web_search is not enabled in TOOLS_ENABLED." -ForegroundColor Yellow
+    }
 }
 
 $docker = Resolve-DockerExecutable
