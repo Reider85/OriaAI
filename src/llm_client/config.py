@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     tavily_timeout_seconds: float = 10.0
     tavily_snippet_max_chars: int = 500
 
+    # LLM Invoke Timeout (ADR-013 in-flight cancellation)
+    llm_invoke_timeout_seconds: float = 120.0
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")
@@ -106,6 +109,10 @@ class Settings(BaseSettings):
         if self.tavily_snippet_max_chars <= 0:
             raise ValueError(
                 f"TAVILY_SNIPPET_MAX_CHARS must be > 0, got {self.tavily_snippet_max_chars!r}"
+            )
+        if self.llm_invoke_timeout_seconds <= 0:
+            raise ValueError(
+                f"LLM_INVOKE_TIMEOUT_SECONDS must be > 0, got {self.llm_invoke_timeout_seconds!r}"
             )
         if self.checkpoint_backend not in {"redis_postgres", "redis_only", "postgres_only"}:
             raise ValueError(

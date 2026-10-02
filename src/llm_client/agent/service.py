@@ -40,7 +40,14 @@ from ..transport.publisher import CancelPublisher
 from ..transport.subscriber import CancelSubscriber
 from .artifacts import load_artifact_meta
 from .cycle_detection import IterationMonitor
-from .graph import RAG_QUERY_TOOL, build_agent_graph, normalise_query
+from .graph import (
+    RAG_QUERY_TOOL,
+    GraphCancelled,
+    GraphInvokeTimeout,
+    _partial_answer,
+    build_agent_graph,
+    normalise_query,
+)
 from .provider import LLMProviderFactory
 from .tools import file_export, rag_query, web_search
 
@@ -63,6 +70,7 @@ HEARTBEAT_INTERVAL_SECONDS = 15.0
 #: Graph payload chunks are keyed by node name, so these can never collide.
 CHUNK_KEY_ERROR = "_error"
 CHUNK_KEY_METADATA = "_metadata"
+CHUNK_KEY_CANCELLED = "_cancelled"
 
 #: Synthetic ``tool_call_id`` for retrieval performed by the rag_retriever node
 #: (H-4). The node is not an LLM tool call, so no real id exists; the UI keys
@@ -377,6 +385,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             checkpointer=checkpointer_bundle.checkpointer,
             rag_pipeline=rag_pipeline,
             settings=request_settings,
+            llm_invoke_timeout_s=settings.llm_invoke_timeout_seconds,
         )
 
         # Queue for streaming chunks from background task to SSE generator
@@ -419,9 +428,36 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     if checkpointer_bundle.checkpointer
                     else None
                 )
+                
+                # Pass token via config for in-flight cancellation
+                if config is None:
+                    config = {}
+                config["configurable"] = config.get("configurable", {})
+                config["configurable"]["cancel_token"] = token
+                
+                # Register task cancellation for belt-and-suspenders
+                async def _abort_graph_task() -> None:
+                    if not task.done():
+                        task.cancel()
+                
+                token.on_cancel(_abort_graph_task)
 
                 async for chunk in graph.astream(initial_state, config=config):
                     await queue.put(chunk)
+                    
+            except GraphCancelled as exc:
+                logger.info("Graph cancelled for session %s: %s", session_id, exc.reason)
+                # Put cancelled event with partial answer
+                partial_answer = _partial_answer(initial_state)
+                cancelled_payload = {"reason": exc.reason}
+                if partial_answer:
+                    cancelled_payload["final_answer"] = partial_answer
+                await queue.put({CHUNK_KEY_CANCELLED: cancelled_payload})
+                
+            except GraphInvokeTimeout as exc:
+                logger.warning("Graph timeout for session %s: %s", session_id, exc)
+                await queue.put({CHUNK_KEY_ERROR: exc})
+                
             except Exception as exc:
                 logger.exception("Graph execution failed for session %s", session_id)
                 await queue.put({CHUNK_KEY_ERROR: exc})
@@ -958,6 +994,13 @@ async def _stream_generator(session_id: str) -> Any:
                     "error",
                     {"message": str(exc), "type": type(exc).__name__},
                 )
+                break
+                
+            # Check for graph cancellation
+            if isinstance(chunk, dict) and CHUNK_KEY_CANCELLED in chunk:
+                cancelled_payload = chunk[CHUNK_KEY_CANCELLED]
+                # cancelled preferred over error (consistent with F-1 requirement)
+                yield format_sse_event("cancelled", cancelled_payload)
                 break
 
             # ── Graph payload chunk ───────────────────────────────────────────

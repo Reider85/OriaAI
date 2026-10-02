@@ -8,10 +8,11 @@ Integrates IterationMonitor (cycle detection) and CancellationToken.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from collections.abc import Hashable
-from typing import Annotated, Any, TypedDict, cast
+from collections.abc import Awaitable, Callable, Hashable
+from typing import Annotated, Any, TypedDict, TypeVar, cast
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import ToolMessage
@@ -22,6 +23,26 @@ from ..transport.cancel import CancellationToken
 from .cycle_detection import IterationMonitor
 
 logger = logging.getLogger(__name__)
+
+# Type variables
+T = TypeVar("T")
+
+# Constants
+DEFAULT_LLM_INVOKE_TIMEOUT_S = 120.0
+
+
+# Exceptions
+class GraphCancelled(Exception):
+    """Raised when the graph is cancelled during execution."""
+    def __init__(self, reason: str | None = None):
+        self.reason = reason
+        super().__init__(f"Graph cancelled: {reason}")
+
+
+class GraphInvokeTimeout(Exception):
+    """Raised when LLM/tool invocation exceeds hard timeout."""
+    def __init__(self, message: str):
+        super().__init__(message)
 
 # Default trigger words for rag_first routing (Phase 2 simplified heuristic).
 _RAG_TRIGGERS = ("найди", "search", "find", "документ", "look up", "поиск")
@@ -41,6 +62,71 @@ def normalise_query(text: Any) -> str:
     if not isinstance(text, str):
         return ""
     return " ".join(text.split()).casefold()
+
+
+async def invoke_with_cancel(
+    awaitable_factory: Callable[[], Awaitable[T]],
+    token: CancellationToken | None,
+    *,
+    timeout_s: float | None,
+) -> T:
+    """Execute awaitable with cancellation race and hard timeout.
+    
+    Args:
+        awaitable_factory: Function that returns the awaitable to execute
+        token: CancellationToken for cancellation (optional)
+        timeout_s: Hard timeout in seconds (optional)
+        
+    Returns:
+        Result of awaitable execution
+        
+    Raises:
+        GraphCancelled: If token is cancelled during execution
+        GraphInvokeTimeout: If execution exceeds hard timeout
+    """
+    if token is None:
+        return await asyncio.wait_for(awaitable_factory(), timeout=timeout_s)
+    
+    if token.is_cancelled:
+        raise GraphCancelled(token.reason)
+    
+    work = asyncio.ensure_future(awaitable_factory())
+    cancel_wait = asyncio.ensure_future(token.wait())
+    
+    try:
+        done, _ = await asyncio.wait(
+            {work, cancel_wait},
+            return_when=asyncio.FIRST_COMPLETED,
+            timeout=timeout_s,
+        )
+        
+        if work in done:
+            return work.result()
+        
+        if cancel_wait in done:
+            work.cancel()
+            try:
+                await work
+            except asyncio.CancelledError:
+                pass  # Expected when cancelled
+            except (RuntimeError, ValueError) as exc:
+                logger.warning("Unexpected exception during cancelled work cleanup: %s", exc)
+            raise GraphCancelled(token.reason)
+        
+        # Timeout exceeded
+        work.cancel()
+        try:
+            await work
+        except asyncio.CancelledError:
+            pass  # Expected when timed out
+        except (RuntimeError, ValueError) as exc:
+            logger.warning("Unexpected exception during timeout work cleanup: %s", exc)
+        raise GraphInvokeTimeout(f"LLM invoke exceeded {timeout_s}s")
+        
+    finally:
+        for t in (work, cancel_wait):
+            if not t.done():
+                t.cancel()
 
 
 # ── Agent state schema ────────────────────────────────────────────────────────
@@ -72,9 +158,27 @@ class AgentState(TypedDict, total=False):
 # ── Node functions ────────────────────────────────────────────────────────────
 
 
-async def _planner_node(state: dict[str, Any], llm: BaseChatModel) -> dict[str, Any]:
-    """Invoke the LLM and return the assistant message + incremented iteration."""
-    response = await llm.ainvoke(state["messages"])
+async def _planner_node(
+    state: dict[str, Any], 
+    llm: BaseChatModel,
+    config: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Invoke the LLM and return the assistant message + incremented iteration.
+    
+    Supports in-flight cancellation via CancellationToken in config.
+    """
+    # Early exit if already cancelled
+    token = _resolve_token(config, None)
+    if token is not None and token.is_cancelled:
+        raise GraphCancelled(token.reason)
+    
+    # Use cancellation-aware invoke
+    response = await invoke_with_cancel(
+        lambda: llm.ainvoke(state["messages"]),
+        token,
+        timeout_s=DEFAULT_LLM_INVOKE_TIMEOUT_S,
+    )
+    
     return {
         "messages": [response],
         "iteration": state.get("iteration", 0) + 1,
@@ -92,14 +196,25 @@ def _final_answer_node(state: dict[str, Any]) -> dict[str, Any]:
     return {"final_answer": content, "messages": []}
 
 
-async def _tool_executor_node(state: dict[str, Any], tools: list[Any]) -> dict[str, Any]:
+async def _tool_executor_node(
+    state: dict[str, Any], 
+    tools: list[Any],
+    config: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Execute every tool_call in the last AIMessage and return ToolMessages.
 
     Each dispatch is isolated: an unknown tool or a raising tool yields an error
     ToolMessage for that call only, so one failure cannot abort the rest of the
     batch or crash the graph. Result payloads are JSON-encoded when they are
     dicts or lists, which keeps them parseable by the SSE layer (H-4).
+    
+    Supports in-flight cancellation via CancellationToken in config.
     """
+    # Early exit if already cancelled
+    token = _resolve_token(config, None)
+    if token is not None and token.is_cancelled:
+        raise GraphCancelled(token.reason)
+
     messages = state.get("messages") or []
     if not messages:
         return {"messages": []}
@@ -117,7 +232,17 @@ async def _tool_executor_node(state: dict[str, Any], tools: list[Any]) -> dict[s
         matched = tools_by_name.get(name)
         if matched is not None:
             try:
-                result = await matched.ainvoke(args)
+                # Bind loop variables to avoid late capture
+                matched_tool, matched_args = matched, args
+                async def call_tool():
+                    return await matched_tool.ainvoke(matched_args)
+                result = await invoke_with_cancel(
+                    call_tool,
+                    token,
+                    timeout_s=DEFAULT_LLM_INVOKE_TIMEOUT_S,
+                )
+            except GraphCancelled:
+                raise  # Re-raise cancellation to propagate up
             except Exception as exc:
                 logger.exception("Tool %s failed", name)
                 result_str = json.dumps({"error": f"Error: {exc}"})
@@ -135,6 +260,7 @@ async def _rag_retriever_node(
     state: dict[str, Any],
     pipeline: Any,
     top_k: int | None = None,
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Retrieve documents from RAG corpus based on last user message.
 
@@ -144,7 +270,14 @@ async def _rag_retriever_node(
     ``top_k`` is the graph-level override coming from the UI settings panel
     (G-4, see ``build_agent_graph(settings=...)``). It takes precedence over the
     per-run ``state['rag_top_k']`` value.
+    
+    Supports in-flight cancellation via CancellationToken in config.
     """
+    # Early exit if already cancelled
+    token = _resolve_token(config, None)
+    if token is not None and token.is_cancelled:
+        raise GraphCancelled(token.reason)
+
     if pipeline is None:
         return {"retrieved_docs": []}
 
@@ -160,11 +293,43 @@ async def _rag_retriever_node(
     query = last_user_msg.content if hasattr(last_user_msg, "content") else str(last_user_msg)
     effective_top_k = top_k if top_k is not None else state.get("rag_top_k", 5)
 
-    result = await pipeline.retrieve(query, top_k=effective_top_k)
+    # Bind variables to avoid late capture
+    async def retrieve_pipeline():
+        return await pipeline.retrieve(query, top_k=effective_top_k)
+    result = await invoke_with_cancel(
+        lambda: retrieve_pipeline(),
+        token,
+        timeout_s=DEFAULT_LLM_INVOKE_TIMEOUT_S,
+    )
     return {"retrieved_docs": result["chunks"]}
 
 
 # ── Graph builder ─────────────────────────────────────────────────────────────
+
+
+def _resolve_token(config: dict[str, Any] | None, fallback: CancellationToken | None) -> CancellationToken | None:
+    """Resolve CancellationToken from config or fallback.
+    
+    Args:
+        config: LangGraph RunnableConfig (may contain configurable.cancel_token)
+        fallback: Fallback token (e.g. from build_agent_graph closure)
+        
+    Returns:
+        CancellationToken if available, otherwise None
+    """
+    if config and "configurable" in config:
+        return config["configurable"].get("cancel_token")
+    return fallback
+
+
+def _partial_answer(state: dict[str, Any]) -> str | None:
+    """Extract partial answer from state for cancelled events."""
+    messages = state.get("messages") or []
+    if not messages:
+        return None
+    last = messages[-1]
+    content = getattr(last, "content", None)
+    return content if isinstance(content, str) and content else None
 
 
 def _resolve_top_k_override(settings: dict[str, Any] | None) -> int | None:
@@ -254,6 +419,7 @@ def build_agent_graph(
     rag_pipeline: Any | None = None,
     rag_triggers: tuple[str, ...] | None = None,
     settings: dict[str, Any] | None = None,
+    llm_invoke_timeout_s: float | None = None,
 ) -> Any:
     """Construct and compile the agent graph (Phase 1 + Phase 2).
 
@@ -295,17 +461,17 @@ def build_agent_graph(
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
-    async def planner(state: dict[str, Any]) -> dict[str, Any]:
-        return await _planner_node(state, bound_llm)
+    async def planner(state: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+        return await _planner_node(state, bound_llm, config)
 
     def final_answer(state: dict[str, Any]) -> dict[str, Any]:
         return _final_answer_node(state)
 
-    async def tool_executor(state: dict[str, Any]) -> dict[str, Any]:
-        return await _tool_executor_node(state, tools or [])
+    async def tool_executor(state: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+        return await _tool_executor_node(state, tools or [], config)
 
-    async def rag_retriever(state: dict[str, Any]) -> dict[str, Any]:
-        return await _rag_retriever_node(state, rag_pipeline, top_k=top_k_override)
+    async def rag_retriever(state: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+        return await _rag_retriever_node(state, rag_pipeline, top_k=top_k_override, config=config)
 
     graph.add_node("planner", planner)  # type: ignore[type-var]
     graph.add_node("final_answer", final_answer)  # type: ignore[type-var]
@@ -316,9 +482,10 @@ def build_agent_graph(
 
     # ── Edges ────────────────────────────────────────────────────────────────
 
-    def route_after_planner(state: dict[str, Any]) -> str:
+    def route_after_planner(state: dict[str, Any], config: dict[str, Any] | None = None) -> str:
         # Cancel check BETWEEN nodes only (C-4 requirement)
-        if token is not None and token.is_cancelled:
+        resolved_token = _resolve_token(config, token)
+        if resolved_token is not None and resolved_token.is_cancelled:
             logger.info("Graph exiting — token cancelled before final_answer")
             return END
 
