@@ -36,6 +36,57 @@ function Invoke-NativeQuiet {
     }
 }
 
+function Get-EnvValue {
+    param(
+        [string]$Name,
+        [string]$Default = ""
+    )
+
+    if (-not (Test-Path -LiteralPath $EnvFile)) {
+        return $Default
+    }
+
+    # Last occurrence wins, matching docker compose / dotenv semantics.
+    $resolved = $Default
+    $found = $false
+
+    foreach ($line in Get-Content -LiteralPath $EnvFile) {
+        $trimmed = $line.Trim()
+        if ($trimmed.StartsWith("#")) {
+            continue
+        }
+
+        $separatorIndex = $trimmed.IndexOf("=")
+        if ($separatorIndex -le 0) {
+            continue
+        }
+
+        $key = $trimmed.Substring(0, $separatorIndex).Trim()
+        if ($key -ne $Name) {
+            continue
+        }
+
+        $found = $true
+        $value = $trimmed.Substring($separatorIndex + 1).Trim().Trim('"').Trim("'")
+        $resolved = if ($value.Length -eq 0) { $Default } else { $value }
+    }
+
+    if ($found) {
+        return $resolved
+    }
+
+    return $Default
+}
+
+function Get-GrafanaPort {
+    $raw = Get-EnvValue -Name "GRAFANA_PORT"
+    $parsed = 0
+    if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -ge 1 -and $parsed -le 65535) {
+        return $parsed
+    }
+    return 3000
+}
+
 function Resolve-PythonExecutable {
     $candidates = @()
 
@@ -268,12 +319,14 @@ function Wait-ForAgentService {
 function Wait-ForInfrastructure {
     param([int]$TimeoutSeconds)
 
+    $grafanaPort = Get-GrafanaPort
+
     $checks = @(
         [pscustomobject]@{ Name = "Redis"; Test = { Test-TcpPort -PortNumber 6380 } },
         [pscustomobject]@{ Name = "MinIO"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9000/minio/health/ready" } },
         [pscustomobject]@{ Name = "Vault"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:8200/v1/sys/health" } },
         [pscustomobject]@{ Name = "Prometheus"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9090/-/healthy" } },
-        [pscustomobject]@{ Name = "Grafana"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:3000/api/health" } },
+        [pscustomobject]@{ Name = "Grafana"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:$grafanaPort/api/health" } },
         [pscustomobject]@{ Name = "Ideality exporter"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9101/metrics" } }
     )
 
