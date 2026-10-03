@@ -297,8 +297,8 @@ function Start-Infrastructure {
     param([string]$DockerPath, [int]$TimeoutSeconds)
     
     Write-Host "Starting infrastructure..." -ForegroundColor Cyan
-    Invoke-Compose -DockerPath $docker -Arguments @("up", "-d")
-    Wait-ForInitContainers -DockerPath $docker -TimeoutSeconds $TimeoutSeconds
+    Invoke-Compose -DockerPath $DockerPath -Arguments @("up", "-d")
+    Wait-ForInitContainers -DockerPath $DockerPath -TimeoutSeconds $TimeoutSeconds
     Wait-ForInfrastructure -TimeoutSeconds $TimeoutSeconds
     Write-Host "Infrastructure ready." -ForegroundColor Green
 }
@@ -326,16 +326,16 @@ function Stop-Infrastructure {
 }
 
 function Run-Test {
-    param([string]$TestName, [string]$TestCommand, [int]$TimeoutSeconds = 120)
+    param([string]$TestName, [string]$TestCommand, [int]$TimeoutSeconds = 120, [pscustomobject]$Python)
     
     Write-Host "Running $TestName..." -ForegroundColor Cyan
     $startTime = Get-Date
     
     try {
-        $arguments = @($python.Prefix) + @(
+        $arguments = @($Python.Prefix) + @(
             "-m", "pytest", $TestCommand, "-v", "-x", "--timeout=$TimeoutSeconds"
         )
-        $result = Invoke-Python -Python $python -Arguments $arguments
+        $result = Invoke-Python -Python $Python -Arguments $arguments
         
         $endTime = Get-Date
         $duration = ($endTime - $startTime).TotalSeconds
@@ -356,9 +356,10 @@ function Run-Test {
 }
 
 function Run-Lint {
+    param([pscustomobject]$Python)
     Write-Host "Running lint (ruff)..." -ForegroundColor Cyan
-    $arguments = @($python.Prefix) + @("ruff", "check", "src", "tests")
-    $result = Invoke-Python -Python $python -Arguments $arguments
+    $arguments = @($Python.Prefix) + @("ruff", "check", "src", "tests")
+    $result = Invoke-Python -Python $Python -Arguments $arguments
     if ($result -eq 0) {
         Write-Host "Lint completed successfully." -ForegroundColor Green
     }
@@ -369,9 +370,10 @@ function Run-Lint {
 }
 
 function Run-TypeCheck {
+    param([pscustomobject]$Python)
     Write-Host "Running type check (mypy)..." -ForegroundColor Cyan
-    $arguments = @($python.Prefix) + @("mypy", "src/llm_client")
-    $result = Invoke-Python -Python $python -Arguments $arguments
+    $arguments = @($Python.Prefix) + @("mypy", "src/llm_client")
+    $result = Invoke-Python -Python $Python -Arguments $arguments
     if ($result -eq 0) {
         Write-Host "Type check completed successfully." -ForegroundColor Green
     }
@@ -382,9 +384,10 @@ function Run-TypeCheck {
 }
 
 function Run-UnitTests {
+    param([pscustomobject]$Python)
     Write-Host "Running unit tests..." -ForegroundColor Cyan
-    $arguments = @($python.Prefix) + @("pytest", "tests/unit", "-v", "--cov=src/llm_client", "--cov-report=term-missing")
-    $result = Invoke-Python -Python $python -Arguments $arguments
+    $arguments = @($Python.Prefix) + @("pytest", "tests/unit", "-v", "--cov=src/llm_client", "--cov-report=term-missing")
+    $result = Invoke-Python -Python $Python -Arguments $arguments
     if ($result -eq 0) {
         Write-Host "Unit tests completed successfully." -ForegroundColor Green
     }
@@ -395,9 +398,10 @@ function Run-UnitTests {
 }
 
 function Run-IntegrationTests {
+    param([pscustomobject]$Python)
     Write-Host "Running integration tests..." -ForegroundColor Cyan
-    $arguments = @($python.Prefix) + @("pytest", "tests/integration", "-v", "-m", "integration", "--timeout=120")
-    $result = Invoke-Python -Python $python -Arguments $arguments
+    $arguments = @($Python.Prefix) + @("pytest", "tests/integration", "-v", "-m", "integration", "--timeout=120")
+    $result = Invoke-Python -Python $Python -Arguments $arguments
     if ($result -eq 0) {
         Write-Host "Integration tests completed successfully." -ForegroundColor Green
     }
@@ -408,38 +412,45 @@ function Run-IntegrationTests {
 }
 
 function Run-CheckpointQuick {
+    param([pscustomobject]$Python)
     Write-Host "Running checkpoint quick test..." -ForegroundColor Cyan
-    return Run-Test -TestName "Checkpoint Quick" -TestCommand "tests/staging_load/test_checkpoint_latency.py::test_checkpoint_latency_quick" -TimeoutSeconds 120
+    return Run-Test -TestName "Checkpoint Quick" -TestCommand "tests/staging_load/test_checkpoint_latency.py::test_checkpoint_latency_quick" -TimeoutSeconds 120 -Python $Python
 }
 
 function Run-BM25Indexing {
+    param([pscustomobject]$Python)
     Write-Host "Running BM25 indexing regression..." -ForegroundColor Cyan
-    return Run-Test -TestName "BM25 Indexing" -TestCommand "tests/unit/test_bm25_indexer.py" -TimeoutSeconds 30
+    return Run-Test -TestName "BM25 Indexing" -TestCommand "tests/unit/test_bm25_indexer.py" -TimeoutSeconds 30 -Python $Python
 }
 
 function Run-RerankerQuick {
+    param([pscustomobject]$Python)
     Write-Host "Running reranker quick test..." -ForegroundColor Cyan
-    return Run-Test -TestName "Reranker Quick" -TestCommand "tests/unit/test_ab_test_reranker.py::test_reranker_quick" -TimeoutSeconds 180
+    return Run-Test -TestName "Reranker Quick" -TestCommand "tests/unit/test_ab_test_reranker.py::test_reranker_quick" -TimeoutSeconds 180 -Python $Python
 }
 
 function Run-HybridRAGQuick {
+    param([pscustomobject]$Python)
     Write-Host "Running hybrid RAG quick test..." -ForegroundColor Cyan
-    return Run-Test -TestName "Hybrid RAG Quick" -TestCommand "tests/unit/test_ab_test_hybrid_rag.py::test_hybrid_rag_quick" -TimeoutSeconds 300
+    return Run-Test -TestName "Hybrid RAG Quick" -TestCommand "tests/unit/test_ab_test_hybrid_rag.py::test_hybrid_rag_quick" -TimeoutSeconds 300 -Python $Python
 }
 
 function Run-WebSearchQuick {
+    param([pscustomobject]$Python)
     Write-Host "Running web search quick test..." -ForegroundColor Cyan
-    return Run-Test -TestName "Web Search Quick" -TestCommand "tests/unit/test_web_search.py::test_web_search_mock" -TimeoutSeconds 60
+    return Run-Test -TestName "Web Search Quick" -TestCommand "tests/unit/test_web_search.py::test_web_search_mock" -TimeoutSeconds 60 -Python $Python
 }
 
 function Run-RAGQueryQuick {
+    param([pscustomobject]$Python)
     Write-Host "Running RAG query quick test..." -ForegroundColor Cyan
-    return Run-Test -TestName "RAG Query Quick" -TestCommand "tests/unit/test_rag_pipeline.py::test_rag_pipeline_mock" -TimeoutSeconds 120
+    return Run-Test -TestName "RAG Query Quick" -TestCommand "tests/unit/test_rag_pipeline.py::test_rag_pipeline_mock" -TimeoutSeconds 120 -Python $Python
 }
 
 function Run-UIQuick {
+    param([pscustomobject]$Python)
     Write-Host "Running UI quick tests..." -ForegroundColor Cyan
-    $arguments = @($python.Prefix) + @(
+    $arguments = @($Python.Prefix) + @(
         "pytest",
         "tests/unit/test_ui_render.py",
         "tests/unit/test_ui_streamlit_client.py",
@@ -449,7 +460,7 @@ function Run-UIQuick {
         "tests/unit/test_ui_chat.py",
         "-v", "-x", "--timeout=60"
     )
-    return Invoke-Python -Python $python -Arguments $arguments
+    return Invoke-Python -Python $Python -Arguments $arguments
 }
 
 function Invoke-Python {
@@ -458,7 +469,7 @@ function Invoke-Python {
         [string[]]$Arguments
     )
 
-    $allArguments = @($Python.Prefix) + @($Arguments)
+    $allArguments = $Arguments
     $previousErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
@@ -498,78 +509,78 @@ $totalExitCode = 0
 foreach ($target in $Target) {
     switch ($target) {
         "lint" {
-            $exitCode = Run-Lint
+            $exitCode = Run-Lint -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "typecheck" {
-            $exitCode = Run-TypeCheck
+            $exitCode = Run-TypeCheck -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "unit" {
-            $exitCode = Run-UnitTests
+            $exitCode = Run-UnitTests -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "integration" {
-            $exitCode = Run-IntegrationTests
+            $exitCode = Run-IntegrationTests -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "checkpoint" {
-            $exitCode = Run-CheckpointQuick
+            $exitCode = Run-CheckpointQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "bm25" {
-            $exitCode = Run-BM25Indexing
+            $exitCode = Run-BM25Indexing -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "reranker" {
-            $exitCode = Run-RerankerQuick
+            $exitCode = Run-RerankerQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "hybrid-rag" {
-            $exitCode = Run-HybridRAGQuick
+            $exitCode = Run-HybridRAGQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "web-search" {
-            $exitCode = Run-WebSearchQuick
+            $exitCode = Run-WebSearchQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "rag-query" {
-            $exitCode = Run-RAGQueryQuick
+            $exitCode = Run-RAGQueryQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "ui" {
-            $exitCode = Run-UIQuick
+            $exitCode = Run-UIQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "all" {
-            $exitCode = Run-Lint
+            $exitCode = Run-Lint -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-TypeCheck
+            $exitCode = Run-TypeCheck -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-UnitTests
+            $exitCode = Run-UnitTests -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-IntegrationTests
+            $exitCode = Run-IntegrationTests -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-CheckpointQuick
+            $exitCode = Run-CheckpointQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-BM25Indexing
+            $exitCode = Run-BM25Indexing -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-RerankerQuick
+            $exitCode = Run-RerankerQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-HybridRAGQuick
+            $exitCode = Run-HybridRAGQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-WebSearchQuick
+            $exitCode = Run-WebSearchQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-RAGQueryQuick
+            $exitCode = Run-RAGQueryQuick -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
     }

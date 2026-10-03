@@ -284,8 +284,8 @@ function Start-Infrastructure {
     param([string]$DockerPath, [int]$TimeoutSeconds)
     
     Write-Host "Starting full infrastructure stack..." -ForegroundColor Cyan
-    Invoke-Compose -DockerPath $docker -Arguments @("up", "-d")
-    Wait-ForInitContainers -DockerPath $docker -TimeoutSeconds $TimeoutSeconds
+    Invoke-Compose -DockerPath $DockerPath -Arguments @("up", "-d")
+    Wait-ForInitContainers -DockerPath $DockerPath -TimeoutSeconds $TimeoutSeconds
     Wait-ForInfrastructure -TimeoutSeconds $TimeoutSeconds
     Write-Host "Infrastructure ready." -ForegroundColor Green
 }
@@ -313,7 +313,7 @@ function Stop-Infrastructure {
 }
 
 function Run-Test {
-    param([string]$TestName, [string]$TestCommand, [int]$TimeoutSeconds = 120, [hashtable]$Environment = @{})
+    param([string]$TestName, [string]$TestCommand, [int]$TimeoutSeconds = 120, [hashtable]$Environment = @{}, [pscustomobject]$Python)
     
     Write-Host "Running $TestName..." -ForegroundColor Cyan
     $startTime = Get-Date
@@ -336,14 +336,14 @@ function Run-Test {
             $envVars += "$key=$($Environment[$key])"
         }
         
-        $arguments = @($python.Prefix) + @(
+        $arguments = @($Python.Prefix) + @(
             "-m", "pytest", $TestCommand, "-v", "--timeout=$TimeoutSeconds", "--junitxml=/$TestResultsDir/$TestName/junit.xml"
         )
         
         # Run test with environment
         $envVars | ForEach-Object { [Environment]::SetEnvironmentVariable($_.Split('=')[0], $_.Split('=')[1]) }
         
-        $result = Invoke-Python -Python $python -Arguments $arguments
+        $result = Invoke-Python -Python $Python -Arguments $arguments
         
         # Generate JSON report
         $endTime = Get-Date
@@ -381,61 +381,69 @@ function Run-Test {
 }
 
 function Run-CheckpointLatency {
+    param([pscustomobject]$Python)
     Write-Host "Running checkpoint latency test..." -ForegroundColor Cyan
-    return Run-Test -TestName "checkpoint-latency" -TestCommand "tests/staging_load/test_checkpoint_latency.py::test_checkpoint_latency_staging" -TimeoutSeconds 600
+    return Run-Test -TestName "checkpoint-latency" -TestCommand "tests/staging_load/test_checkpoint_latency.py::test_checkpoint_latency_staging" -TimeoutSeconds 600 -Python $Python
 }
 
 function Run-CheckpointRecovery {
+    param([pscustomobject]$Python)
     Write-Host "Running checkpoint recovery test..." -ForegroundColor Cyan
-    return Run-Test -TestName "checkpoint-recovery" -TestCommand "tests/staging_load/test_checkpoint_recovery.py" -TimeoutSeconds 1200
+    return Run-Test -TestName "checkpoint-recovery" -TestCommand "tests/staging_load/test_checkpoint_recovery.py" -TimeoutSeconds 1200 -Python $Python
 }
 
 function Run-RerankerABTest {
+    param([pscustomobject]$Python)
     Write-Host "Running reranker A/B test..." -ForegroundColor Cyan
     $envVars = @{
         "COHERE_API_KEY" = $env:COHERE_API_KEY
     }
-    return Run-Test -TestName "reranker-ab-test" -TestCommand "scripts/ab_test_reranker.py --queries 50" -TimeoutSeconds 600 -Environment $envVars
+    return Run-Test -TestName "reranker-ab-test" -TestCommand "scripts/ab_test_reranker.py --queries 50" -TimeoutSeconds 600 -Environment $envVars -Python $Python
 }
 
 function Run-HybridRAGABTest {
+    param([pscustomobject]$Python)
     Write-Host "Running hybrid RAG A/B test..." -ForegroundColor Cyan
     $envVars = @{
         "COHERE_API_KEY" = $env:COHERE_API_KEY
     }
-    return Run-Test -TestName "hybrid-rag-ab-test" -TestCommand "scripts/ab_test_hybrid_rag.py --queries 30" -TimeoutSeconds 600 -Environment $envVars
+    return Run-Test -TestName "hybrid-rag-ab-test" -TestCommand "scripts/ab_test_hybrid_rag.py --queries 30" -TimeoutSeconds 600 -Environment $envVars -Python $Python
 }
 
 function Run-WebSearchIntegration {
+    param([pscustomobject]$Python)
     Write-Host "Running web search integration test..." -ForegroundColor Cyan
     $envVars = @{
         "STAGING_TAVILY_API_KEY" = $env:STAGING_TAVILY_API_KEY
     }
-    return Run-Test -TestName "web-search-integration" -TestCommand "tests/unit/test_web_search.py::test_web_search_integration" -TimeoutSeconds 180 -Environment $envVars
+    return Run-Test -TestName "web-search-integration" -TestCommand "tests/unit/test_web_search.py::test_web_search_integration" -TimeoutSeconds 180 -Environment $envVars -Python $Python
 }
 
 function Run-RAGQueryIntegration {
+    param([pscustomobject]$Python)
     Write-Host "Running RAG query integration test..." -ForegroundColor Cyan
     $envVars = @{
         "OPENAI_API_KEY" = $env:OPENAI_API_KEY
     }
-    return Run-Test -TestName "rag-query-integration" -TestCommand "tests/unit/test_rag_pipeline.py::test_rag_pipeline_integration" -TimeoutSeconds 300 -Environment $envVars
+    return Run-Test -TestName "rag-query-integration" -TestCommand "tests/unit/test_rag_pipeline.py::test_rag_pipeline_integration" -TimeoutSeconds 300 -Environment $envVars -Python $Python
 }
 
 function Run-SSEToolEvents {
+    param([pscustomobject]$Python)
     Write-Host "Running SSE tool events test..." -ForegroundColor Cyan
-    return Run-Test -TestName "sse-tool-events" -TestCommand "tests/unit/test_sse.py::test_sse_tool_events_staging" -TimeoutSeconds 120
+    return Run-Test -TestName "sse-tool-events" -TestCommand "tests/unit/test_sse.py::test_sse_tool_events_staging" -TimeoutSeconds 120 -Python $Python
 }
 
 function Run-IdealidadMetric {
+    param([pscustomobject]$Python)
     Write-Host "Running ideality metric collection..." -ForegroundColor Cyan
-    $arguments = @($python.Prefix) + @(
+    $arguments = @($Python.Prefix) + @(
         "scripts/collect_idealidad_metrics.py",
         "--output", "/$TestResultsDir/idealidad/metrics_$PipelineDate.json"
     )
     
     try {
-        $result = Invoke-Python -Python $python -Arguments $arguments
+        $result = Invoke-Python -Python $Python -Arguments $arguments
         if ($result -eq 0) {
             Write-Host "Ideality metric collection completed successfully." -ForegroundColor Green
         }
@@ -451,6 +459,7 @@ function Run-IdealidadMetric {
 }
 
 function Run-ForensicStaging {
+    param([pscustomobject]$Python)
     Write-Host "Running forensic staging tests..." -ForegroundColor Cyan
     
     # Set forensic environment
@@ -484,30 +493,30 @@ function Run-ForensicStaging {
     
     # Run forensic e2e test
     Write-Host "Running forensic e2e test..." -ForegroundColor Cyan
-    $testResult = Run-Test -TestName "forensic-e2e" -TestCommand "tests/integration/test_forensic_stream_e2e.py" -TimeoutSeconds 300 -Environment $envVars
+    $testResult = Run-Test -TestName "forensic-e2e" -TestCommand "tests/integration/test_forensic_stream_e2e.py" -TimeoutSeconds 300 -Environment $envVars -Python $Python
     if ($testResult -ne 0) { return $testResult }
     
     # Run integration tests with forensic enabled
     Write-Host "Running integration tests with forensic enabled..." -ForegroundColor Cyan
-    $testResult = Run-Test -TestName "integration-forensic" -TestCommand "tests/integration -m integration" -TimeoutSeconds 600 -Environment $envVars
+    $testResult = Run-Test -TestName "integration-forensic" -TestCommand "tests/integration -m integration" -TimeoutSeconds 600 -Environment $envVars -Python $Python
     if ($testResult -ne 0) { return $testResult }
     
     # Validate staging settings
     Write-Host "Validating staging settings..." -ForegroundColor Cyan
-    $arguments = @($python.Prefix) + @("-c", "from llm_client.config import Settings; s=Settings(); assert s.environment=='staging' and s.forensic_stream_enabled and s.vault_token=='root'")
-    $result = Invoke-Python -Python $python -Arguments $arguments
+    $arguments = @($Python.Prefix) + @("-c", "from llm_client.config import Settings; s=Settings(); assert s.environment=='staging' and s.forensic_stream_enabled and s.vault_token=='root'")
+    $result = Invoke-Python -Python $Python -Arguments $arguments
     if ($result -ne 0) { return $result }
     
     # Validate prod settings (positive case)
     Write-Host "Validating prod settings (positive case)..." -ForegroundColor Cyan
-    $arguments = @($python.Prefix) + @("-c", "from llm_client.config import Settings; s=Settings(); assert s.environment=='prod' and s.forensic_stream_enabled")
-    $result = Invoke-Python -Python $python -Arguments $arguments
+    $arguments = @($Python.Prefix) + @("-c", "from llm_client.config import Settings; s=Settings(); assert s.environment=='prod' and s.forensic_stream_enabled")
+    $result = Invoke-Python -Python $Python -Arguments $arguments
     if ($result -ne 0) { return $result }
     
     # Validate prod settings (negative case - should fail)
     Write-Host "Validating prod settings (negative case)..." -ForegroundColor Cyan
-    $arguments = @($python.Prefix) + @("-c", "from llm_client.config import Settings; s=Settings(); assert s.environment=='prod' and not s.forensic_stream_enabled")
-    $result = Invoke-Python -Python $python -Arguments $arguments
+    $arguments = @($Python.Prefix) + @("-c", "from llm_client.config import Settings; s=Settings(); assert s.environment=='prod' and not s.forensic_stream_enabled")
+    $result = Invoke-Python -Python $Python -Arguments $arguments
     if ($result -eq 0) {
         Write-Host "ERROR: Prod settings should have failed when forensic_stream_enabled=false" -ForegroundColor Red
         return 1
@@ -523,7 +532,7 @@ function Invoke-Python {
         [string[]]$Arguments
     )
 
-    $allArguments = @($Python.Prefix) + @($Arguments)
+    $allArguments = $Arguments
     $previousErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
@@ -563,67 +572,67 @@ $totalExitCode = 0
 foreach ($target in $Target) {
     switch ($target) {
         "checkpoint-latency" {
-            $exitCode = Run-CheckpointLatency
+            $exitCode = Run-CheckpointLatency -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "checkpoint-recovery" {
-            $exitCode = Run-CheckpointRecovery
+            $exitCode = Run-CheckpointRecovery -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "reranker-ab-test" {
-            $exitCode = Run-RerankerABTest
+            $exitCode = Run-RerankerABTest -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "hybrid-rag-ab-test" {
-            $exitCode = Run-HybridRAGABTest
+            $exitCode = Run-HybridRAGABTest -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "web-search-integration" {
-            $exitCode = Run-WebSearchIntegration
+            $exitCode = Run-WebSearchIntegration -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "rag-query-integration" {
-            $exitCode = Run-RAGQueryIntegration
+            $exitCode = Run-RAGQueryIntegration -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "sse-tool-events" {
-            $exitCode = Run-SSEToolEvents
+            $exitCode = Run-SSEToolEvents -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "idealidad" {
-            $exitCode = Run-IdealidadMetric
+            $exitCode = Run-IdealidadMetric -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "forensic" {
-            $exitCode = Run-ForensicStaging
+            $exitCode = Run-ForensicStaging -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "all" {
-            $exitCode = Run-CheckpointLatency
+            $exitCode = Run-CheckpointLatency -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-CheckpointRecovery
+            $exitCode = Run-CheckpointRecovery -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-RerankerABTest
+            $exitCode = Run-RerankerABTest -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-HybridRAGABTest
+            $exitCode = Run-HybridRAGABTest -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-WebSearchIntegration
+            $exitCode = Run-WebSearchIntegration -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-RAGQueryIntegration
+            $exitCode = Run-RAGQueryIntegration -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-SSEToolEvents
+            $exitCode = Run-SSEToolEvents -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-IdealidadMetric
+            $exitCode = Run-IdealidadMetric -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
-            $exitCode = Run-ForensicStaging
+            $exitCode = Run-ForensicStaging -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
     }
