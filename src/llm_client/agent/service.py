@@ -19,6 +19,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import uuid
 from typing import Any, cast
 from uuid import uuid4
 
@@ -498,13 +499,11 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         # Phase 2: rag_query tool added, rag_pipeline enables rag_retriever node
         rag_pipeline = None
         try:
-            from ..rag.pipeline import RagPipeline
-
-            pipeline_pool = getattr(app.state, "pg_pool", None)
-            rag_pipeline = RagPipeline.from_settings_with_overrides(
+            from ..rag.pipeline_singleton import get_pipeline_for_request
+            rag_pipeline = await get_pipeline_for_request(
                 settings,
                 request_settings,
-                pg_pool=pipeline_pool,
+                getattr(app.state, "pg_pool", None),
             )
         except (ImportError, ValueError, RuntimeError) as exc:
             logger.debug("RAG pipeline not available (%s) — rag_retriever disabled", exc)
@@ -671,10 +670,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 
             finally:
                 # Persist assistant final answer and tool messages
-                final_answer = runtime.partial_answer_size_bytes if runtime.partial_answer_size_bytes else None
-                if final_answer:
+                final_answer_content = str(runtime.partial_answer_size_bytes) if runtime.partial_answer_size_bytes else None
+                if final_answer_content:
                     await _persist_assistant_final_answer(
-                        session_id, final_answer, runtime
+                        session_id, final_answer_content, runtime
                     )
                 
                 if tool_messages:
@@ -742,25 +741,11 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     )
                 logger.debug("Persisted %d tool messages for session %s", len(tool_messages), session_id)
                 
-            except Exception:
-                logger.exception("Failed to persist tool messages for session %s", session_id)
-
-            except GraphCancelled as exc:
-                logger.info("Graph cancelled for session %s: %s", session_id, exc.reason)
-                # Put cancelled event with partial answer
-                partial_answer = _partial_answer(initial_state)
-                cancelled_payload = {"reason": exc.reason}
-                if partial_answer:
-                    cancelled_payload["final_answer"] = partial_answer
-                    runtime.partial_answer_size_bytes = _content_byte_size(partial_answer)
-                    runtime_registry.set(session_id, runtime)
-                    await save_runtime_context(redis_client, session_id, runtime)
-                await queue.put({CHUNK_KEY_CANCELLED: cancelled_payload})
-
             except Exception as exc:
                 if isinstance(exc, GraphInvokeTimeout):
                     logger.warning("Graph timeout for session %s: %s", session_id, exc)
                 else:
+                    logger.exception("Failed to persist tool messages for session %s", session_id)
                     logger.exception("Graph execution failed for session %s", session_id)
                 await queue.put({CHUNK_KEY_ERROR: exc})
             finally:
@@ -768,7 +753,14 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 runtime_registry.clear(session_id)
                 await delete_runtime_context(redis_client, session_id)
 
-        task = asyncio.create_task(_run_graph())
+        # Set request-level RAG overrides for tools
+        from ..rag.pipeline_singleton import reset_rag_request_overrides, set_rag_request_overrides
+        _ov_token = set_rag_request_overrides(request_settings or None)
+        try:
+            task = asyncio.create_task(_run_graph())
+        finally:
+            # Reset in parent context (task already copied the context)
+            reset_rag_request_overrides(_ov_token)
 
         _sessions[session_id] = {
             "message": body.message,

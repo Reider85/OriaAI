@@ -33,10 +33,13 @@ async def rag_query(query: str, top_k: int = 5) -> dict[str, Any]:
     RRF fusion (top-50)] (if strategy=hybrid, ADR-020) → reranker
     top-5 (ADR-017). PII filtering applied (ADR-014 metadata).
     """
-    from ...rag.pipeline_singleton import get_shared_pipeline
+    from ...config import settings
+    from ...rag.pipeline_singleton import get_pipeline_for_request, get_rag_request_overrides
 
     try:
-        pipeline = await get_shared_pipeline()
+        # Get request-level UI overrides from contextvar
+        request_overrides = get_rag_request_overrides()
+        pipeline = await get_pipeline_for_request(settings, request_overrides)
         if pipeline is None:
             logger.warning("RAG pipeline not available - returning empty results")
             return {
