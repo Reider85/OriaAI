@@ -33,20 +33,35 @@ async def rag_query(query: str, top_k: int = 5) -> dict[str, Any]:
     RRF fusion (top-50)] (if strategy=hybrid, ADR-020) → reranker
     top-5 (ADR-017). PII filtering applied (ADR-014 metadata).
     """
-    from ...config import settings
-    from ...rag.pipeline import RagPipeline
-    from ...rag.pool import resolve_pool
+    from ...rag.pipeline_singleton import get_shared_pipeline
 
-    pg_pool = resolve_pool(settings)
-    pipeline = RagPipeline.from_settings(settings, pg_pool=pg_pool)
-    result = await pipeline.retrieve(query, top_k=top_k)
-    logger.info(
-        "rag_query query=%r top_k=%d returned=%d chunks",
-        query,
-        top_k,
-        result.get("chunk_count", 0),
-    )
-    return result
+    try:
+        pipeline = await get_shared_pipeline()
+        if pipeline is None:
+            logger.warning("RAG pipeline not available - returning empty results")
+            return {
+                "chunks": [],
+                "chunk_count": 0,
+                "top_score": 0.0,
+                "source_uris": []
+            }
+        
+        result = await pipeline.retrieve(query, top_k=top_k)
+        logger.info(
+            "rag_query query=%r top_k=%d returned=%d chunks",
+            query,
+            top_k,
+            result.get("chunk_count", 0),
+        )
+        return result
+    except (ImportError, ValueError, RuntimeError) as exc:
+        logger.error("rag_query failed: %s", exc)
+        return {
+            "chunks": [],
+            "chunk_count": 0,
+            "top_score": 0.0,
+            "source_uris": []
+        }
 
 
 rag_query = tool(rag_query, args_schema=RagQueryArgs)  # type: ignore[assignment]

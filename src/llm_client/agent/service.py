@@ -955,6 +955,14 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             except Exception as exc:  # noqa: BLE001 — degrade without PG
                 logger.warning("Shared pg_pool unavailable at startup: %s", exc)
 
+        # Initialize shared RAG pipeline for rag_query tool (singleton pattern)
+        try:
+            from ..rag.pipeline_singleton import get_shared_pipeline
+            await get_shared_pipeline(settings)
+            logger.info("Shared RAG pipeline initialized for rag_query tool")
+        except Exception as exc:  # noqa: BLE001 — degrade gracefully
+            logger.warning("Shared RAG pipeline unavailable at startup: %s", exc)
+
         # Start flusher for PostgreSQL checkpointer (B-4)
         if (
             hasattr(checkpointer_bundle, "postgres_checkpointer")
@@ -1006,6 +1014,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         await close_shared_pool()
         app.state.pg_pool = None
+
+        # Close the shared RAG pipeline
+        from ..rag.pipeline_singleton import close_shared_pipeline
+        close_shared_pipeline()
 
     return app
 
