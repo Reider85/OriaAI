@@ -201,25 +201,89 @@ function Wait-DockerEngine {
     throw "Docker Desktop did not become ready within $TimeoutSeconds seconds."
 }
 
-function Invoke-Compose {
-    param(
-        [string]$DockerPath,
-        [string[]]$Arguments
-    )
+function Test-PostgresContainerStarting {
+    param([string]$DockerPath)
 
     $previousErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
-        & $DockerPath compose --project-directory $RepoRoot --env-file $EnvFile -f $ComposeFile @Arguments
+        $state = & $DockerPath inspect --format "{{.State.Status}}" llm-postgres 2>$null
+        $inspectExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($inspectExitCode -ne 0 -or -not $state) {
+        return $false
+    }
+
+    $status = ($state | Select-Object -Last 1).Trim()
+    return $status -eq "running" -or $status -eq "restarting" -or $status -eq "created"
+}
+
+function Test-PostgresReady {
+    param([string]$DockerPath)
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & $DockerPath exec llm-postgres pg_isready -U postgres -d llm_client 2>$null
         $exitCode = $LASTEXITCODE
     }
     finally {
         $ErrorActionPreference = $previousErrorActionPreference
     }
 
-    if ($exitCode -ne 0) {
-        throw "docker compose $($Arguments -join ' ') failed with exit code $exitCode."
+    return $exitCode -eq 0 -and $output -and (($output | Select-Object -Last 1) -match "accepting connections")
+}
+
+function Invoke-Compose {
+    param(
+        [string]$DockerPath,
+        [string[]]$Arguments
+    )
+
+    $maxAttempts = 1
+    if ($Arguments -contains "up") {
+        $maxAttempts = 2
     }
+
+    $exitCode = 1
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & $DockerPath compose --project-directory $RepoRoot --env-file $EnvFile -f $ComposeFile @Arguments
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+
+        if ($exitCode -eq 0) {
+            return
+        }
+
+        $shouldRetry = $attempt -lt $maxAttempts -and
+            (Test-PostgresContainerStarting -DockerPath $DockerPath) -and
+            -not (Test-PostgresReady -DockerPath $DockerPath)
+
+        if (-not $shouldRetry) {
+            throw "docker compose $($Arguments -join ' ') failed with exit code $exitCode."
+        }
+
+        Write-Host "Postgres is still starting (crash recovery can take >120s after unclean Docker shutdown); waiting before retrying docker compose up..." -ForegroundColor Yellow
+        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if (Test-PostgresReady -DockerPath $DockerPath) {
+                break
+            }
+            Start-Sleep -Seconds 2
+        }
+    }
+
+    throw "docker compose $($Arguments -join ' ') failed with exit code $exitCode."
 }
 
 function Wait-ForInitContainers {
