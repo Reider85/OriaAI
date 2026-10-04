@@ -155,6 +155,9 @@ pytest tests/unit -m eval --cov=src/llm_client/rag/eval --cov-report=term-missin
 - **Redis DB separation:** DB 0 = pub/sub (cancel channel), DB 1 = checkpoint-WAL. Do NOT cross-use.
 - **MinIO is mandatory** for local dev. `LocalFileStorage` was removed; `S3CompatibleStorage` is the only backend.
 - **OPENAI_API_KEY** is required at import time when `LLM_PROVIDER=openai` (default). Tests set a placeholder via `conftest.py`.
+- **CUSTOM-OPENAI** and **ZAI** providers added in Phase 2:
+  - `CUSTOM-OPENAI`: Any OpenAI-compatible endpoint with custom base URL and API key
+  - `ZAI`: Zhipu AI (z.ai) with endpoint `https://api.z.ai/api/paas/v4` and model `glm-4.5`
 - **Vault** is only needed when `FORENSIC_STREAM_ENABLED=true` (prod/staging). In dev mode it's off. CI integration-staging job tests forensic path end-to-end.
 - **spaCy model** required for PII detection: `python -m spacy download en_core_web_md`
 - **Execution policy:** If `Activate.ps1` is blocked: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`

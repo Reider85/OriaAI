@@ -25,15 +25,11 @@ class TestLLMProviderFactory:
         assert llm.model_name == "gpt-4o-mini"
 
     def test_create_openai_streaming_enabled(self):
-        llm = LLMProviderFactory.create(
-            "openai", "gpt-4o-mini", api_key="sk-test", streaming=True
-        )
+        llm = LLMProviderFactory.create("openai", "gpt-4o-mini", api_key="sk-test", streaming=True)
         assert llm.streaming is True
 
     def test_create_openai_streaming_disabled(self):
-        llm = LLMProviderFactory.create(
-            "openai", "gpt-4o-mini", api_key="sk-test", streaming=False
-        )
+        llm = LLMProviderFactory.create("openai", "gpt-4o-mini", api_key="sk-test", streaming=False)
         assert llm.streaming is False
 
     def test_create_anthropic_raises_not_implemented(self):
@@ -47,6 +43,22 @@ class TestLLMProviderFactory:
     def test_create_unknown_provider_raises_value_error(self):
         with pytest.raises(ValueError, match="Unknown provider"):
             LLMProviderFactory.create("google", "gemini-pro")
+
+    def test_create_custom_openai_returns_chat_openai_with_base_url(self):
+        llm = LLMProviderFactory.create(
+            "CUSTOM-OPENAI", "custom-model", api_key="sk-test", base_url="https://api.custom.com/v1"
+        )
+        assert isinstance(llm, ChatOpenAI)
+        assert llm.model_name == "custom-model"
+        assert llm.openai_api_base == "https://api.custom.com/v1"
+
+    def test_create_zai_returns_chat_openai_with_base_url(self):
+        llm = LLMProviderFactory.create(
+            "ZAI", "glm-4.5", api_key="sk-test", base_url="https://api.z.ai/api/paas/v4"
+        )
+        assert isinstance(llm, ChatOpenAI)
+        assert llm.model_name == "glm-4.5"
+        assert llm.openai_api_base == "https://api.z.ai/api/paas/v4"
 
 
 # ── Settings validation tests ─────────────────────────────────────────────────
@@ -71,7 +83,7 @@ class TestSettingsValidation:
             operational_log_sink="stdout",
             kms_provider="vault",
         )
-        assert s.llm_provider == "openai"
+        assert s.llm_provider == "OPENAI"
         assert s.openai_api_key == "sk-test-key"
         assert s.openai_model == "gpt-4o-mini"
 
@@ -93,7 +105,73 @@ class TestSettingsValidation:
             operational_log_sink="stdout",
             kms_provider="vault",
         )
-        assert s.llm_provider == "anthropic"
+        assert s.llm_provider == "ANTHROPIC"
+
+    def test_custom_openai_provider_validates_all_required_fields(self):
+        with pytest.raises(ValidationError, match="CUSTOM_OPENAI_API_KEY required"):
+            Settings(
+                llm_provider="CUSTOM-OPENAI",
+                custom_openai_api_key="",
+                custom_openai_base_url="https://api.test.com/v1",
+                custom_openai_model="test-model",
+                environment="dev",
+                operational_log_sink="stdout",
+                kms_provider="vault",
+            )
+
+        with pytest.raises(ValidationError, match="CUSTOM_OPENAI_BASE_URL required"):
+            Settings(
+                llm_provider="CUSTOM-OPENAI",
+                custom_openai_api_key="sk-test",
+                custom_openai_base_url="",
+                custom_openai_model="test-model",
+                environment="dev",
+                operational_log_sink="stdout",
+                kms_provider="vault",
+            )
+
+        with pytest.raises(ValidationError, match="CUSTOM_OPENAI_MODEL required"):
+            Settings(
+                llm_provider="CUSTOM-OPENAI",
+                custom_openai_api_key="sk-test",
+                custom_openai_base_url="https://api.test.com/v1",
+                custom_openai_model="",
+                environment="dev",
+                operational_log_sink="stdout",
+                kms_provider="vault",
+            )
+
+    def test_custom_openai_provider_case_insensitive(self):
+        s = Settings(
+            llm_provider="custom-openai",
+            custom_openai_api_key="sk-test",
+            custom_openai_base_url="https://api.test.com/v1",
+            custom_openai_model="test-model",
+            environment="dev",
+            operational_log_sink="stdout",
+            kms_provider="vault",
+        )
+        assert s.llm_provider == "CUSTOM-OPENAI"  # Normalized to uppercase
+
+    def test_zai_provider_validates_api_key(self):
+        with pytest.raises(ValidationError, match="ZAI_API_KEY required"):
+            Settings(
+                llm_provider="ZAI",
+                zai_api_key="",
+                environment="dev",
+                operational_log_sink="stdout",
+                kms_provider="vault",
+            )
+
+    def test_zai_provider_case_insensitive(self):
+        s = Settings(
+            llm_provider="zai",
+            zai_api_key="sk-test",
+            environment="dev",
+            operational_log_sink="stdout",
+            kms_provider="vault",
+        )
+        assert s.llm_provider == "ZAI"  # Normalized to uppercase
 
 
 # ── TokenUsageTracker tests ───────────────────────────────────────────────────
@@ -135,6 +213,40 @@ class TestTokenUsageTracker:
         assert event["completion_tokens"] == 50
         assert event["session_id"] == "s1"
         assert event["cost_estimate_usd"] > 0
+
+    @pytest.mark.asyncio
+    async def test_on_llm_end_with_custom_provider(self):
+        class MockWriter:
+            def __init__(self):
+                self.events = []
+
+            async def write(self, event):
+                self.events.append(event)
+
+        writer = MockWriter()
+        tracker = TokenUsageTracker(writer, session_id="s1", provider="ZAI")
+
+        # Simulate LLM response with token usage
+        class MockTokenUsage:
+            prompt_tokens = 200
+            completion_tokens = 100
+
+        class MockLLMOutput:
+            token_usage = MockTokenUsage()
+            model_name = "glm-4.5"
+
+        class MockResponse:
+            llm_output = MockLLMOutput()
+
+        await tracker.on_llm_end(MockResponse())
+
+        assert len(writer.events) == 1
+        event = writer.events[0]
+        assert event["event_type"] == "llm_usage"
+        assert event["provider"] == "ZAI"
+        assert event["model"] == "glm-4.5"
+        assert event["prompt_tokens"] == 200
+        assert event["completion_tokens"] == 100
 
     @pytest.mark.asyncio
     async def test_on_llm_end_handles_missing_usage(self):

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from llm_client.config import Settings
 from llm_client.rag.retrieval.vector_store_factory import (
@@ -130,3 +131,68 @@ def test_get_vector_writer_builds_callable():
     assert len(texts) >= 1
     assert metadatas[0]["document_id"] == "d1"
     assert ids[0] == "d1:0"
+
+
+def test_create_embedding_function_custom_openai():
+        settings = _settings(
+            embedding_provider="custom-openai",
+            custom_openai_api_key="sk-custom",
+            custom_openai_base_url="https://api.custom.com/v1",
+            custom_openai_model="custom-embedding-model",
+        )
+        
+        with patch("langchain_openai.OpenAIEmbeddings") as mock_embeddings:
+            result = create_embedding_function(settings)
+            assert result is not None
+            mock_embeddings.assert_called_once_with(
+                model="custom-embedding-model",
+                api_key="sk-custom",
+                base_url="https://api.custom.com/v1",
+            )
+
+
+def test_create_embedding_function_custom_openai_missing_key():
+        with pytest.raises(ValidationError, match="CUSTOM_OPENAI_API_KEY required when EMBEDDING_PROVIDER=custom-openai"):
+            settings = _settings(
+                embedding_provider="custom-openai",
+                custom_openai_api_key="",
+                custom_openai_base_url="https://api.custom.com/v1",
+            )
+        # Should not reach here
+
+
+def test_create_embedding_function_custom_openai_missing_base_url():
+        with pytest.raises(ValidationError, match="CUSTOM_OPENAI_BASE_URL required when EMBEDDING_PROVIDER=custom-openai"):
+            settings = _settings(
+                embedding_provider="custom-openai",
+                custom_openai_api_key="sk-custom",
+                custom_openai_base_url="",
+            )
+        # Should not reach here
+
+
+def test_create_embedding_function_zai():
+    settings = _settings(
+        embedding_provider="zai",
+        zai_api_key="sk-zai",
+        zai_base_url="https://api.z.ai/api/paas/v4",
+    )
+
+    with patch("langchain_openai.OpenAIEmbeddings") as mock_embeddings:
+        result = create_embedding_function(settings)
+        assert result is not None
+        mock_embeddings.assert_called_once_with(
+            model="text-embedding-3-small",
+            api_key="sk-zai",
+            base_url="https://api.z.ai/api/paas/v4",
+        )
+
+
+def test_create_embedding_function_zai_missing_key():
+        with pytest.raises(ValidationError, match="ZAI_API_KEY required when EMBEDDING_PROVIDER=zai"):
+            settings = _settings(
+                embedding_provider="zai",
+                zai_api_key="",
+                zai_base_url="https://api.z.ai/api/paas/v4",
+            )
+        # Should not reach here

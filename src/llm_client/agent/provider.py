@@ -1,10 +1,11 @@
 """LLM provider factory + usage tracking + retry (AG-2, ARCHITECT §5.2.3).
 
 Provides ``LLMProviderFactory`` that creates LangChain ``BaseChatModel`` instances
-for supported providers (OpenAI only in Phase 1).  Includes ``TokenUsageTracker``
+for supported providers (OpenAI, CUSTOM-OPENAI, ZAI in Phase 2).  Includes ``TokenUsageTracker``
 callback handler and exponential-backoff retry decorator.
 
 Phase 1: OpenAI only.  Anthropic / Ollama stubs raise ``NotImplementedError``.
+Phase 2: CUSTOM-OPENAI (any OpenAI-compatible endpoint) + ZAI (z.ai).
 """
 
 from __future__ import annotations
@@ -58,11 +59,13 @@ class TokenUsageTracker(BaseCallbackHandler):
         session_id: str = "",
         *,
         pii_mask: bool = False,
+        provider: str = "openai",
     ) -> None:
         super().__init__()
         self._writer = operational_writer
         self._session_id = session_id
         self._pii_mask = pii_mask
+        self._provider = provider
 
     # BaseChatModel callback — fires after a successful LLM invocation
     async def on_llm_end(self, response: Any, **kwargs: Any) -> None:
@@ -87,7 +90,7 @@ class TokenUsageTracker(BaseCallbackHandler):
 
         event: dict[str, Any] = {
             "event_type": "llm_usage",
-            "provider": "openai",
+            "provider": self._provider,
             "model": model,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
@@ -121,9 +124,7 @@ def create_retry_decorator(
 ) -> Any:
     """Return a tenacity retry decorator for transient LLM API errors (429/500/503)."""
     return retry(
-        retry=retry_if_exception_type(
-            (TimeoutError, ConnectionError, OSError)
-        ),
+        retry=retry_if_exception_type((TimeoutError, ConnectionError, OSError)),
         wait=wait_exponential(multiplier=1, min=min_wait, max=max_wait),
         stop=stop_after_attempt(max_retries),
         before_sleep=_before_sleep_log,
@@ -156,7 +157,7 @@ class LLMProviderFactory:
         Parameters
         ----------
         provider:
-            One of ``"openai"``, ``"anthropic"`` (Phase 3), ``"ollama"`` (Phase 4).
+            One of ``"openai"``, ``"CUSTOM-OPENAI"``, ``"ZAI"``, ``"anthropic"`` (Phase 3), ``"ollama"`` (Phase 4).
         model:
             Model identifier, e.g. ``"gpt-4o-mini"``.
         api_key:
@@ -172,6 +173,26 @@ class LLMProviderFactory:
                     model=model,
                     streaming=streaming,
                     api_key=SecretStr(api_key) if api_key else None,
+                    **kwargs,
+                )
+            case "CUSTOM-OPENAI":
+                # Extract base_url from kwargs to avoid duplication
+                base_url = kwargs.pop("base_url", None)
+                return ChatOpenAI(
+                    model=model,
+                    streaming=streaming,
+                    api_key=SecretStr(api_key) if api_key else None,
+                    base_url=base_url,
+                    **kwargs,
+                )
+            case "ZAI":
+                # Extract base_url from kwargs to avoid duplication
+                base_url = kwargs.pop("base_url", None)
+                return ChatOpenAI(
+                    model=model,
+                    streaming=streaming,
+                    api_key=SecretStr(api_key) if api_key else None,
+                    base_url=base_url,
                     **kwargs,
                 )
             case "anthropic":

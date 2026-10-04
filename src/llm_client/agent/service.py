@@ -114,12 +114,17 @@ def format_sse_event(event: str, data: Any) -> str:
 def _resolve_model(settings: Settings, provider: str) -> str:
     """Return the configured model name for *provider*.
 
-    Phase 1 only implements OpenAI, but the per-provider fields already exist in
-    Settings so this stays correct as providers are added.
+    Phase 2: supports OpenAI, CUSTOM-OPENAI, ZAI, with provider-specific model fields.
     """
-    if provider == "anthropic":
-        return settings.anthropic_model
-    return settings.openai_model
+    match provider:
+        case "anthropic":
+            return settings.anthropic_model
+        case "CUSTOM-OPENAI":
+            return settings.custom_openai_model
+        case "ZAI":
+            return settings.zai_model
+        case _:
+            return settings.openai_model
 
 
 def format_metadata_payload(
@@ -202,7 +207,9 @@ def resolve_tools(settings: dict[str, Any] | None) -> list[Any]:
         enabled = DEFAULT_TOOLS_ENABLED
 
     if not isinstance(enabled, (list, tuple)):
-        logger.warning("settings['tools_enabled'] is %s, not a list — using defaults", type(enabled).__name__)
+        logger.warning(
+            "settings['tools_enabled'] is %s, not a list — using defaults", type(enabled).__name__
+        )
         enabled = DEFAULT_TOOLS_ENABLED
 
     tools: list[Any] = []
@@ -241,7 +248,11 @@ def _update_runtime_from_chunk(
     for key, value in chunk.items():
         if key.startswith("_") or not isinstance(value, dict):
             continue
-        if key not in _KNOWN_GRAPH_NODES and "messages" not in value and "final_answer" not in value:
+        if (
+            key not in _KNOWN_GRAPH_NODES
+            and "messages" not in value
+            and "final_answer" not in value
+        ):
             continue
 
         runtime.last_node_executed = key
@@ -303,7 +314,6 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     )
     from ..observability.operational_writer import build_operational_writer
     from ..security.pii_detector import PIIDetector
-
 
     pii_detector = PIIDetector(
         spacy_model=settings.pii_detector_spacy_model,
@@ -427,7 +437,11 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         parts: list[bytes] = []
         seen: set[int] = set()
-        for source in (_PROMETHEUS_DEFAULT_REGISTRY, default_checkpoint_metrics, default_reranker_metrics):
+        for source in (
+            _PROMETHEUS_DEFAULT_REGISTRY,
+            default_checkpoint_metrics,
+            default_reranker_metrics,
+        ):
             if source is None:
                 continue
             registry = getattr(source, "registry", source)
@@ -471,12 +485,29 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             "final_answer": None,
         }
 
+        # Select API key and base URL by provider
+        match settings.llm_provider:
+            case "openai":
+                api_key = settings.openai_api_key
+                base_url = None
+            case "CUSTOM-OPENAI":
+                api_key = settings.custom_openai_api_key
+                base_url = settings.custom_openai_base_url
+            case "ZAI":
+                api_key = settings.zai_api_key
+                base_url = settings.zai_base_url
+            case _:
+                # Fallback for non-implemented providers (anthropic/ollama in Phase 1)
+                api_key = settings.openai_api_key
+                base_url = None
+
         # Create LLM via provider factory (AG-2)
         try:
             llm = LLMProviderFactory.create(
                 provider=settings.llm_provider,
                 model=model_name,
-                api_key=settings.openai_api_key,
+                api_key=api_key,
+                base_url=base_url,
             )
         except NotImplementedError:
             # Fallback for non-implemented providers (anthropic/ollama in Phase 1)
@@ -500,6 +531,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         rag_pipeline = None
         try:
             from ..rag.pipeline_singleton import get_pipeline_for_request
+
             rag_pipeline = await get_pipeline_for_request(
                 settings,
                 request_settings,
@@ -555,7 +587,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             try:
                 detection = await metadata_future
                 score, entities = detection_to_columns(detection, settings.pii_metadata_enabled)
-                
+
                 # Ensure parents and get UUIDs
                 _, session_uuid = await ensure_chat_parents(
                     pool=app.state.pg_pool,
@@ -564,7 +596,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     provider=settings.llm_provider,
                     model_name=model_name,
                 )
-                
+
                 # Insert user message with PII metadata
                 message_uuid = uuid.UUID(message_id) if len(message_id) == 32 else uuid.uuid4()
                 await insert_message(
@@ -577,11 +609,11 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     pii_entities=entities,
                 )
                 logger.debug("Persisted user message %s with PII score %s", message_id, score)
-                
+
             except Exception:
                 logger.exception("Failed to persist user message for session %s", session_id)
                 # Never fail the chat due to persistence errors
-        
+
         asyncio.create_task(_persist_user_message())
 
         async def _run_graph() -> None:
@@ -589,11 +621,11 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             runtime, seen_message_keys = _seed_runtime_from_state(initial_state)
             runtime_registry.set(session_id, runtime)
             await save_runtime_context(redis_client, session_id, runtime)
-            
+
             # Buffer for assistant/tool messages to persist at completion
             assistant_content = []
             tool_messages = []
-            
+
             try:
                 # Use thread_id for checkpointing if checkpointer is available
                 config: dict[str, Any] = (
@@ -621,15 +653,17 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     runtime_registry.set(session_id, runtime)
                     await save_runtime_context(redis_client, session_id, runtime)
                     await queue.put(chunk)
-                    
+
                     # Extract assistant/tool messages for persistence
                     for msg in _iter_stream_messages(chunk):
                         if isinstance(msg, ToolMessage):
-                            tool_messages.append({
-                                "tool_call_id": str(getattr(msg, "tool_call_id", "") or ""),
-                                "tool_name": getattr(msg, "name", None) or "unknown",
-                                "text": str(msg.content) if msg.content else "",
-                            })
+                            tool_messages.append(
+                                {
+                                    "tool_call_id": str(getattr(msg, "tool_call_id", "") or ""),
+                                    "tool_name": getattr(msg, "name", None) or "unknown",
+                                    "text": str(msg.content) if msg.content else "",
+                                }
+                            )
                         elif hasattr(msg, "content"):
                             content = msg.content if hasattr(msg, "content") else str(msg)
                             if isinstance(content, list):
@@ -641,7 +675,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                                 )
                             if content:
                                 assistant_content.append(content)
-                    
+
             except GraphCancelled as exc:
                 logger.info("Graph cancelled for session %s: %s", session_id, exc.reason)
                 # Put cancelled event with partial answer
@@ -653,36 +687,38 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     runtime_registry.set(session_id, runtime)
                     await save_runtime_context(redis_client, session_id, runtime)
                 await queue.put({CHUNK_KEY_CANCELLED: cancelled_payload})
-                
+
                 # Persist partial answer if available
                 if partial_answer:
                     await _persist_assistant_final_answer(
                         session_id, partial_answer, runtime_registry.get(session_id)
                     )
-                    
+
             except GraphInvokeTimeout as exc:
                 logger.warning("Graph timeout for session %s: %s", session_id, exc)
                 await queue.put({CHUNK_KEY_ERROR: exc})
-                
+
             except Exception as exc:
                 logger.exception("Graph execution failed for session %s", session_id)
                 await queue.put({CHUNK_KEY_ERROR: exc})
-                
+
             finally:
                 # Persist assistant final answer and tool messages
-                final_answer_content = str(runtime.partial_answer_size_bytes) if runtime.partial_answer_size_bytes else None
+                final_answer_content = (
+                    str(runtime.partial_answer_size_bytes)
+                    if runtime.partial_answer_size_bytes
+                    else None
+                )
                 if final_answer_content:
-                    await _persist_assistant_final_answer(
-                        session_id, final_answer_content, runtime
-                    )
-                
+                    await _persist_assistant_final_answer(session_id, final_answer_content, runtime)
+
                 if tool_messages:
                     await _persist_tool_messages(session_id, tool_messages)
-                
+
                 await queue.put(None)  # Sentinel: stream is done
                 runtime_registry.clear(session_id)
                 await delete_runtime_context(redis_client, session_id)
-        
+
         async def _persist_assistant_final_answer(session_id: str, content: str, runtime) -> None:
             """Persist assistant final answer message."""
             try:
@@ -694,10 +730,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     provider=settings.llm_provider,
                     model_name=model_name,
                 )
-                
+
                 # Generate message ID for assistant response
                 message_uuid = uuid.uuid4()
-                
+
                 await insert_message(
                     pool=app.state.pg_pool,
                     message_id=message_uuid,
@@ -708,10 +744,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     pii_entities=None,
                 )
                 logger.debug("Persisted assistant message %s", message_uuid)
-                
+
             except Exception:
                 logger.exception("Failed to persist assistant message for session %s", session_id)
-        
+
         async def _persist_tool_messages(session_id: str, tool_messages: list[dict]) -> None:
             """Persist tool result messages."""
             try:
@@ -723,7 +759,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     provider=settings.llm_provider,
                     model_name=model_name,
                 )
-                
+
                 for tool_msg in tool_messages:
                     message_uuid = uuid.uuid4()
                     await insert_message(
@@ -739,8 +775,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                         pii_score=None,
                         pii_entities=None,
                     )
-                logger.debug("Persisted %d tool messages for session %s", len(tool_messages), session_id)
-                
+                logger.debug(
+                    "Persisted %d tool messages for session %s", len(tool_messages), session_id
+                )
+
             except Exception as exc:
                 if isinstance(exc, GraphInvokeTimeout):
                     logger.warning("Graph timeout for session %s: %s", session_id, exc)
@@ -755,6 +793,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         # Set request-level RAG overrides for tools
         from ..rag.pipeline_singleton import reset_rag_request_overrides, set_rag_request_overrides
+
         _ov_token = set_rag_request_overrides(request_settings or None)
         try:
             task = asyncio.create_task(_run_graph())
@@ -906,9 +945,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         pool = indexer.pg_pool
         async with pool.acquire() as conn:
-            exists = await conn.fetchval(
-                "SELECT 1 FROM documents WHERE id = $1", document_id
-            )
+            exists = await conn.fetchval("SELECT 1 FROM documents WHERE id = $1", document_id)
         if not exists:
             return JSONResponse({"error": "Document not found"}, status_code=404)
 
@@ -950,6 +987,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         # Initialize shared RAG pipeline for rag_query tool (singleton pattern)
         try:
             from ..rag.pipeline_singleton import get_shared_pipeline
+
             await get_shared_pipeline(settings)
             logger.info("Shared RAG pipeline initialized for rag_query tool")
         except Exception as exc:  # noqa: BLE001 — degrade gracefully
@@ -1009,6 +1047,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         # Close the shared RAG pipeline
         from ..rag.pipeline_singleton import close_shared_pipeline
+
         close_shared_pipeline()
 
     return app
@@ -1310,7 +1349,7 @@ async def _stream_generator(session_id: str) -> Any:
                     {"message": str(exc), "type": type(exc).__name__},
                 )
                 break
-                
+
             # Check for graph cancellation
             if isinstance(chunk, dict) and CHUNK_KEY_CANCELLED in chunk:
                 cancelled_payload = chunk[CHUNK_KEY_CANCELLED]

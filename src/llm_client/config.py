@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     anthropic_api_key: str = ""  # Phase 3, placeholder
     anthropic_model: str = "claude-3-5-sonnet-20241022"  # Phase 3
+    # Custom OpenAI-compatible provider (any OpenAI-compatible endpoint)
+    custom_openai_api_key: str = ""
+    custom_openai_base_url: str = ""
+    custom_openai_model: str = ""
+    # Zhipu AI (z.ai) provider
+    zai_api_key: str = ""
+    zai_base_url: str = "https://api.z.ai/api/paas/v4"
+    zai_model: str = "glm-4.5"
 
     # RAG Pipeline (ADR-017/020, Phase 2)
     reranker_enabled: bool = True  # Enable/disable reranking in RAG pipeline
@@ -84,11 +92,9 @@ class Settings(BaseSettings):
         # Parse tools_enabled if it's a string (from env var)
         if isinstance(self.tools_enabled, str):
             self.tools_enabled = self._parse_tools_enabled(self.tools_enabled)
-        
+
         if self.environment not in {"dev", "staging", "prod"}:
-            raise ValueError(
-                f"ENVIRONMENT must be dev|staging|prod, got {self.environment!r}"
-            )
+            raise ValueError(f"ENVIRONMENT must be dev|staging|prod, got {self.environment!r}")
         if self.environment == "prod" and not self.forensic_stream_enabled:
             raise ValueError(
                 "FORENSIC_STREAM_ENABLED must be true in prod (privacy-first auditing)"
@@ -98,17 +104,33 @@ class Settings(BaseSettings):
                 f"OPERATIONAL_LOG_SINK must be stdout|loki|elk, got {self.operational_log_sink!r}"
             )
         if self.kms_provider not in {"vault", "local"}:
+            raise ValueError(f"KMS_PROVIDER must be vault|local, got {self.kms_provider!r}")
+        # Normalize provider name for case-insensitive comparison
+        normalized_provider = self.llm_provider.upper()
+        if normalized_provider not in {"OPENAI", "ANTHROPIC", "OLLAMA", "CUSTOM-OPENAI", "ZAI"}:
             raise ValueError(
-                f"KMS_PROVIDER must be vault|local, got {self.kms_provider!r}"
+                f"LLM_PROVIDER must be openai|anthropic|ollama|CUSTOM-OPENAI|ZAI, got {self.llm_provider!r}"
             )
-        if self.llm_provider not in {"openai", "anthropic", "ollama"}:
-            raise ValueError(
-                f"LLM_PROVIDER must be openai|anthropic|ollama, got {self.llm_provider!r}"
-            )
-        if self.llm_provider == "openai" and not self.openai_api_key:
-            raise ValueError(
-                "OPENAI_API_KEY required when LLM_PROVIDER=openai"
-            )
+
+        # Normalize provider field to uppercase for consistency
+        self.llm_provider = normalized_provider
+
+        # Validate OpenAI provider
+        if self.llm_provider == "OPENAI" and not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY required when LLM_PROVIDER=openai")
+
+        # Validate CUSTOM-OPENAI provider
+        if self.llm_provider == "CUSTOM-OPENAI":
+            if not self.custom_openai_api_key:
+                raise ValueError("CUSTOM_OPENAI_API_KEY required when LLM_PROVIDER=CUSTOM-OPENAI")
+            if not self.custom_openai_base_url:
+                raise ValueError("CUSTOM_OPENAI_BASE_URL required when LLM_PROVIDER=CUSTOM-OPENAI")
+            if not self.custom_openai_model:
+                raise ValueError("CUSTOM_OPENAI_MODEL required when LLM_PROVIDER=CUSTOM-OPENAI")
+
+        # Validate ZAI provider
+        if self.llm_provider == "ZAI" and not self.zai_api_key:
+            raise ValueError("ZAI_API_KEY required when LLM_PROVIDER=ZAI")
         if self.tavily_search_depth not in {"basic", "advanced"}:
             raise ValueError(
                 f"TAVILY_SEARCH_DEPTH must be basic|advanced, got {self.tavily_search_depth!r}"
@@ -129,26 +151,44 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"CHECKPOINT_BACKEND must be redis_postgres|redis_only|postgres_only, got {self.checkpoint_backend!r}"
             )
-        
+
         # Validate Tavily API URL
         if not self.tavily_api_url:
             raise ValueError("TAVILY_API_URL must be non-empty")
-        
+
         # Parse tools_enabled string to list
         self.tools_enabled = self._parse_tools_enabled(self.tools_enabled)
-        
+
         # Validate tools_enabled format
         if not isinstance(self.tools_enabled, list):
             raise TypeError("TOOLS_ENABLED must be a list")
-        
+
         # Validate TAVILY_API_KEY when web_search is enabled
         if "web_search" in self.tools_enabled and not self.tavily_api_key:
+            raise ValueError("TAVILY_API_KEY required when tools_enabled contains 'web_search'")
+
+        # Validate embedding provider
+        if self.embedding_provider not in {"openai", "custom-openai", "zai", "none"}:
             raise ValueError(
-                "TAVILY_API_KEY required when tools_enabled contains 'web_search'"
+                f"EMBEDDING_PROVIDER must be openai|custom-openai|zai|none, got {self.embedding_provider!r}"
             )
-        
+
+        # Validate embedding provider credentials
+        if self.embedding_provider == "custom-openai":
+            if not self.custom_openai_api_key:
+                raise ValueError(
+                    "CUSTOM_OPENAI_API_KEY required when EMBEDDING_PROVIDER=custom-openai"
+                )
+            if not self.custom_openai_base_url:
+                raise ValueError(
+                    "CUSTOM_OPENAI_BASE_URL required when EMBEDDING_PROVIDER=custom-openai"
+                )
+        elif self.embedding_provider == "zai":
+            if not self.zai_api_key:
+                raise ValueError("ZAI_API_KEY required when EMBEDDING_PROVIDER=zai")
+
         return self
-    
+
     @classmethod
     def _parse_tools_enabled(cls, v):
         """Parse TOOLS_ENABLED from env var: accepts JSON array or comma-separated string."""
@@ -156,6 +196,7 @@ class Settings(BaseSettings):
             v = v.strip()
             if v.startswith("["):
                 import json
+
                 return json.loads(v)
             if v == "":
                 return []

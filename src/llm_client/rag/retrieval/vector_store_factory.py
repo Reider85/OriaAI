@@ -34,17 +34,50 @@ def create_embedding_function(settings: Settings | None = None) -> Any | None:
         settings = default_settings
 
     provider = (settings.embedding_provider or "none").lower()
-    if provider != "openai":
-        logger.info("EMBEDDING_PROVIDER=%s — embeddings disabled", provider)
+    if provider == "none":
+        logger.info("EMBEDDING_PROVIDER=none — embeddings disabled")
         return None
-    if not settings.openai_api_key:
-        logger.warning("OPENAI_API_KEY empty — embeddings disabled")
+    elif provider == "openai":
+        if not settings.openai_api_key:
+            logger.warning("OPENAI_API_KEY empty — embeddings disabled")
+            return None
+        api_key = settings.openai_api_key
+        base_url = None
+    elif provider == "custom-openai":
+        if not settings.custom_openai_api_key:
+            logger.warning("CUSTOM_OPENAI_API_KEY empty — embeddings disabled")
+            return None
+        if not settings.custom_openai_base_url:
+            logger.warning("CUSTOM_OPENAI_BASE_URL empty — embeddings disabled")
+            return None
+        api_key = settings.custom_openai_api_key
+        base_url = settings.custom_openai_base_url
+    elif provider == "zai":
+        if not settings.zai_api_key:
+            logger.warning("ZAI_API_KEY empty — embeddings disabled")
+            return None
+        api_key = settings.zai_api_key
+        base_url = settings.zai_base_url
+    else:
+        logger.info("EMBEDDING_PROVIDER=%s — embeddings disabled", provider)
         return None
 
     try:
         from langchain_openai import OpenAIEmbeddings
 
-        return OpenAIEmbeddings(model=settings.embedding_model)
+        # Use provider-specific model if available, otherwise fallback to embedding_model
+        if provider == "custom-openai":
+            model = settings.custom_openai_model
+        elif provider == "zai":
+            model = settings.embedding_model  # ZAI uses embedding_model for embeddings
+        else:
+            model = settings.embedding_model
+
+        return OpenAIEmbeddings(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+        )
     except ImportError:
         logger.warning("langchain-openai not installed — embeddings disabled")
         return None
@@ -132,9 +165,7 @@ def _create_chroma_store(
         import chromadb
         from langchain_chroma import Chroma
     except ImportError:
-        logger.warning(
-            "chromadb/langchain-chroma not installed — pip install 'llm-client[vector]'"
-        )
+        logger.warning("chromadb/langchain-chroma not installed — pip install 'llm-client[vector]'")
         return None
 
     chroma_dir = _config_get(config, "chroma_dir", None) or settings.chroma_persist_dir
