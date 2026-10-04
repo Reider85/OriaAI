@@ -82,7 +82,9 @@ class FakeLayer:
             return None
         return self._maybe_corrupt(found).checkpoint
 
-    async def aput(self, config: dict, checkpoint: dict, metadata: dict, new_versions: dict | None = None) -> dict:
+    async def aput(
+        self, config: dict, checkpoint: dict, metadata: dict, new_versions: dict | None = None
+    ) -> dict:
         if not self.available:
             raise ConnectionError(f"{self.name} unavailable")
         thread_id = config["configurable"]["thread_id"]
@@ -537,7 +539,11 @@ class TestRecoverOperationalEvents:
         thread_id = str(uuid.uuid4())
         base = datetime(2026, 9, 27, 12, 0, tzinfo=UTC).isoformat()
         seed(pg, thread_id, {**make_checkpoint(), "ts": base})
-        seed(redis, thread_id, {**make_checkpoint(), "ts": base, "channel_values": {"messages": ["other"]}})
+        seed(
+            redis,
+            thread_id,
+            {**make_checkpoint(), "ts": base, "channel_values": {"messages": ["other"]}},
+        )
 
         await build(redis, pg, operational_writer=Recorder()).recover()
         await asyncio.sleep(0)

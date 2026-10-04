@@ -12,20 +12,20 @@ pytest.importorskip("cohere")
 
 class MockCohereResponse:
     """Mock Cohere rerank response for testing."""
-    
+
     def __init__(self, results):
         self.results = results
 
 
 class MockCohereClient:
     """Mock Cohere AsyncClient for testing."""
-    
+
     def __init__(self, api_key):
         self.api_key = api_key
         self.models = AsyncMock()
         self.models.list = AsyncMock(return_value={"models": []})
         self.rerank = self._rerank
-    
+
     async def _rerank(
         self,
         model: str,
@@ -36,17 +36,14 @@ class MockCohereClient:
     ):
         """Return mock rerank results with deterministic scores."""
         # Return scores: first document always highest, then descending
-        scores = [0.9, 0.1, 0.7, 0.3, 0.8][:len(documents)]
+        scores = [0.9, 0.1, 0.7, 0.3, 0.8][: len(documents)]
         # Sort by score descending and return top_n results
         indexed = [(i, float(s)) for i, s in enumerate(scores)]
         indexed.sort(key=lambda x: x[1], reverse=True)
         top_results = indexed[:top_n]
-        
+
         results = [
-            type('MockResult', (), {
-                'index': i,
-                'relevance_score': s
-            })() for i, s in top_results
+            type("MockResult", (), {"index": i, "relevance_score": s})() for i, s in top_results
         ]
         return MockCohereResponse(results)
 
@@ -112,7 +109,7 @@ async def test_health_check_success(cohere_reranker):
 async def test_entry_point_registration():
     """Test that CohereRerankAdapter can be loaded via entry point."""
     from llm_client.rag.rerankers.registry import get_reranker
-    
+
     # This should work without raising an exception
     reranker = get_reranker("cohere")
     assert reranker.name == "cohere-rerank"

@@ -157,7 +157,9 @@ async def delete_runtime_context(redis_client: Any, session_id: str) -> None:
         logger.debug("Failed to delete runtime context for session %s", session_id, exc_info=True)
 
 
-def extract_forensic_fields(context: dict[str, Any] | SessionRuntimeContext | None) -> dict[str, Any]:
+def extract_forensic_fields(
+    context: dict[str, Any] | SessionRuntimeContext | None,
+) -> dict[str, Any]:
     """Normalise runtime context into the three C-6 forensic field values."""
     if context is None:
         data: dict[str, Any] = {}

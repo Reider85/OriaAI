@@ -60,6 +60,7 @@ def test_vault_provider_init_requires_running_vault():
 # D-4 DoD: EncryptedPayload schema assertion
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_encrypted_payload_schema():
     """EncryptedPayload must have ciphertext (bytes), iv (12 bytes), key_id (str), algorithm='AES-256-GCM'."""

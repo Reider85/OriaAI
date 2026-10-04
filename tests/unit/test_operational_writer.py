@@ -60,9 +60,7 @@ async def test_nested_dict_resursively_masked(detector):
     sink = CapturingSink()
     w = OperationalStreamWriter(detector, sink=sink)
     # list containing an email inside a dict; also a string with a full name pattern
-    await w.write(
-        {"meta": {"contact": ["john@example.com"]}, "plain": "My name is Jane Doe"}
-    )
+    await w.write({"meta": {"contact": ["john@example.com"]}, "plain": "My name is Jane Doe"})
     await w.flush()
     event = json.loads(sink.records[0])
     assert event["meta"]["contact"][0] == "[EMAIL]"
@@ -126,6 +124,7 @@ def disabled_writer_factory():
 # ---------------------------------------------------------------------------
 # D-2 DoD: LokiSink tests (HTTP mock)
 # ---------------------------------------------------------------------------
+
 
 class FakeResponse:
     def __init__(self, status_code=204):
@@ -215,6 +214,7 @@ async def test_loki_sink_masks_pii_before_sending(detector):
 # D-2 DoD: ELKSink tests (HTTP mock)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_elk_sink_sends_bulk_payload(detector):
     """ELKSink posts NDJSON to /_bulk with correct action metadata."""
@@ -293,6 +293,7 @@ async def test_elk_sink_masks_pii(detector):
 # ---------------------------------------------------------------------------
 # D-2 DoD: build_operational_writer factory
 # ---------------------------------------------------------------------------
+
 
 def test_build_operational_writer_stdout():
     from llm_client.observability.operational_writer import build_operational_writer

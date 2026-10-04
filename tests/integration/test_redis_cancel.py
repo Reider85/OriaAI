@@ -1,4 +1,5 @@
 """Integration test: Redis pub/sub cancel round-trip (needs docker-compose Redis)."""
+
 import asyncio
 import os
 

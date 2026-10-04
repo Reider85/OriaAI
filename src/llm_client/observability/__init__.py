@@ -3,16 +3,16 @@
 from .access_log_ingestor import ACCESS_LOG_PREFIX, AccessLogIngestor
 from .forensic_writer import ForensicStreamWriter, ForensicWriteError, build_forensic_writer
 from .kms_provider import (
-                           EncryptedPayload,
-                           KMSKeyProvider,
-                           LocalDevKeyProvider,
-                           VaultTransitKeyProvider,
+    EncryptedPayload,
+    KMSKeyProvider,
+    LocalDevKeyProvider,
+    VaultTransitKeyProvider,
 )
 from .operational_writer import (
-                           LogSink,
-                           OperationalStreamWriter,
-                           StdoutSink,
-                           build_operational_writer,
+    LogSink,
+    OperationalStreamWriter,
+    StdoutSink,
+    build_operational_writer,
 )
 
 __all__ = [

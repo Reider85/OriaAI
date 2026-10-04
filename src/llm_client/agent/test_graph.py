@@ -579,9 +579,7 @@ async def test_route_after_planner_tool_calls():
     tool = _MockTool("mock_tool", result={"ok": True})
     llm = FakeMessagesListChatModel(
         responses=[
-            _ai_message_with_tool_calls(
-                {"name": "mock_tool", "args": {"query": "q"}, "id": "tc1"}
-            ),
+            _ai_message_with_tool_calls({"name": "mock_tool", "args": {"query": "q"}, "id": "tc1"}),
             AIMessage(content="done"),
         ]
     )
@@ -628,11 +626,7 @@ async def test_tool_executor_unknown_tool():
     from llm_client.agent.tools import file_export
 
     state = {
-        "messages": [
-            _ai_message_with_tool_calls(
-                {"name": "unknown_tool", "args": {}, "id": "tc1"}
-            )
-        ]
+        "messages": [_ai_message_with_tool_calls({"name": "unknown_tool", "args": {}, "id": "tc1"})]
     }
 
     result = await _tool_executor_node(state, [file_export])
@@ -704,7 +698,13 @@ async def test_rag_retriever_uses_settings_top_k():
     """settings['top_k'] overrides the graph-level default (G-4)."""
     pipeline = _MockRagPipeline(
         chunks=[
-            {"source_uri": f"d{i}", "title": f"T{i}", "page": i, "content_preview": "p", "score": 1.0}
+            {
+                "source_uri": f"d{i}",
+                "title": f"T{i}",
+                "page": i,
+                "content_preview": "p",
+                "score": 1.0,
+            }
             for i in range(8)
         ]
     )
@@ -722,7 +722,13 @@ async def test_rag_retriever_invalid_settings_top_k_ignored():
     """A malformed settings['top_k'] falls back to the state value."""
     pipeline = _MockRagPipeline(
         chunks=[
-            {"source_uri": f"d{i}", "title": f"T{i}", "page": i, "content_preview": "p", "score": 1.0}
+            {
+                "source_uri": f"d{i}",
+                "title": f"T{i}",
+                "page": i,
+                "content_preview": "p",
+                "score": 1.0,
+            }
             for i in range(8)
         ]
     )

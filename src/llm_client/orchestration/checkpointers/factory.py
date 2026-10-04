@@ -32,6 +32,7 @@ class CheckpointerBundle:
         backend: The backend that was actually created
         owns_pg_pool: True when this factory created pg_pool and must close it
     """
+
     checkpointer: Any
     redis_client: aioredis.Redis | None
     pg_pool: asyncpg.Pool | None
@@ -93,9 +94,7 @@ def build_checkpointer(
         if backend in {"redis_postgres", "postgres_only"}:
             if pg_pool is None:
                 # Create PostgreSQL connection pool (async — must be awaited)
-                pg_url = settings.database_url.replace(
-                    "postgresql+asyncpg://", "postgresql://"
-                )
+                pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
                 pg_pool = asyncio.get_event_loop().run_until_complete(
                     asyncpg.create_pool(
                         pg_url,
@@ -116,7 +115,7 @@ def build_checkpointer(
                     pg_pool = None  # Fall through to redis_only if available
             else:
                 logger.info("Reusing injected pg_pool for checkpointing")
-        
+
         # Create the appropriate checkpointer based on what succeeded
         if backend == "redis_postgres" and redis_client and pg_pool:
             # Composite checkpointer
@@ -138,7 +137,7 @@ def build_checkpointer(
                 on_total_failure=on_total_failure,
             )
             logger.info("Created RedisPostgresCheckpointer (composite)")
-            
+
         elif backend == "redis_only" and redis_client:
             # Redis-only checkpointer
             checkpointer = RedisCheckpointer(
@@ -147,7 +146,7 @@ def build_checkpointer(
                 metrics=metrics,
             )
             logger.info("Created RedisCheckpointer (redis_only)")
-            
+
         elif backend == "postgres_only" and pg_pool:
             # PostgreSQL-only checkpointer
             postgres_checkpointer = PostgresCheckpointer(
@@ -158,7 +157,7 @@ def build_checkpointer(
             )
             checkpointer = postgres_checkpointer
             logger.info("Created PostgresCheckpointer (postgres_only)")
-            
+
         else:
             # Fallback: no checkpointer available
             logger.warning(
@@ -179,7 +178,7 @@ def build_checkpointer(
                 loop.run_until_complete(pg_pool.close())
                 pg_pool = None
             postgres_checkpointer = None
-        
+
         return CheckpointerBundle(
             checkpointer=checkpointer,
             redis_client=redis_client,
@@ -188,7 +187,7 @@ def build_checkpointer(
             backend=backend,
             owns_pg_pool=owns_pg_pool,
         )
-        
+
     except Exception as exc:
         # Clean up resources on error (only pools/clients we created)
         logger.error("Failed to build checkpointer: %s", exc)
@@ -203,12 +202,13 @@ def build_checkpointer(
 
 def generate_thread_id(session_id: str) -> str:
     """Generate a stable thread_id from session_id using UUID5.
-    
+
     Args:
         session_id: Session identifier (from API path)
-        
+
     Returns:
         UUID string suitable for use as thread_id in checkpoint storage
     """
     import uuid
+
     return str(uuid.uuid5(uuid.UUID(_CHECKPOINT_THREAD_NAMESPACE), session_id))

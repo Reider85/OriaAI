@@ -164,9 +164,7 @@ async def test_publisher_message_roundtrips_to_subscriber():
             self.published.append((channel, message))
             for sub in self._subscribers:
                 if sub.channel == channel:
-                    sub._messages.append(
-                        {"type": "message", "data": message}
-                    )
+                    sub._messages.append({"type": "message", "data": message})
 
         def pubsub(self):
             ps = FakePubSub(self._messages)

@@ -10,6 +10,7 @@ The segment of parsing follows the AWS S3 Server Access Log field layout:
     request-uri http-status error-code bytes-sent object-size total-time
     turn-around-time referrer user-agent version-id host-id ...
 """
+
 import asyncio
 import logging
 import re
@@ -80,7 +81,11 @@ class AccessLogIngestor:
         if self._closed:
             return
         self._task = asyncio.create_task(self._poll_loop())
-        logger.info("AccessLogIngestor started (poll every %ds, allowlist=%s)", self._poll_interval, sorted(self._allowlist))
+        logger.info(
+            "AccessLogIngestor started (poll every %ds, allowlist=%s)",
+            self._poll_interval,
+            sorted(self._allowlist),
+        )
 
     async def close(self) -> None:
         self._closed = True
@@ -176,7 +181,9 @@ class AccessLogIngestor:
             }
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(self._webhook_url, json=payload)
-            logger.info("[security] alert sent for non-allowlisted access by %s", event["requester"])
+            logger.info(
+                "[security] alert sent for non-allowlisted access by %s", event["requester"]
+            )
         except Exception:
             logger.exception("[security] alert delivery failed for %s", event["requester"])
 

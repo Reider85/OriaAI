@@ -10,6 +10,7 @@
 Vault transit engine returns a base64 ``plaintext``/``ciphertext`` body; we map it
 to ``EncryptedPayload`` so callers only ever touch bytes and a ``key_id``.
 """
+
 import asyncio
 import base64
 import logging
@@ -62,9 +63,7 @@ class VaultTransitKeyProvider(KMSKeyProvider):
             raise ConnectionError(f"Vault not ready at {addr} — cannot initialize KMSKeyProvider")
         self._key_name = key_name
 
-    async def encrypt(
-        self, plaintext: bytes, context: dict | None = None
-    ) -> EncryptedPayload:
+    async def encrypt(self, plaintext: bytes, context: dict | None = None) -> EncryptedPayload:
         b64 = base64.b64encode(plaintext).decode("ascii")
         resp = await asyncio.to_thread(
             self._client.secrets.transit.encrypt_data, name=self._key_name, plaintext=b64
@@ -79,9 +78,7 @@ class VaultTransitKeyProvider(KMSKeyProvider):
             algorithm="AES-256-GCM",
         )
 
-    async def decrypt(
-        self, payload: EncryptedPayload, context: dict | None = None
-    ) -> bytes:
+    async def decrypt(self, payload: EncryptedPayload, context: dict | None = None) -> bytes:
         resp = await asyncio.to_thread(
             self._client.secrets.transit.decrypt_data,
             name=self._key_name,
@@ -117,9 +114,7 @@ class LocalDevKeyProvider(KMSKeyProvider):
         self._key_id = f"local-test:{uuid.uuid4().hex[:8]}"
         logger.warning("USING LOCAL KEY — TEST ONLY")
 
-    async def encrypt(
-        self, plaintext: bytes, context: dict | None = None
-    ) -> EncryptedPayload:
+    async def encrypt(self, plaintext: bytes, context: dict | None = None) -> EncryptedPayload:
         iv = os.urandom(12)
         ciphertext = await asyncio.to_thread(self._aesgcm.encrypt, iv, plaintext, None)
         return EncryptedPayload(
@@ -129,12 +124,8 @@ class LocalDevKeyProvider(KMSKeyProvider):
             algorithm="AES-256-GCM",
         )
 
-    async def decrypt(
-        self, payload: EncryptedPayload, context: dict | None = None
-    ) -> bytes:
-        return await asyncio.to_thread(
-            self._aesgcm.decrypt, payload.iv, payload.ciphertext, None
-        )
+    async def decrypt(self, payload: EncryptedPayload, context: dict | None = None) -> bytes:
+        return await asyncio.to_thread(self._aesgcm.decrypt, payload.iv, payload.ciphertext, None)
 
     async def rotate_key(self) -> str:
         raise NotImplementedError("LocalDevKeyProvider has no key rotation semantics")

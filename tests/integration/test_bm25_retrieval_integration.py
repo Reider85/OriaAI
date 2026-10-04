@@ -13,9 +13,7 @@ from llm_client.rag.retrieval.bm25_retriever import BM25Retriever
 
 async def _ensure_user(pool: asyncpg.Pool, user_id: str) -> None:
     async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING", user_id
-        )
+        await conn.execute("INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING", user_id)
 
 
 @pytest.mark.integration
@@ -62,9 +60,7 @@ class TestBM25RetrievalIntegration:
         yield docs
         async with pool.acquire() as conn:
             for doc in docs:
-                await conn.execute(
-                    "DELETE FROM documents WHERE user_id = $1", doc.user_id
-                )
+                await conn.execute("DELETE FROM documents WHERE user_id = $1", doc.user_id)
                 await conn.execute("DELETE FROM users WHERE id = $1", doc.user_id)
 
     @pytest.mark.asyncio
@@ -141,7 +137,9 @@ class TestBM25RetrievalIntegration:
             await conn.execute("DELETE FROM users WHERE id = $1", user_id)
 
     @pytest.mark.asyncio
-    async def test_retrieve_explain_analyze_uses_index(self, indexer, retriever, pool, test_documents):
+    async def test_retrieve_explain_analyze_uses_index(
+        self, indexer, retriever, pool, test_documents
+    ):
         user_id = test_documents[0].user_id
         await indexer.index_documents_batch(test_documents)
 

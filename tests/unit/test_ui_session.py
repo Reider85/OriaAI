@@ -144,7 +144,12 @@ def test_add_message_registers_session_in_registry(monkeypatch, state):
 
 def test_init_state_registers_current_session(monkeypatch, state):
     session._message_store["fixed-id"] = [
-        {"role": "user", "content": "hi", "metadata": None, "timestamp": "2026-01-01T09:00:00+00:00"}
+        {
+            "role": "user",
+            "content": "hi",
+            "metadata": None,
+            "timestamp": "2026-01-01T09:00:00+00:00",
+        }
     ]
     monkeypatch.setattr(session, "_session_state", lambda: state)
     monkeypatch.setattr(session, "get_session_id_from_url", lambda *a: "fixed-id")

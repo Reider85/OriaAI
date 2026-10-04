@@ -305,9 +305,7 @@ async def test_stream_emits_artifact_ready_for_tool_message():
     queue.put_nowait(
         {
             "tool_executor": {
-                "messages": [
-                    ToolMessage(content=json.dumps(_ARTIFACT), tool_call_id="call-1")
-                ]
+                "messages": [ToolMessage(content=json.dumps(_ARTIFACT), tool_call_id="call-1")]
             }
         }
     )
@@ -346,9 +344,7 @@ async def test_stream_emits_tokens_and_artifact_together():
     queue.put_nowait(
         {
             "tool_executor": {
-                "messages": [
-                    ToolMessage(content=json.dumps(_ARTIFACT), tool_call_id="call-1")
-                ]
+                "messages": [ToolMessage(content=json.dumps(_ARTIFACT), tool_call_id="call-1")]
             }
         }
     )
@@ -377,9 +373,7 @@ async def test_non_artifact_tool_message_emits_tool_result_only():
     queue.put_nowait(
         {
             "tool_executor": {
-                "messages": [
-                    ToolMessage(content='{"status": "ok"}', tool_call_id="call-1")
-                ]
+                "messages": [ToolMessage(content='{"status": "ok"}', tool_call_id="call-1")]
             }
         }
     )
@@ -562,9 +556,7 @@ async def test_unsubscribe_called_on_error():
 @pytest.mark.asyncio
 async def test_unknown_session_yields_error_event():
     events = _events(await _drain("does-not-exist"))
-    assert events == [
-        ("error", {"message": "Session not found", "type": "SessionNotFound"})
-    ]
+    assert events == [("error", {"message": "Session not found", "type": "SessionNotFound"})]
 
 
 # ── End-to-end against the UI parser ──────────────────────────────────────────
@@ -580,9 +572,7 @@ async def test_frames_are_parseable_by_ui_parser():
     queue.put_nowait(
         {
             "tool_executor": {
-                "messages": [
-                    ToolMessage(content=json.dumps(_ARTIFACT), tool_call_id="c1")
-                ]
+                "messages": [ToolMessage(content=json.dumps(_ARTIFACT), tool_call_id="c1")]
             }
         }
     )

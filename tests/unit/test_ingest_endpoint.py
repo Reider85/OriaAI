@@ -91,9 +91,7 @@ def _build_client(bm25_indexer=None, vector_writer=None, pg_pool=None):
 
         pool = indexer.pg_pool
         async with pool.acquire() as conn:
-            exists = await conn.fetchval(
-                "SELECT 1 FROM documents WHERE id = $1", document_id
-            )
+            exists = await conn.fetchval("SELECT 1 FROM documents WHERE id = $1", document_id)
         if not exists:
             return JSONResponse({"error": "Document not found"}, status_code=404)
 
@@ -161,9 +159,7 @@ def test_ingest_partial_when_vector_fails():
     async def bad_vector(doc):
         raise RuntimeError("vector down")
 
-    client = _build_client(
-        bm25_indexer=indexer, vector_writer=bad_vector, pg_pool=_MockPool()
-    )
+    client = _build_client(bm25_indexer=indexer, vector_writer=bad_vector, pg_pool=_MockPool())
     response = client.post(
         "/documents",
         json={"user_id": "u1", "content": "hello"},

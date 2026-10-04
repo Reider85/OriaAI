@@ -2,6 +2,7 @@
 
 These tests mock the aiobotocore client so no MinIO instance is required.
 """
+
 import pytest
 from botocore.exceptions import ClientError  # type: ignore[import-untyped]
 
@@ -11,9 +12,7 @@ from llm_client.storage.s3 import StorageError
 
 def _client_error(code: str, message: str = "boom") -> ClientError:
     """Build a ClientError the way botocore raises it."""
-    return ClientError(
-        {"Error": {"Code": code, "Message": message}}, operation_name="Operation"
-    )
+    return ClientError({"Error": {"Code": code, "Message": message}}, operation_name="Operation")
 
 
 def test_map_error_404_maps_to_file_not_found():

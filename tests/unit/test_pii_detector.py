@@ -99,6 +99,7 @@ def test_overlapping_dedupe_no_crash(detector):
 # D-1 DoD: cover all 8 default Presidio entity types
 # ---------------------------------------------------------------------------
 
+
 def test_detect_phone_number(detector):
     result = detector.detect("Call me at +1-202-555-0173 tomorrow")
     types = {e.type for e in result.entities}
@@ -179,6 +180,7 @@ def test_multiple_pii_types_single_text(detector):
 # D-1 DoD: latency assertion for disabled detector (<1ms)
 # ---------------------------------------------------------------------------
 
+
 def test_disabled_detector_latency_under_1ms(disabled_detector):
     import time
 
@@ -196,6 +198,7 @@ def test_disabled_detector_latency_under_1ms(disabled_detector):
 # ---------------------------------------------------------------------------
 # D-1 DoD: entity schema assertion (type, start, end only)
 # ---------------------------------------------------------------------------
+
 
 def test_entity_schema_has_only_type_start_end(detector):
     result = detector.detect("John Doe lives at john@example.com")

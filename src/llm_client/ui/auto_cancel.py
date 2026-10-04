@@ -12,6 +12,7 @@ app that:
 The backend URL defaults to ``window.location.origin`` and can be overridden with
 ``backend_origin``.
 """
+
 AUTO_CANCEL_JS = """<script>
 (function () {
   "use strict";

@@ -92,9 +92,7 @@ async def rerank_after_fusion(
             logger.warning(
                 "Reranker '%s' failed health check, falling back to identity", reranker.name
             )
-            metrics.increment_fallback_count(
-                primary=config.reranker_name, active="identity"
-            )
+            metrics.increment_fallback_count(primary=config.reranker_name, active="identity")
             # Log error to operational stream
             if operational_writer:
                 await operational_writer.write(
@@ -328,7 +326,9 @@ def _apply_retriever_overrides(
         try:
             parsed_top_k = int(top_k)
         except (TypeError, ValueError):
-            logger.warning("Non-integer top_k override %r — keeping %s", top_k, config.reranker_top_k)
+            logger.warning(
+                "Non-integer top_k override %r — keeping %s", top_k, config.reranker_top_k
+            )
         else:
             if parsed_top_k > 0:
                 updates["reranker_top_k"] = parsed_top_k
@@ -364,8 +364,7 @@ def _build_retriever(config: RetrieverConfig, pg_pool: Any = None) -> Any:
             return _EmptyRetriever()
         if vector_retriever is None:
             logger.warning(
-                "HYBRID strategy requested but no vector store available — "
-                "degrading to BM25-only"
+                "HYBRID strategy requested but no vector store available — degrading to BM25-only"
             )
             return BM25Retriever(pg_pool=pg_pool)
         return HybridRetriever(
@@ -483,9 +482,7 @@ class RagPipeline:
         # Step 1: Retrieval
         docs: list[dict[str, Any]] = []
         if isinstance(self._retriever, HybridRetriever):
-            vector_docs, bm25_docs = await self._retriever.aretrieve(
-                query, user_id=effective_user
-            )
+            vector_docs, bm25_docs = await self._retriever.aretrieve(query, user_id=effective_user)
             docs = rrf_fusion(
                 vector_docs,
                 bm25_docs,

@@ -160,6 +160,7 @@ async def test_key_path_in_record(kms, s3):
 # D-3 DoD: flush-interval test
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_flush_interval_flushes(kms, s3):
     """Timer-based flush fires within flush_interval_ms."""
@@ -184,9 +185,7 @@ async def test_flush_interval_flushes(kms, s3):
 
 import re
 
-_KEY_PATTERN = re.compile(
-    r"^forensic/\d{4}/\d{2}/\d{2}/[^/]+/\d{8}T\d{6}Z-[0-9a-f]{8}\.json$"
-)
+_KEY_PATTERN = re.compile(r"^forensic/\d{4}/\d{2}/\d{2}/[^/]+/\d{8}T\d{6}Z-[0-9a-f]{8}\.json$")
 
 
 @pytest.mark.asyncio
@@ -207,6 +206,7 @@ async def test_s3_key_format_matches_spec(kms, s3):
 # ---------------------------------------------------------------------------
 # D-3 DoD: EncryptedEnvelope structure assertion
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_encrypted_envelope_fields(kms, s3):
@@ -233,6 +233,7 @@ async def test_encrypted_envelope_fields(kms, s3):
 # D-3 DoD: startup warning when disabled
 # ---------------------------------------------------------------------------
 
+
 def test_disabled_writer_logs_warning(caplog):
     import logging
 
@@ -244,6 +245,7 @@ def test_disabled_writer_logs_warning(caplog):
 # ---------------------------------------------------------------------------
 # D-3 DoD: multiple events batch correctly
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_multiple_events_produce_separate_objects(kms, s3):

@@ -119,9 +119,27 @@ class TestBM25IndexBuilder:
         indexer = BM25IndexBuilder(mock_pool)
 
         documents = [
-            Document(id="doc-1", user_id="user-1", source_type="file", content_hash="hash1", content="Content 1"),
-            Document(id="doc-2", user_id="user-2", source_type="file", content_hash="hash2", content="Content 2"),
-            Document(id="doc-3", user_id="user-3", source_type="file", content_hash="hash3", content="Content 3"),
+            Document(
+                id="doc-1",
+                user_id="user-1",
+                source_type="file",
+                content_hash="hash1",
+                content="Content 1",
+            ),
+            Document(
+                id="doc-2",
+                user_id="user-2",
+                source_type="file",
+                content_hash="hash2",
+                content="Content 2",
+            ),
+            Document(
+                id="doc-3",
+                user_id="user-3",
+                source_type="file",
+                content_hash="hash3",
+                content="Content 3",
+            ),
         ]
 
         await indexer.index_documents_batch(documents)
@@ -180,9 +198,15 @@ class TestBM25IndexBuilder:
         indexer = BM25IndexBuilder(mock_pool)
 
         chunks = [
-            Chunk(document_id="doc-a", user_id="u", source_type="file", content="a0", chunk_index=0),
-            Chunk(document_id="doc-b", user_id="u", source_type="file", content="b0", chunk_index=0),
-            Chunk(document_id="doc-a", user_id="u", source_type="file", content="a1", chunk_index=1),
+            Chunk(
+                document_id="doc-a", user_id="u", source_type="file", content="a0", chunk_index=0
+            ),
+            Chunk(
+                document_id="doc-b", user_id="u", source_type="file", content="b0", chunk_index=0
+            ),
+            Chunk(
+                document_id="doc-a", user_id="u", source_type="file", content="a1", chunk_index=1
+            ),
         ]
 
         await indexer.index_chunks(chunks)
@@ -212,7 +236,11 @@ class TestBM25IndexBuilder:
         mock_pool.connection.execute = failing_execute
         indexer = BM25IndexBuilder(mock_pool)
         document = Document(
-            id="doc-123", user_id="user-123", source_type="file", content_hash="hash", content="test"
+            id="doc-123",
+            user_id="user-123",
+            source_type="file",
+            content_hash="hash",
+            content="test",
         )
 
         with pytest.raises(_Boom, match="Connection failed"):

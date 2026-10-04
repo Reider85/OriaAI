@@ -41,14 +41,14 @@ _RECOVERY_TIMESTAMP_SLACK_SECONDS = 0.001
 
 class RedisPostgresCheckpointer(BaseCheckpointSaver):
     """Composite checkpointer that writes to Redis (sync) and PostgreSQL (async buffer).
-    
+
     Implements LangGraph's BaseCheckpointSaver interface, delegating to:
     - RedisCheckpointer for synchronous writes with TTL (fast read)
     - PostgresCheckpointer for asynchronous batched writes (durable storage)
-    
+
     The composite provides read-from-Redis, fallback-to-PostgreSQL behavior.
     """
-    
+
     def __init__(
         self,
         redis_checkpointer: BaseCheckpointSaver,
@@ -59,7 +59,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         on_total_failure: Callable[[str, str], None] | None = None,
     ) -> None:
         """Initialize composite checkpointer.
-        
+
         Args:
             redis_checkpointer: Synchronous Redis checkpointer
             postgres_checkpointer: Asynchronous PostgreSQL checkpointer
@@ -73,7 +73,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         self._metrics = metrics or NullCheckpointMetrics()
         self._operational_writer = operational_writer
         self._on_total_failure = on_total_failure
-    
+
     async def aput(
         self,
         config: RunnableConfig,
@@ -82,22 +82,22 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         new_versions: dict[str, str | int | float] | None = None,
     ) -> RunnableConfig:
         """Store a checkpoint in both Redis (sync) and PostgreSQL (async buffer).
-        
+
         Args:
             config: Runnable configuration containing thread_id
             checkpoint: Checkpoint data to store
             metadata: Checkpoint metadata
             new_versions: Optional channel version updates
-            
+
         Returns:
             Updated config (pass-through)
-            
+
         Raises:
             CheckpointError: If both layers fail to store the checkpoint
         """
         redis_success = False
         pg_success = False
-        
+
         # Start Redis write (synchronous, fast)
         redis_start = time.perf_counter()
         try:
@@ -109,17 +109,19 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             redis_latency = (time.perf_counter() - redis_start) * 1000
             self._metrics.record_redis_write_latency(redis_latency)
             self._metrics.increment_redis_error()
-            
+
             # Log Redis failure to operational stream
-            await self._emit_operational({
-                "event": "checkpoint_redis_write_failed",
-                "thread_id": config.get("configurable", {}).get("thread_id", "default"),
-                "error": str(exc),
-                "fallback": "postgres_only",
-            })
-            
+            await self._emit_operational(
+                {
+                    "event": "checkpoint_redis_write_failed",
+                    "thread_id": config.get("configurable", {}).get("thread_id", "default"),
+                    "error": str(exc),
+                    "fallback": "postgres_only",
+                }
+            )
+
             logger.warning("Redis checkpoint write failed, falling back to PostgreSQL: %s", exc)
-        
+
         # PostgreSQL write (asynchronous buffer)
         pg_start = time.perf_counter()
         try:
@@ -131,47 +133,49 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             pg_latency = (time.perf_counter() - pg_start) * 1000
             self._metrics.record_pg_buffer_latency(pg_latency)
             self._metrics.increment_pg_error()
-            
+
             logger.warning("PostgreSQL checkpoint write failed: %s", exc)
-        
+
         # Check if both failed
         if not redis_success and not pg_success:
             # Both failed
             self._metrics.increment_both_failed()
-            await self._emit_operational({
-                "event": "checkpoint_both_write_failed",
-                "thread_id": config.get("configurable", {}).get("thread_id", "default"),
-                "error": "Both Redis and PostgreSQL checkpoint writes failed",
-            })
-            
+            await self._emit_operational(
+                {
+                    "event": "checkpoint_both_write_failed",
+                    "thread_id": config.get("configurable", {}).get("thread_id", "default"),
+                    "error": "Both Redis and PostgreSQL checkpoint writes failed",
+                }
+            )
+
             # Call the failure callback if provided
             if self._on_total_failure:
                 thread_id = config.get("configurable", {}).get("thread_id", "default")
                 self._on_total_failure(thread_id, "system_error")
-            
+
             raise CheckpointError(
                 "Both Redis and PostgreSQL checkpoint writes failed. "
                 f"Redis error: {redis_latency if 'redis_latency' in locals() else 'unknown'}, "
                 f"PostgreSQL error: {pg_latency if 'pg_latency' in locals() else 'unknown'}"
             )
-        
+
         return config
-    
+
     async def aget(
         self,
         config: RunnableConfig,
     ) -> Checkpoint | None:
         """Get the latest checkpoint, reading from Redis first, then PostgreSQL.
-        
+
         Args:
             config: Runnable configuration containing thread_id
-            
+
         Returns:
             Checkpoint data or None if not found in either layer
         """
         # Try Redis first (fast)
         thread_id = config.get("configurable", {}).get("thread_id", "default")
-        
+
         try:
             checkpoint = await self._redis.aget(config)
             if checkpoint is not None:
@@ -181,7 +185,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         except (aioredis.RedisError, Exception) as exc:  # noqa: BLE001 — degrade to PostgreSQL on any Redis failure
             logger.warning("Redis read failed, trying PostgreSQL: %s", exc)
             self._metrics.increment_redis_error()
-        
+
         # Fallback to PostgreSQL
         try:
             checkpoint = await self._postgres.aget(config)
@@ -193,16 +197,16 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             logger.warning("PostgreSQL read failed: %s", exc)
             self._metrics.increment_pg_error()
             return None
-    
+
     async def aget_tuple(
         self,
         config: RunnableConfig,
     ) -> CheckpointTuple | None:
         """Get the latest checkpoint tuple, reading from Redis first, then PostgreSQL.
-        
+
         Args:
             config: Runnable configuration containing thread_id
-            
+
         Returns:
             CheckpointTuple or None if not found in either layer
         """
@@ -215,7 +219,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         except (aioredis.RedisError, Exception) as exc:  # noqa: BLE001 — degrade to PostgreSQL on any Redis failure
             logger.warning("Redis read failed, trying PostgreSQL: %s", exc)
             self._metrics.increment_redis_error()
-        
+
         # Fallback to PostgreSQL
         try:
             checkpoint_tuple = await self._postgres.aget_tuple(config)
@@ -226,7 +230,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             logger.warning("PostgreSQL read failed: %s", exc)
             self._metrics.increment_pg_error()
             return None
-    
+
     async def alist(
         self,
         config: RunnableConfig | None = None,
@@ -236,71 +240,75 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
         """List checkpoints from both layers, merged and sorted.
-        
+
         Args:
             config: Optional runnable configuration to filter by thread_id
             filter: Optional filter criteria
             before: Optional checkpoint_id to list before
             limit: Optional maximum number of checkpoints to return
-            
+
         Yields:
             CheckpointTuple objects, sorted by created_at (newest first)
         """
         # Get checkpoints from both layers
         redis_checkpoints = []
         postgres_checkpoints = []
-        
+
         # Collect Redis checkpoints
         if config is not None:
             try:
-                async for checkpoint in self._redis.alist(config, filter=filter, before=before, limit=limit):
+                async for checkpoint in self._redis.alist(
+                    config, filter=filter, before=before, limit=limit
+                ):
                     redis_checkpoints.append(checkpoint)
             except (aioredis.RedisError, Exception) as exc:  # noqa: BLE001 — degrade to PostgreSQL on any Redis failure
                 logger.warning("Redis list failed: %s", exc)
                 self._metrics.increment_redis_error()
-        
+
         # Collect PostgreSQL checkpoints
         if config is not None:
             try:
-                async for checkpoint in self._postgres.alist(config, filter=filter, before=before, limit=limit):
+                async for checkpoint in self._postgres.alist(
+                    config, filter=filter, before=before, limit=limit
+                ):
                     postgres_checkpoints.append(checkpoint)
             except (asyncpg.PostgresError, Exception) as exc:  # noqa: BLE001 — degrade to empty list if PostgreSQL fails
                 logger.warning("PostgreSQL list failed: %s", exc)
                 self._metrics.increment_pg_error()
-        
+
         # Merge and deduplicate by checkpoint_id
         seen_ids = set()
         merged = []
-        
+
         # Add Redis checkpoints first (they're newer)
         for checkpoint in redis_checkpoints:
             if checkpoint.checkpoint.get("id") not in seen_ids:
                 seen_ids.add(checkpoint.checkpoint.get("id"))
                 merged.append(checkpoint)
-        
+
         # Add PostgreSQL checkpoints, avoiding duplicates
         for checkpoint in postgres_checkpoints:
             if checkpoint.checkpoint.get("id") not in seen_ids:
                 seen_ids.add(checkpoint.checkpoint.get("id"))
                 merged.append(checkpoint)
-        
+
         # Sort by created_at (newest first)
         merged.sort(
             key=lambda cp: (
                 cp.checkpoint.get("ts", ""),
                 cp.checkpoint.get("id", ""),
             ),
-            reverse=True
+            reverse=True,
         )
-        
+
         # Apply limit
         if limit is not None:
             merged = merged[:limit]
-        
+
         # Yield results
         for checkpoint in merged:
             yield checkpoint
-    
+
     async def aput_writes(
         self,
         config: RunnableConfig,
@@ -309,7 +317,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         task_path: str | None = None,
     ) -> None:
         """Store intermediate writes in both layers.
-        
+
         Args:
             config: Runnable configuration containing thread_id
             writes: List of (channel, value) tuples
@@ -322,16 +330,16 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         except (aioredis.RedisError, Exception) as exc:  # noqa: BLE001 — continue to PostgreSQL if Redis fails
             logger.warning("Redis writes failed: %s", exc)
             self._metrics.increment_redis_error()
-        
+
         try:
             await self._postgres.aput_writes(config, writes, task_id, task_path or "")
         except (asyncpg.PostgresError, Exception) as exc:  # noqa: BLE001 — log but don't fail if PostgreSQL fails
             logger.warning("PostgreSQL writes failed: %s", exc)
             self._metrics.increment_pg_error()
-    
+
     async def adelete_thread(self, thread_id: str) -> None:
         """Delete all checkpoints and writes for a thread from both layers.
-        
+
         Args:
             thread_id: Thread identifier to delete
         """
@@ -341,16 +349,16 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         except (aioredis.RedisError, Exception) as exc:  # noqa: BLE001 — continue to PostgreSQL if Redis fails
             logger.warning("Redis thread deletion failed: %s", exc)
             self._metrics.increment_redis_error()
-        
+
         try:
             await self._postgres.adelete_thread(thread_id)
         except (asyncpg.PostgresError, Exception) as exc:  # noqa: BLE001 — log but don't fail if PostgreSQL fails
             logger.warning("PostgreSQL thread deletion failed: %s", exc)
             self._metrics.increment_pg_error()
-    
+
     async def _emit_operational(self, event: dict[str, Any]) -> None:
         """Emit an event to the operational writer if available.
-        
+
         Args:
             event: Event dictionary to emit
         """
@@ -478,17 +486,13 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         except (asyncpg.PostgresError, Exception) as exc:  # noqa: BLE001 — Redis still has recent writes, continue
             # Without the durable layer there is no snapshot to restore from;
             # Redis alone still holds the last writes, so try it and log.
-            logger.warning(
-                '{"event": "checkpoint_recovery_pg_unavailable", "error": %r}', exc
-            )
+            logger.warning('{"event": "checkpoint_recovery_pg_unavailable", "error": %r}', exc)
 
         try:
             redis_threads = await self._redis.list_all_thread_ids()  # type: ignore[attr-defined]
             thread_ids.extend(redis_threads)
         except (aioredis.RedisError, Exception) as exc:  # noqa: BLE001 — Redis unavailable, continue with empty list
-            logger.warning(
-                '{"event": "checkpoint_recovery_redis_unavailable", "error": %r}', exc
-            )
+            logger.warning('{"event": "checkpoint_recovery_redis_unavailable", "error": %r}', exc)
             redis_reachable = False
 
         # Deduplicate while preserving order; the PG entries come first.
@@ -515,8 +519,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             # writes, so report the thread as unreconciled and move on — the
             # snapshot arrives on the next restart.
             logger.warning(
-                '{"event": "checkpoint_recovery_pg_read_failed", "thread_id": "%s", '
-                '"error": %r}',
+                '{"event": "checkpoint_recovery_pg_read_failed", "thread_id": "%s", "error": %r}',
                 thread_id,
                 exc,
             )
@@ -558,9 +561,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             await self._validate_recovered_thread(thread_id, stats)
             return
 
-        comparison = _compare_timestamps(
-            redis_tuple.checkpoint, pg_tuple.checkpoint
-        )
+        comparison = _compare_timestamps(redis_tuple.checkpoint, pg_tuple.checkpoint)
 
         if comparison > 0:
             # Redis strictly newer — replay the delta.
@@ -588,18 +589,18 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         if redis_tuple.checkpoint != pg_tuple.checkpoint:
             stats["conflicts_resolved"] += 1
             self._metrics.increment_recovery_conflict()
-            await self._emit_operational({
-                "event": "checkpoint_conflict",
-                "thread_id": thread_id,
-                "winner": "pg",
-                "reason": "content_diff",
-                "pg_checkpoint_id": pg_tuple.checkpoint.get("id"),
-                "redis_checkpoint_id": redis_tuple.checkpoint.get("id"),
-            })
+            await self._emit_operational(
+                {
+                    "event": "checkpoint_conflict",
+                    "thread_id": thread_id,
+                    "winner": "pg",
+                    "reason": "content_diff",
+                    "pg_checkpoint_id": pg_tuple.checkpoint.get("id"),
+                    "redis_checkpoint_id": redis_tuple.checkpoint.get("id"),
+                }
+            )
             try:
-                await self._redis.aput(
-                    config, pg_tuple.checkpoint, pg_tuple.metadata, {}
-                )
+                await self._redis.aput(config, pg_tuple.checkpoint, pg_tuple.metadata, {})
             except (aioredis.RedisError, Exception) as exc:  # noqa: BLE001 — Redis write failed, continue with PG state
                 logger.warning(
                     '{"event": "checkpoint_conflict_rewrite_failed", "thread_id": "%s", '
@@ -640,8 +641,7 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             )
         except (asyncpg.PostgresError, Exception) as exc:  # noqa: BLE001 — replay failed, but Redis still has latest state
             logger.warning(
-                '{"event": "checkpoint_recovery_replay_failed", "thread_id": "%s", '
-                '"error": %r}',
+                '{"event": "checkpoint_recovery_replay_failed", "thread_id": "%s", "error": %r}',
                 thread_id,
                 exc,
             )
@@ -703,11 +703,15 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
             reason,
         )
         # Best-effort: the forensic writer may itself be unavailable at startup.
-        asyncio.create_task(self._emit_operational({
-            "event": "checkpoint_recovery_needs_human_review",
-            "thread_id": thread_id,
-            "reason": reason,
-        }))
+        asyncio.create_task(
+            self._emit_operational(
+                {
+                    "event": "checkpoint_recovery_needs_human_review",
+                    "thread_id": thread_id,
+                    "reason": reason,
+                }
+            )
+        )
 
     async def _log_recovery(
         self,
@@ -718,13 +722,15 @@ class RedisPostgresCheckpointer(BaseCheckpointSaver):
         delta_replayed: bool,
     ) -> None:
         """Emit the per-thread ``checkpoint_recovery`` event."""
-        await self._emit_operational({
-            "event": "checkpoint_recovery",
-            "thread_id": thread_id,
-            "pg_checkpoint_id": (pg_tuple.checkpoint.get("id") if pg_tuple else None),
-            "redis_checkpoint_id": (redis_tuple.checkpoint.get("id") if redis_tuple else None),
-            "delta_replayed": delta_replayed,
-        })
+        await self._emit_operational(
+            {
+                "event": "checkpoint_recovery",
+                "thread_id": thread_id,
+                "pg_checkpoint_id": (pg_tuple.checkpoint.get("id") if pg_tuple else None),
+                "redis_checkpoint_id": (redis_tuple.checkpoint.get("id") if redis_tuple else None),
+                "delta_replayed": delta_replayed,
+            }
+        )
 
 
 # ----------------------------------------------------------------------

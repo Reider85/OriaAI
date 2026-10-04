@@ -464,9 +464,7 @@ def test_stream_tokens_dispatches_tool_event_before_later_tokens(monkeypatch):
     order: list[str] = []
     tokens = [
         token
-        for token in chat.stream_tokens(
-            "sid-1", on_tool_event=lambda t, d: order.append("tool")
-        )
+        for token in chat.stream_tokens("sid-1", on_tool_event=lambda t, d: order.append("tool"))
     ]
     order.append("token")
     assert tokens == ["hi"]
@@ -499,9 +497,7 @@ def test_stream_tokens_tool_callback_ignores_other_events(monkeypatch):
     ]
     monkeypatch.setattr(chat.httpx, "stream", lambda *a, **k: FakeStreamResponse(lines))
     seen: list[str] = []
-    tokens = list(
-        chat.stream_tokens("sid-1", on_tool_event=lambda t, d: seen.append(t))
-    )
+    tokens = list(chat.stream_tokens("sid-1", on_tool_event=lambda t, d: seen.append(t)))
     assert tokens == ["a"]
     assert seen == []
 

@@ -5,6 +5,7 @@ Supports a pluggable ``LogSink`` (stdout default, Loki / ELK for staging/prod).
 Writes are async and buffered: a batch flush fires every ``flush_interval_ms`` or
 ``max_batch_size`` events, whichever comes first.
 """
+
 import asyncio
 import json
 import logging
@@ -46,7 +47,10 @@ class LokiSink(LogSink):
         if not events:
             return
         stream = [
-            {"stream": {"app": "llm-client", "source": "operational"}, "values": [[str(int(time.time() * 1e9)), ev]]}
+            {
+                "stream": {"app": "llm-client", "source": "operational"},
+                "values": [[str(int(time.time() * 1e9)), ev]],
+            }
             for ev in events
         ]
         resp = await self._client.post(self._url, json={"streams": stream})
@@ -71,7 +75,9 @@ class ELKSink(LogSink):
         payload = "".join(
             f'{{"index":{{"index":"llm-client-operational"}}}}\n{ev}\n' for ev in events
         )
-        resp = await self._client.post(self._url, content=payload, headers={"Content-Type": "application/x-ndjson"})
+        resp = await self._client.post(
+            self._url, content=payload, headers={"Content-Type": "application/x-ndjson"}
+        )
         resp.raise_for_status()
 
     async def close(self) -> None:
@@ -167,7 +173,9 @@ def _mask_event(event: dict, pii: PIIDetector) -> dict:
     return {k: _mask_value(v) for k, v in event.items()}
 
 
-def build_operational_writer(settings: Any, pii_detector: PIIDetector | None = None) -> OperationalStreamWriter:
+def build_operational_writer(
+    settings: Any, pii_detector: PIIDetector | None = None
+) -> OperationalStreamWriter:
     """Build writer from app settings (OPERATIONAL_LOG_SINK=stdout|loki|elk)."""
     from ..security.pii_detector import PIIDetector
 

@@ -69,7 +69,9 @@ class RAGEvaluator:
             raise ValueError(f"{where}: 'relevant_doc_ids' must be a non-empty list")
         bad = [r for r in relevant if not isinstance(r, str) or not r.strip()]
         if bad:
-            raise ValueError(f"{where}: 'relevant_doc_ids' must contain non-empty strings, got {bad!r}")
+            raise ValueError(
+                f"{where}: 'relevant_doc_ids' must contain non-empty strings, got {bad!r}"
+            )
 
     async def evaluate(self, config: RetrieverConfig, *, limit: int | None = None) -> EvalReport:
         """Evaluate RAG pipeline with given configuration.
@@ -182,9 +184,7 @@ class RAGEvaluator:
         baseline_report = await self.evaluate(baseline_config, limit=limit)
         treatment_report = await self.evaluate(treatment_config, limit=limit)
 
-        improvement = improvement_percent(
-            baseline_report.recall_at_5, treatment_report.recall_at_5
-        )
+        improvement = improvement_percent(baseline_report.recall_at_5, treatment_report.recall_at_5)
         latency_overhead = treatment_report.avg_latency_ms - baseline_report.avg_latency_ms
 
         # Per-category improvement — categories are reported separately on purpose:
@@ -217,11 +217,15 @@ class RAGEvaluator:
         )
 
         overall_pass = self._meets_threshold(
-            improvement, treatment_report.recall_at_5, baseline_report.recall_at_5,
+            improvement,
+            treatment_report.recall_at_5,
+            baseline_report.recall_at_5,
             recall_improvement_threshold,
         )
         semantic_pass = self._meets_threshold(
-            semantic_improvement, semantic_treatment, semantic_baseline,
+            semantic_improvement,
+            semantic_treatment,
+            semantic_baseline,
             semantic_improvement_threshold,
         )
         latency_pass = latency_overhead < latency_threshold_ms
@@ -300,8 +304,7 @@ class RAGEvaluator:
             actual = criteria["actual_improvement"]
             actual_text = "undefined (zero baseline)" if actual is None else f"{actual:.1f}%"
             yield (
-                f"recall@5 improvement {actual_text} < "
-                f"{criteria['recall_improvement_threshold']}%"
+                f"recall@5 improvement {actual_text} < {criteria['recall_improvement_threshold']}%"
             )
         if not criteria["semantic_pass"]:
             actual = criteria["actual_semantic_improvement"]

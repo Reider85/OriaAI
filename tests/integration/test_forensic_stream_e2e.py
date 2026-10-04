@@ -1,10 +1,11 @@
 """Integration test: Forensic stream end-to-end (Vault + MinIO + ForensicStreamWriter).
 
-Tests the full forensic path: Settings with forensic enabled → Vault transit encryption → 
+Tests the full forensic path: Settings with forensic enabled → Vault transit encryption →
 S3 forensic bucket upload → ForensicStreamWriter → decrypt roundtrip.
 
 This exercises the real forensic path in staging/prod environments.
 """
+
 import json
 import os
 
@@ -23,21 +24,23 @@ def settings_staging_forensic():
     """Settings with staging environment and forensic enabled."""
     # Use environment variables, fallback to defaults for CI
     original_env = os.environ.copy()
-    os.environ.update({
-        "ENVIRONMENT": "staging",
-        "FORENSIC_STREAM_ENABLED": "true",
-        "KMS_PROVIDER": "vault",
-        "VAULT_ADDR": os.getenv("VAULT_ADDR", "http://127.0.0.1:8200"),
-        "VAULT_TOKEN": os.getenv("VAULT_TOKEN", "root"),
-        "VAULT_TRANSIT_KEY": os.getenv("VAULT_TRANSIT_KEY", "forensic-aes256-gcm"),
-        "S3_ENDPOINT": os.getenv("S3_ENDPOINT", "http://127.0.0.1:9000"),
-        "S3_ACCESS_KEY": os.getenv("S3_ACCESS_KEY", "minioadmin"),
-        "S3_SECRET_KEY": os.getenv("S3_SECRET_KEY", "minioadmin"),
-        "S3_FORENSIC_BUCKET": os.getenv("S3_FORENSIC_BUCKET", "llm-client-forensic"),
-        "REDIS_URL": os.getenv("REDIS_URL", "redis://127.0.0.1:6380/0"),
-        "OPENAI_API_KEY": "sk-test-placeholder",  # Required by Settings validation
-    })
-    
+    os.environ.update(
+        {
+            "ENVIRONMENT": "staging",
+            "FORENSIC_STREAM_ENABLED": "true",
+            "KMS_PROVIDER": "vault",
+            "VAULT_ADDR": os.getenv("VAULT_ADDR", "http://127.0.0.1:8200"),
+            "VAULT_TOKEN": os.getenv("VAULT_TOKEN", "root"),
+            "VAULT_TRANSIT_KEY": os.getenv("VAULT_TRANSIT_KEY", "forensic-aes256-gcm"),
+            "S3_ENDPOINT": os.getenv("S3_ENDPOINT", "http://127.0.0.1:9000"),
+            "S3_ACCESS_KEY": os.getenv("S3_ACCESS_KEY", "minioadmin"),
+            "S3_SECRET_KEY": os.getenv("S3_SECRET_KEY", "minioadmin"),
+            "S3_FORENSIC_BUCKET": os.getenv("S3_FORENSIC_BUCKET", "llm-client-forensic"),
+            "REDIS_URL": os.getenv("REDIS_URL", "redis://127.0.0.1:6380/0"),
+            "OPENAI_API_KEY": "sk-test-placeholder",  # Required by Settings validation
+        }
+    )
+
     try:
         settings = Settings()
         assert settings.environment == "staging"
@@ -83,7 +86,9 @@ async def s3_storage(settings_staging_forensic):
 
 
 @pytest.mark.asyncio
-async def test_forensic_write_encrypt_upload_decrypt(vault_provider, s3_storage, settings_staging_forensic):
+async def test_forensic_write_encrypt_upload_decrypt(
+    vault_provider, s3_storage, settings_staging_forensic
+):
     """Full forensic path: write → encrypt → upload → fetch → decrypt → validate."""
     # Create forensic writer with real Vault and S3
     writer = ForensicStreamWriter(
@@ -92,7 +97,7 @@ async def test_forensic_write_encrypt_upload_decrypt(vault_provider, s3_storage,
         bucket=settings_staging_forensic.s3_forensic_bucket,
         enabled=True,
     )
-    
+
     # Test event data (typical cancel event)
     test_event = {
         "event_type": "session_cancelled",
@@ -106,21 +111,21 @@ async def test_forensic_write_encrypt_upload_decrypt(vault_provider, s3_storage,
         "duration_ms": 4500,
         "trace_id": "trace-abc-123",
     }
-    
+
     # Write event (should encrypt and upload)
     await writer.start()
     try:
         await writer.write(test_event)
         await writer.flush()  # Ensure write completes
-        
+
         # Verify object exists in forensic bucket
         objects = await s3_storage.list_objects(prefix="forensic/")
         assert len(objects) >= 1
-        
+
         # Get the forensic object (should be encrypted envelope)
         object_key = objects[0]  # Take first forensic object
         stored_data = await s3_storage.get(object_key)
-        
+
         # Parse envelope
         envelope = json.loads(stored_data)
         assert "ciphertext" in envelope
@@ -128,7 +133,7 @@ async def test_forensic_write_encrypt_upload_decrypt(vault_provider, s3_storage,
         assert "key_id" in envelope
         assert envelope["algorithm"] == "AES-256-GCM"
         assert envelope["key_id"].startswith("forensic-aes256-gcm:v")
-        
+
         # Decrypt and verify original event
         payload = type(
             "Payload",
@@ -140,15 +145,15 @@ async def test_forensic_write_encrypt_upload_decrypt(vault_provider, s3_storage,
                 "algorithm": envelope["algorithm"],
             },
         )()
-        
+
         decrypted_data = await vault_provider.decrypt(payload)
         decrypted_event = json.loads(decrypted_data)
-        
+
         # Verify roundtrip
         assert decrypted_event == test_event
         assert decrypted_event["event_type"] == "session_cancelled"
         assert decrypted_event["session_id"] == "test-session-123"
-        
+
     finally:
         await writer.close()
 
@@ -160,7 +165,7 @@ async def test_forensic_writer_enabled_flag_from_settings(settings_staging_foren
     assert settings_staging_forensic.forensic_stream_enabled == True
     assert settings_staging_forensic.kms_provider == "vault"
     assert settings_staging_forensic.environment == "staging"
-    
+
     # Verify forensic bucket name is set
     assert settings_staging_forensic.s3_forensic_bucket == "llm-client-forensic"
     assert settings_staging_forensic.vault_transit_key == "forensic-aes256-gcm"
@@ -169,18 +174,20 @@ async def test_forensic_writer_enabled_flag_from_settings(settings_staging_foren
 def test_staging_settings_validation():
     """Test that staging environment + forensic enabled loads without error."""
     original_env = os.environ.copy()
-    os.environ.update({
-        "ENVIRONMENT": "staging",
-        "FORENSIC_STREAM_ENABLED": "true",
-        "KMS_PROVIDER": "vault",
-        "VAULT_ADDR": "http://127.0.0.1:8200",
-        "VAULT_TOKEN": "root",
-        "VAULT_TRANSIT_KEY": "forensic-aes256-gcm",
-        "S3_FORENSIC_BUCKET": "llm-client-forensic",
-        "REDIS_URL": "redis://127.0.0.1:6380/0",
-        "OPENAI_API_KEY": "sk-test-placeholder",
-    })
-    
+    os.environ.update(
+        {
+            "ENVIRONMENT": "staging",
+            "FORENSIC_STREAM_ENABLED": "true",
+            "KMS_PROVIDER": "vault",
+            "VAULT_ADDR": "http://127.0.0.1:8200",
+            "VAULT_TOKEN": "root",
+            "VAULT_TRANSIT_KEY": "forensic-aes256-gcm",
+            "S3_FORENSIC_BUCKET": "llm-client-forensic",
+            "REDIS_URL": "redis://127.0.0.1:6380/0",
+            "OPENAI_API_KEY": "sk-test-placeholder",
+        }
+    )
+
     try:
         settings = Settings()
         # Should not raise exception

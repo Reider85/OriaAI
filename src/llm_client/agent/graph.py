@@ -34,6 +34,7 @@ DEFAULT_LLM_INVOKE_TIMEOUT_S = 120.0
 # Exceptions
 class GraphCancelled(Exception):
     """Raised when the graph is cancelled during execution."""
+
     def __init__(self, reason: str | None = None):
         self.reason = reason
         super().__init__(f"Graph cancelled: {reason}")
@@ -41,8 +42,10 @@ class GraphCancelled(Exception):
 
 class GraphInvokeTimeout(Exception):
     """Raised when LLM/tool invocation exceeds hard timeout."""
+
     def __init__(self, message: str):
         super().__init__(message)
+
 
 # Default trigger words for rag_first routing (Phase 2 simplified heuristic).
 _RAG_TRIGGERS = ("найди", "search", "find", "документ", "look up", "поиск")
@@ -71,38 +74,38 @@ async def invoke_with_cancel(
     timeout_s: float | None,
 ) -> T:
     """Execute awaitable with cancellation race and hard timeout.
-    
+
     Args:
         awaitable_factory: Function that returns the awaitable to execute
         token: CancellationToken for cancellation (optional)
         timeout_s: Hard timeout in seconds (optional)
-        
+
     Returns:
         Result of awaitable execution
-        
+
     Raises:
         GraphCancelled: If token is cancelled during execution
         GraphInvokeTimeout: If execution exceeds hard timeout
     """
     if token is None:
         return await asyncio.wait_for(awaitable_factory(), timeout=timeout_s)
-    
+
     if token.is_cancelled:
         raise GraphCancelled(token.reason)
-    
+
     work = asyncio.ensure_future(awaitable_factory())
     cancel_wait = asyncio.ensure_future(token.wait())
-    
+
     try:
         done, _ = await asyncio.wait(
             {work, cancel_wait},
             return_when=asyncio.FIRST_COMPLETED,
             timeout=timeout_s,
         )
-        
+
         if work in done:
             return work.result()
-        
+
         if cancel_wait in done:
             work.cancel()
             try:
@@ -112,7 +115,7 @@ async def invoke_with_cancel(
             except (RuntimeError, ValueError) as exc:
                 logger.warning("Unexpected exception during cancelled work cleanup: %s", exc)
             raise GraphCancelled(token.reason)
-        
+
         # Timeout exceeded
         work.cancel()
         try:
@@ -122,7 +125,7 @@ async def invoke_with_cancel(
         except (RuntimeError, ValueError) as exc:
             logger.warning("Unexpected exception during timeout work cleanup: %s", exc)
         raise GraphInvokeTimeout(f"LLM invoke exceeded {timeout_s}s")
-        
+
     finally:
         for t in (work, cancel_wait):
             if not t.done():
@@ -159,26 +162,24 @@ class AgentState(TypedDict, total=False):
 
 
 async def _planner_node(
-    state: dict[str, Any], 
-    llm: BaseChatModel,
-    config: dict[str, Any] | None = None
+    state: dict[str, Any], llm: BaseChatModel, config: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Invoke the LLM and return the assistant message + incremented iteration.
-    
+
     Supports in-flight cancellation via CancellationToken in config.
     """
     # Early exit if already cancelled
     token = _resolve_token(config, None)
     if token is not None and token.is_cancelled:
         raise GraphCancelled(token.reason)
-    
+
     # Use cancellation-aware invoke
     response = await invoke_with_cancel(
         lambda: llm.ainvoke(state["messages"]),
         token,
         timeout_s=DEFAULT_LLM_INVOKE_TIMEOUT_S,
     )
-    
+
     return {
         "messages": [response],
         "iteration": state.get("iteration", 0) + 1,
@@ -197,9 +198,7 @@ def _final_answer_node(state: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _tool_executor_node(
-    state: dict[str, Any], 
-    tools: list[Any],
-    config: dict[str, Any] | None = None
+    state: dict[str, Any], tools: list[Any], config: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Execute every tool_call in the last AIMessage and return ToolMessages.
 
@@ -207,7 +206,7 @@ async def _tool_executor_node(
     ToolMessage for that call only, so one failure cannot abort the rest of the
     batch or crash the graph. Result payloads are JSON-encoded when they are
     dicts or lists, which keeps them parseable by the SSE layer (H-4).
-    
+
     Supports in-flight cancellation via CancellationToken in config.
     """
     # Early exit if already cancelled
@@ -234,8 +233,10 @@ async def _tool_executor_node(
             try:
                 # Bind loop variables to avoid late capture
                 matched_tool, matched_args = matched, args
+
                 async def call_tool():
                     return await matched_tool.ainvoke(matched_args)
+
                 result = await invoke_with_cancel(
                     call_tool,
                     token,
@@ -247,9 +248,7 @@ async def _tool_executor_node(
                 logger.exception("Tool %s failed", name)
                 result_str = json.dumps({"error": f"Error: {exc}"})
             else:
-                result_str = (
-                    json.dumps(result) if isinstance(result, (dict, list)) else str(result)
-                )
+                result_str = json.dumps(result) if isinstance(result, (dict, list)) else str(result)
         else:
             result_str = json.dumps({"error": f"Unknown tool: {name}"})
         results.append(ToolMessage(content=result_str, tool_call_id=tc["id"], name=name))
@@ -270,7 +269,7 @@ async def _rag_retriever_node(
     ``top_k`` is the graph-level override coming from the UI settings panel
     (G-4, see ``build_agent_graph(settings=...)``). It takes precedence over the
     per-run ``state['rag_top_k']`` value.
-    
+
     Supports in-flight cancellation via CancellationToken in config.
     """
     # Early exit if already cancelled
@@ -296,6 +295,7 @@ async def _rag_retriever_node(
     # Bind variables to avoid late capture
     async def retrieve_pipeline():
         return await pipeline.retrieve(query, top_k=effective_top_k)
+
     result = await invoke_with_cancel(
         lambda: retrieve_pipeline(),
         token,
@@ -307,13 +307,15 @@ async def _rag_retriever_node(
 # ── Graph builder ─────────────────────────────────────────────────────────────
 
 
-def _resolve_token(config: dict[str, Any] | None, fallback: CancellationToken | None) -> CancellationToken | None:
+def _resolve_token(
+    config: dict[str, Any] | None, fallback: CancellationToken | None
+) -> CancellationToken | None:
     """Resolve CancellationToken from config or fallback.
-    
+
     Args:
         config: LangGraph RunnableConfig (may contain configurable.cancel_token)
         fallback: Fallback token (e.g. from build_agent_graph closure)
-        
+
     Returns:
         CancellationToken if available, otherwise None
     """
@@ -461,16 +463,22 @@ def build_agent_graph(
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
-    async def planner(state: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def planner(
+        state: dict[str, Any], config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return await _planner_node(state, bound_llm, config)
 
     def final_answer(state: dict[str, Any]) -> dict[str, Any]:
         return _final_answer_node(state)
 
-    async def tool_executor(state: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def tool_executor(
+        state: dict[str, Any], config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return await _tool_executor_node(state, tools or [], config)
 
-    async def rag_retriever(state: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def rag_retriever(
+        state: dict[str, Any], config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return await _rag_retriever_node(state, rag_pipeline, top_k=top_k_override, config=config)
 
     graph.add_node("planner", planner)  # type: ignore[type-var]
@@ -544,7 +552,9 @@ def build_agent_graph(
         planner_routes["tool_executor"] = "tool_executor"
     if rag_pipeline is not None:
         planner_routes["rag_retriever"] = "rag_retriever"
-    graph.add_conditional_edges("planner", route_after_planner, cast("dict[Hashable, str]", planner_routes))
+    graph.add_conditional_edges(
+        "planner", route_after_planner, cast("dict[Hashable, str]", planner_routes)
+    )
 
     if tools:
         graph.add_edge("tool_executor", "planner")

@@ -86,11 +86,16 @@ def test_settings_rejects_bad_kms():
 # D-5 DoD: migration SQL validation
 # ---------------------------------------------------------------------------
 
+
 def test_migration_sql_file_exists():
     """The migration file must exist at migrations/005_add_pii_score_to_messages.sql."""
     from pathlib import Path
 
-    migration_path = Path(__file__).resolve().parent.parent.parent / "migrations" / "005_add_pii_score_to_messages.sql"
+    migration_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "migrations"
+        / "005_add_pii_score_to_messages.sql"
+    )
     assert migration_path.exists(), f"Migration file not found: {migration_path}"
 
 
@@ -98,7 +103,11 @@ def test_migration_sql_contains_required_statements():
     """Migration must add pii_score, pii_entities columns and create index."""
     from pathlib import Path
 
-    migration_path = Path(__file__).resolve().parent.parent.parent / "migrations" / "005_add_pii_score_to_messages.sql"
+    migration_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "migrations"
+        / "005_add_pii_score_to_messages.sql"
+    )
     sql = migration_path.read_text()
     assert "pii_score" in sql.lower()
     assert "pii_entities" in sql.lower()
@@ -112,7 +121,11 @@ def test_migration_sql_no_separate_table():
     """D-5 anti-pattern: must NOT create a separate pii_scores table."""
     from pathlib import Path
 
-    migration_path = Path(__file__).resolve().parent.parent.parent / "migrations" / "005_add_pii_score_to_messages.sql"
+    migration_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "migrations"
+        / "005_add_pii_score_to_messages.sql"
+    )
     sql = migration_path.read_text().lower()
     assert "create table" not in sql, "Migration should ALTER existing table, not create a new one"
 
@@ -121,19 +134,25 @@ def test_migration_sql_no_separate_table():
 # D-5 DoD: SQL analytics query validation
 # ---------------------------------------------------------------------------
 
+
 def test_analytics_query_present_in_migration():
-        """D-5 Task 5: analytics SQL query must be documented (in comments)."""
-        from pathlib import Path
-    
-        migration_path = Path(__file__).resolve().parent.parent.parent / "migrations" / "005_add_pii_score_to_messages.sql"
-        sql = migration_path.read_text()
-        # Check for reference to ops/pii_analytics.sql instead of the query itself
-        assert "ops/pii_analytics.sql" in sql.lower() or "analytics query moved" in sql.lower()
+    """D-5 Task 5: analytics SQL query must be documented (in comments)."""
+    from pathlib import Path
+
+    migration_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "migrations"
+        / "005_add_pii_score_to_messages.sql"
+    )
+    sql = migration_path.read_text()
+    # Check for reference to ops/pii_analytics.sql instead of the query itself
+    assert "ops/pii_analytics.sql" in sql.lower() or "analytics query moved" in sql.lower()
 
 
 # ---------------------------------------------------------------------------
 # D-5 DoD: pii_entities never contains PII text
 # ---------------------------------------------------------------------------
+
 
 def test_pii_entities_exclude_text_field(detector):
     """D-5 anti-pattern: pii_entities must never contain matched PII text."""

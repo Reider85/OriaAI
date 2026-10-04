@@ -206,9 +206,7 @@ class BM25IndexBuilder:
         pool is created; the caller must close ``builder.pg_pool`` when done.
         """
         if pg_pool is None:
-            pg_url = settings.database_url.replace(
-                "postgresql+asyncpg://", "postgresql://"
-            )
+            pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
             pg_pool = await asyncpg.create_pool(
                 pg_url,
                 min_size=1,

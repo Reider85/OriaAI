@@ -128,9 +128,7 @@ def test_stem_of_multiple_dots():
 async def test_file_export_md():
     storage = InMemoryFileStorage()
     with patch("llm_client.agent.tools.file_export.create_file_storage", return_value=storage):
-        result = await file_export.ainvoke(
-            {"content": "hello world", "format": "md"}
-        )
+        result = await file_export.ainvoke({"content": "hello world", "format": "md"})
 
     assert isinstance(result, dict)
     assert result["format"] == "md"
@@ -153,9 +151,7 @@ async def test_file_export_md():
 async def test_file_export_txt():
     storage = InMemoryFileStorage()
     with patch("llm_client.agent.tools.file_export.create_file_storage", return_value=storage):
-        result = await file_export.ainvoke(
-            {"content": "plain text", "format": "txt"}
-        )
+        result = await file_export.ainvoke({"content": "plain text", "format": "txt"})
 
     assert result["format"] == "txt"
     assert result["filename"] == "artifact.txt"
@@ -179,9 +175,7 @@ async def test_file_export_pdf_stub():
     storage = InMemoryFileStorage()
     with patch("llm_client.agent.tools.file_export.create_file_storage", return_value=storage):
         start = time.monotonic()
-        result = await file_export.ainvoke(
-            {"content": "pdf content", "format": "pdf"}
-        )
+        result = await file_export.ainvoke({"content": "pdf content", "format": "pdf"})
         elapsed = time.monotonic() - start
 
     assert result["format"] == "pdf"
@@ -237,9 +231,7 @@ async def test_graph_with_file_export():
     # Verify ToolMessage in tool_executor output
     tool_chunk = tool_chunks[0]
     tool_msgs = tool_chunk["tool_executor"]["messages"]
-    assert any(
-        hasattr(m, "tool_call_id") for m in tool_msgs if hasattr(m, "tool_call_id")
-    )
+    assert any(hasattr(m, "tool_call_id") for m in tool_msgs if hasattr(m, "tool_call_id"))
 
 
 # ── GET /artifacts endpoint tests ────────────────────────────────────────────

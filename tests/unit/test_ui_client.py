@@ -29,9 +29,7 @@ class TestUIClientABC:
             def handle_user_input(self):
                 return None
 
-            def render_tool_call(
-                self, tool_name, args, status="running", result_preview=None
-            ):
+            def render_tool_call(self, tool_name, args, status="running", result_preview=None):
                 pass
 
             def render_streaming_fragment(
@@ -84,9 +82,7 @@ class TestArtifactRef:
 
     def test_all_valid_formats_accepted(self):
         for fmt in ("md", "txt", "pdf", "docx", "odt", "xls", "xlsx"):
-            ref = ArtifactRef(
-                artifact_id="art-1", format=fmt, filename=f"file.{fmt}"
-            )
+            ref = ArtifactRef(artifact_id="art-1", format=fmt, filename=f"file.{fmt}")
             assert ref.format == fmt
 
 

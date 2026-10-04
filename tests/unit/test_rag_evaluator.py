@@ -18,7 +18,11 @@ pytestmark = pytest.mark.eval
 def sample_corpus():
     """Sample document corpus for testing."""
     return [
-        {"id": "doc_1", "content": "Redis connection configuration", "metadata": {"source": "redis"}},
+        {
+            "id": "doc_1",
+            "content": "Redis connection configuration",
+            "metadata": {"source": "redis"},
+        },
         {"id": "doc_2", "content": "Docker Compose setup", "metadata": {"source": "docker"}},
         {"id": "doc_3", "content": "Python async patterns", "metadata": {"source": "python"}},
         {"id": "doc_4", "content": "PostgreSQL database", "metadata": {"source": "postgres"}},
@@ -102,7 +106,11 @@ class TestRAGEvaluator:
 
     def test_validate_entry_invalid_relevant_doc_ids(self):
         """Test validation raises ValueError for invalid relevant_doc_ids field."""
-        entry = {"query": "test query", "category": "exact_term", "relevant_doc_ids": ["doc_1", 123]}
+        entry = {
+            "query": "test query",
+            "category": "exact_term",
+            "relevant_doc_ids": ["doc_1", 123],
+        }
         with pytest.raises(ValueError, match="'relevant_doc_ids' must contain non-empty strings"):
             RAGEvaluator._validate_entry(entry, "test.jsonl", 1)
 
@@ -165,9 +173,13 @@ class TestRAGEvaluator:
 
         async def mock_search(query, config):
             if "redis" in query:
-                return [{"id": "doc_1", "score": 0.9, "content": "Relevant content", "metadata": {}}]
+                return [
+                    {"id": "doc_1", "score": 0.9, "content": "Relevant content", "metadata": {}}
+                ]
             elif "docker" in query:
-                return [{"id": "doc_2", "score": 0.9, "content": "Relevant content", "metadata": {}}]
+                return [
+                    {"id": "doc_2", "score": 0.9, "content": "Relevant content", "metadata": {}}
+                ]
             return []
 
         evaluator.pipeline.search = AsyncMock(side_effect=mock_search)
@@ -227,16 +239,51 @@ class TestRAGEvaluator:
         async def mock_search(query, config):
             if config.reranker_enabled:
                 if query == "redis config":
-                    return [{"id": "doc_1", "score": 0.95, "content": "High quality result", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_1",
+                            "score": 0.95,
+                            "content": "High quality result",
+                            "metadata": {},
+                        }
+                    ]
                 elif query == "docker setup":
-                    return [{"id": "doc_2", "score": 0.95, "content": "High quality result", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_2",
+                            "score": 0.95,
+                            "content": "High quality result",
+                            "metadata": {},
+                        }
+                    ]
                 elif query == "python async":
-                    return [{"id": "doc_3", "score": 0.95, "content": "High quality result", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_3",
+                            "score": 0.95,
+                            "content": "High quality result",
+                            "metadata": {},
+                        }
+                    ]
             else:
                 if query == "redis config":
-                    return [{"id": "doc_1", "score": 0.6, "content": "Low quality result", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_1",
+                            "score": 0.6,
+                            "content": "Low quality result",
+                            "metadata": {},
+                        }
+                    ]
                 elif query == "docker setup" or query == "python async":
-                    return [{"id": "doc_99", "score": 0.5, "content": "Low quality result", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_99",
+                            "score": 0.5,
+                            "content": "Low quality result",
+                            "metadata": {},
+                        }
+                    ]
             return []
 
         evaluator.pipeline.search = AsyncMock(side_effect=mock_search)
@@ -264,11 +311,32 @@ class TestRAGEvaluator:
         async def mock_search(query, config):
             if config.reranker_enabled:
                 if query == "redis config":
-                    return [{"id": "doc_1", "score": 0.95, "content": "High quality result", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_1",
+                            "score": 0.95,
+                            "content": "High quality result",
+                            "metadata": {},
+                        }
+                    ]
                 elif query == "docker setup":
-                    return [{"id": "doc_2", "score": 0.95, "content": "High quality result", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_2",
+                            "score": 0.95,
+                            "content": "High quality result",
+                            "metadata": {},
+                        }
+                    ]
                 elif query == "python async":
-                    return [{"id": "doc_3", "score": 0.95, "content": "High quality result", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_3",
+                            "score": 0.95,
+                            "content": "High quality result",
+                            "metadata": {},
+                        }
+                    ]
             else:
                 return []
             return []
@@ -309,11 +377,17 @@ class TestRAGEvaluator:
         async def mock_search(query, config):
             if config.reranker_enabled:
                 if query == "redis config":
-                    return [{"id": "doc_1", "score": 0.95, "content": "Good result", "metadata": {}}]
+                    return [
+                        {"id": "doc_1", "score": 0.95, "content": "Good result", "metadata": {}}
+                    ]
                 elif query == "docker setup":
-                    return [{"id": "doc_2", "score": 0.95, "content": "Good result", "metadata": {}}]
+                    return [
+                        {"id": "doc_2", "score": 0.95, "content": "Good result", "metadata": {}}
+                    ]
                 elif query == "python async":
-                    return [{"id": "doc_3", "score": 0.95, "content": "Good result", "metadata": {}}]
+                    return [
+                        {"id": "doc_3", "score": 0.95, "content": "Good result", "metadata": {}}
+                    ]
             else:
                 if query == "redis config":
                     return [{"id": "doc_1", "score": 0.6, "content": "Bad result", "metadata": {}}]
@@ -343,11 +417,17 @@ class TestRAGEvaluator:
                 # Simulate high latency for treatment
                 await asyncio.sleep(0.2)
                 if query == "redis config":
-                    return [{"id": "doc_1", "score": 0.95, "content": "Good result", "metadata": {}}]
+                    return [
+                        {"id": "doc_1", "score": 0.95, "content": "Good result", "metadata": {}}
+                    ]
                 elif query == "docker setup":
-                    return [{"id": "doc_2", "score": 0.95, "content": "Good result", "metadata": {}}]
+                    return [
+                        {"id": "doc_2", "score": 0.95, "content": "Good result", "metadata": {}}
+                    ]
                 elif query == "python async":
-                    return [{"id": "doc_3", "score": 0.95, "content": "Good result", "metadata": {}}]
+                    return [
+                        {"id": "doc_3", "score": 0.95, "content": "Good result", "metadata": {}}
+                    ]
             else:
                 if query == "redis config":
                     return [{"id": "doc_1", "score": 0.6, "content": "Bad result", "metadata": {}}]
@@ -373,18 +453,60 @@ class TestRAGEvaluator:
         async def mock_search(query, config):
             if config.reranker_enabled:
                 if "redis" in query:
-                    return [{"id": "doc_1", "score": 0.95, "content": "Excellent redis config", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_1",
+                            "score": 0.95,
+                            "content": "Excellent redis config",
+                            "metadata": {},
+                        }
+                    ]
                 elif "docker" in query:
-                    return [{"id": "doc_2", "score": 0.95, "content": "Excellent docker setup", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_2",
+                            "score": 0.95,
+                            "content": "Excellent docker setup",
+                            "metadata": {},
+                        }
+                    ]
                 elif "python" in query:
-                    return [{"id": "doc_3", "score": 0.95, "content": "Excellent python async", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_3",
+                            "score": 0.95,
+                            "content": "Excellent python async",
+                            "metadata": {},
+                        }
+                    ]
             else:
                 if "redis" in query:
-                    return [{"id": "doc_1", "score": 0.9, "content": "Good redis config", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_1",
+                            "score": 0.9,
+                            "content": "Good redis config",
+                            "metadata": {},
+                        }
+                    ]
                 elif "docker" in query:
-                    return [{"id": "doc_99", "score": 0.5, "content": "Bad docker setup", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_99",
+                            "score": 0.5,
+                            "content": "Bad docker setup",
+                            "metadata": {},
+                        }
+                    ]
                 elif "python" in query:
-                    return [{"id": "doc_99", "score": 0.5, "content": "Bad python async", "metadata": {}}]
+                    return [
+                        {
+                            "id": "doc_99",
+                            "score": 0.5,
+                            "content": "Bad python async",
+                            "metadata": {},
+                        }
+                    ]
 
         evaluator.pipeline.search = AsyncMock(side_effect=mock_search)
 

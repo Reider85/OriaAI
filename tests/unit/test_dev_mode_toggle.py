@@ -1,6 +1,5 @@
 """D-6 dev-mode toggle: forensic off in dev (no Vault), on in staging/prod (fails fast)."""
 
-
 import pytest
 
 from llm_client.config import Settings
@@ -51,6 +50,7 @@ def test_settings_validates_environment():
 # D-6 DoD: startup warning log test
 # ---------------------------------------------------------------------------
 
+
 def test_create_app_dev_logs_forensic_disabled_warning(caplog):
     """D-6: create_app in dev mode with forensic off must log a warning."""
     import logging
@@ -60,12 +60,16 @@ def test_create_app_dev_logs_forensic_disabled_warning(caplog):
     settings = Settings(environment="dev", forensic_stream_enabled=False, kms_provider="vault")
     with caplog.at_level(logging.WARNING):
         create_app(redis_url="redis://127.0.0.1:6399/0", _settings=settings)
-    assert any("Forensic stream disabled" in r.message or "forensic" in r.message.lower() for r in caplog.records)
+    assert any(
+        "Forensic stream disabled" in r.message or "forensic" in r.message.lower()
+        for r in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------
 # D-6 DoD: PIIDetector actively masking in dev mode
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_dev_mode_piidetector_actively_masks():
@@ -89,6 +93,7 @@ async def test_dev_mode_piidetector_actively_masks():
 # D-6 DoD: staging/prod with forensic on requires Vault (fail-fast at init)
 # ---------------------------------------------------------------------------
 
+
 def test_staging_forensic_on_requires_vault():
     """D-6: staging + forensic_stream_enabled=True with unreachable Vault must fail fast."""
     from llm_client.observability.kms_provider import VaultTransitKeyProvider
@@ -101,6 +106,7 @@ def test_staging_forensic_on_requires_vault():
 # D-6 DoD: prod validation — cannot set forensic=False
 # ---------------------------------------------------------------------------
 
+
 def test_prod_forensic_false_rejected():
     """D-6: setting FORENSIC_STREAM_ENABLED=false in prod must be rejected."""
     with pytest.raises(ValueError, match="FORENSIC_STREAM_ENABLED"):
@@ -110,6 +116,7 @@ def test_prod_forensic_false_rejected():
 # ---------------------------------------------------------------------------
 # D-6 DoD: dev-mode app has all expected state
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_dev_mode_app_state_has_operational_writer():

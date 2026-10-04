@@ -90,9 +90,7 @@ class S3CompatibleStorage(FileStorage):
             delay = RETRY_BASE_DELAY * (2**attempt)
             logger.debug("S3 retry %d/%d after %.3fs", attempt + 1, MAX_RETRIES, delay)
             await asyncio.sleep(delay)
-        raise StorageError(
-            f"S3 operation failed after {MAX_RETRIES} retries: {last_exc}"
-        )
+        raise StorageError(f"S3 operation failed after {MAX_RETRIES} retries: {last_exc}")
 
     # ── FileStorage interface ───────────────────────────────────────────────
 
@@ -113,9 +111,7 @@ class S3CompatibleStorage(FileStorage):
             await self._retry(_put)
         return key
 
-    async def _save_multipart(
-        self, data: bytes, key: str, metadata: dict[str, str] | None
-    ) -> None:
+    async def _save_multipart(self, data: bytes, key: str, metadata: dict[str, str] | None) -> None:
         async with self._client() as client:
             mpu = await client.create_multipart_upload(
                 Bucket=self._bucket,
@@ -134,9 +130,7 @@ class S3CompatibleStorage(FileStorage):
                         PartNumber=len(parts) + 1,
                         Body=chunk,
                     )
-                    parts.append(
-                        {"PartNumber": len(parts) + 1, "ETag": part["ETag"]}
-                    )
+                    parts.append({"PartNumber": len(parts) + 1, "ETag": part["ETag"]})
                 await client.complete_multipart_upload(
                     Bucket=self._bucket,
                     Key=key,

@@ -8,6 +8,7 @@ anti-pattern guards:
   * ``pii_entities`` never carries PII text — only ``{type, start, end}``.
   * scores are only computed at write time (never recomputed on read).
 """
+
 from dataclasses import dataclass
 
 from .pii_detector import PIIDetector

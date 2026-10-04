@@ -16,7 +16,7 @@ class CheckpointError(RuntimeError):
 
 class CheckpointWriteError(CheckpointError):
     """Raised when checkpoint write fails after retries."""
-    
+
     def __init__(self, message: str, original_exception: Exception | None = None) -> None:
         super().__init__(message)
         self.original_exception = original_exception
@@ -32,7 +32,7 @@ class PostgresCheckpointWriteError(CheckpointWriteError):
 
 class CheckpointFatalError(CheckpointError):
     """Raised when the flusher fails consecutively and cannot recover."""
-    
+
     def __init__(self, message: str, consecutive_failures: int) -> None:
         super().__init__(message)
         self.consecutive_failures = consecutive_failures

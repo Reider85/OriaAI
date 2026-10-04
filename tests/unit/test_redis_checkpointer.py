@@ -16,26 +16,26 @@ from redis import asyncio as aioredis
 
 class MockRedisClient:
     """Mock Redis client for testing."""
-    
+
     def __init__(self):
         self.data = {}
         self.operations = []
-    
+
     async def set(self, key: str, value: str | bytes, ex: int | None = None) -> None:
         """Mock SET command."""
         self.operations.append(("set", key, ex))
         self.data[key] = value
-    
+
     async def get(self, key: str) -> str | None:
         """Mock GET command."""
         self.operations.append(("get", key))
         return self.data.get(key)
-    
+
     async def delete(self, key: str) -> None:
         """Mock DELETE command."""
         self.operations.append(("delete", key))
         self.data.pop(key, None)
-    
+
     async def scan(self, cursor: int, match: str, count: int) -> tuple[int, list[str]]:
         """Mock SCAN command."""
         self.operations.append(("scan", match))
@@ -86,19 +86,19 @@ class TestRedisCheckpointer:
         """Test that aput stores checkpoint with correct key and TTL."""
         # Act
         result = await checkpointer.aput(sample_config, sample_checkpoint, {})
-        
+
         # Assert
         assert result == sample_config
-        
+
         # Verify checkpoint was stored
         expected_key = "checkpoint:test-thread-456:test-checkpoint-123"
         assert expected_key in checkpointer._redis_client.data
-        
+
         # Verify latest index was updated
         latest_key = "checkpoint:test-thread-456:latest"
         assert latest_key in checkpointer._redis_client.data
         assert checkpointer._redis_client.data[latest_key] == "test-checkpoint-123"
-        
+
         # Verify TTL was set
         set_operations = [op for op in checkpointer._redis_client.operations if op[0] == "set"]
         assert len(set_operations) == 2  # checkpoint + latest index
@@ -110,10 +110,10 @@ class TestRedisCheckpointer:
         """Test that aget retrieves stored checkpoint."""
         # Arrange - store checkpoint first
         await checkpointer.aput(sample_config, sample_checkpoint, {})
-        
+
         # Act
         retrieved = await checkpointer.aget(sample_config)
-        
+
         # Assert
         assert retrieved is not None
         assert retrieved["id"] == sample_checkpoint["id"]
@@ -124,19 +124,21 @@ class TestRedisCheckpointer:
         """Test that aget returns None when no checkpoint exists."""
         # Act
         result = await checkpointer.aget(sample_config)
-        
+
         # Assert
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_aget_tuple_returns_checkpoint_tuple(self, checkpointer, sample_checkpoint, sample_config):
+    async def test_aget_tuple_returns_checkpoint_tuple(
+        self, checkpointer, sample_checkpoint, sample_config
+    ):
         """Test that aget_tuple returns CheckpointTuple."""
         # Arrange - store checkpoint first
         await checkpointer.aput(sample_config, sample_checkpoint, {})
-        
+
         # Act
         result = await checkpointer.aget_tuple(sample_config)
-        
+
         # Assert
         assert result is not None
         assert isinstance(result, CheckpointTuple)
@@ -145,11 +147,13 @@ class TestRedisCheckpointer:
         assert result.metadata == {}
 
     @pytest.mark.asyncio
-    async def test_aget_tuple_returns_none_for_missing_checkpoint(self, checkpointer, sample_config):
+    async def test_aget_tuple_returns_none_for_missing_checkpoint(
+        self, checkpointer, sample_config
+    ):
         """Test that aget_tuple returns None when no checkpoint exists."""
         # Act
         result = await checkpointer.aget_tuple(sample_config)
-        
+
         # Assert
         assert result is None
 
@@ -168,12 +172,12 @@ class TestRedisCheckpointer:
                 updated_channels=[],
             )
             await checkpointer.aput(sample_config, checkpoint, {})
-        
+
         # Act
         checkpoints = []
         async for checkpoint_tuple in checkpointer.alist(sample_config):
             checkpoints.append(checkpoint_tuple)
-        
+
         # Assert
         assert len(checkpoints) == 3
         for i, checkpoint_tuple in enumerate(checkpoints):
@@ -194,12 +198,12 @@ class TestRedisCheckpointer:
                 updated_channels=[],
             )
             await checkpointer.aput(sample_config, checkpoint, {})
-        
+
         # Act
         checkpoints = []
         async for checkpoint_tuple in checkpointer.alist(sample_config, limit=2):
             checkpoints.append(checkpoint_tuple)
-        
+
         # Assert
         assert len(checkpoints) == 2
 
@@ -211,10 +215,10 @@ class TestRedisCheckpointer:
             ("messages", "Hello"),
             ("context", "World"),
         ]
-        
+
         # Act
         await checkpointer.aput_writes(sample_config, writes, "task-123")
-        
+
         # Assert
         expected_key = "writes:test-thread-456:task-123"
         assert expected_key in checkpointer._redis_client.data
@@ -224,31 +228,37 @@ class TestRedisCheckpointer:
         assert stored_writes == expected_writes_as_lists
 
     @pytest.mark.asyncio
-    async def test_adelete_thread_removes_all_data(self, checkpointer, sample_checkpoint, sample_config):
+    async def test_adelete_thread_removes_all_data(
+        self, checkpointer, sample_checkpoint, sample_config
+    ):
         """Test that adelete_thread removes all checkpoints and writes."""
         # Arrange - store data
         await checkpointer.aput(sample_config, sample_checkpoint, {})
         await checkpointer.aput_writes(sample_config, [], "task-123")
-        
+
         # Verify data exists
         assert "checkpoint:test-thread-456:test-checkpoint-123" in checkpointer._redis_client.data
         assert "writes:test-thread-456:task-123" in checkpointer._redis_client.data
-        
+
         # Act
         await checkpointer.adelete_thread("test-thread-456")
-        
+
         # Assert
-        assert "checkpoint:test-thread-456:test-checkpoint-123" not in checkpointer._redis_client.data
+        assert (
+            "checkpoint:test-thread-456:test-checkpoint-123" not in checkpointer._redis_client.data
+        )
         assert "writes:test-thread-456:task-123" not in checkpointer._redis_client.data
         assert "checkpoint:test-thread-456:latest" not in checkpointer._redis_client.data
 
     @pytest.mark.asyncio
-    async def test_retry_logic_succeeds_after_failure(self, checkpointer, sample_checkpoint, sample_config):
+    async def test_retry_logic_succeeds_after_failure(
+        self, checkpointer, sample_checkpoint, sample_config
+    ):
         """Test that retry logic eventually succeeds."""
         # Arrange - mock Redis to fail once, then succeed
         original_set = checkpointer._redis_client.set
         call_count = 0
-        
+
         async def mock_set(key: str, value: str | bytes, ex: int | None = None):
             nonlocal call_count
             call_count += 1
@@ -256,12 +266,12 @@ class TestRedisCheckpointer:
                 # Raise a Redis-specific exception that will be retried
                 raise aioredis.ConnectionError("Connection failed")
             return await original_set(key, value, ex)
-        
+
         checkpointer._redis_client.set = mock_set
-        
+
         # Act
         await checkpointer.aput(sample_config, sample_checkpoint, {})
-        
+
         # Assert - should have succeeded after retry
         # Note: there are 2 Redis calls per aput (checkpoint + latest index)
         # First call fails, then 2 retries succeed = 3 total calls
@@ -270,19 +280,23 @@ class TestRedisCheckpointer:
         assert expected_key in checkpointer._redis_client.data
 
     @pytest.mark.asyncio
-    async def test_retry_logic_raises_after_max_attempts(self, checkpointer, sample_checkpoint, sample_config):
+    async def test_retry_logic_raises_after_max_attempts(
+        self, checkpointer, sample_checkpoint, sample_config
+    ):
         """Test that retry logic raises CheckpointWriteError after max attempts."""
+
         # Arrange - mock Redis to always fail
         async def mock_set(key: str, value: str | bytes, ex: int | None = None):
             import redis.asyncio as aioredis
+
             raise aioredis.ConnectionError("Persistent failure")
-        
+
         checkpointer._redis_client.set = mock_set
-        
+
         # Act & Assert
         with pytest.raises(CheckpointWriteError) as exc_info:
             await checkpointer.aput(sample_config, sample_checkpoint, {})
-        
+
         # The error message should indicate Redis operation failed
         assert "Redis operation failed" in str(exc_info.value)
 
@@ -292,12 +306,20 @@ class TestRedisCheckpointer:
         # Arrange
         custom_ttl = 3600  # 1 hour
         checkpointer = RedisCheckpointer(mock_redis_client, ttl_seconds=custom_ttl)
-        checkpoint = Checkpoint(v=1, id="test", ts="2026-09-27T10:00:00Z", channel_values={}, channel_versions={}, versions_seen={}, updated_channels=[])
+        checkpoint = Checkpoint(
+            v=1,
+            id="test",
+            ts="2026-09-27T10:00:00Z",
+            channel_values={},
+            channel_versions={},
+            versions_seen={},
+            updated_channels=[],
+        )
         config = RunnableConfig(thread_id="test-thread")
-        
+
         # Act
         await checkpointer.aput(config, checkpoint, {})
-        
+
         # Assert
         set_operations = [op for op in mock_redis_client.operations if op[0] == "set"]
         for op in set_operations:
@@ -318,12 +340,12 @@ class TestRedisCheckpointer:
                 updated_channels=[],
             )
             await checkpointer.aput(sample_config, checkpoint, {})
-        
+
         # Act
         keys = []
         async for key in checkpointer._scan_keys("checkpoint:test-thread-456:*"):
             keys.append(key)
-        
+
         # Assert
         assert len(keys) == 5
         for i, key in enumerate(keys):

@@ -9,7 +9,7 @@ from llm_client.rag.rerankers.base import Reranker, RerankResult
 
 class BgeRerankerAdapter(Reranker):
     """In-process reranker using BGE-reranker-base model via CrossEncoder."""
-    
+
     def __init__(
         self,
         model_name: str | None = None,
@@ -35,8 +35,7 @@ class BgeRerankerAdapter(Reranker):
             # Load in thread to avoid blocking event loop
             self._model = await asyncio.to_thread(
                 CrossEncoder,
-                self._model_dir if os.path.exists(self._model_dir)
-                  else self._model_name,
+                self._model_dir if os.path.exists(self._model_dir) else self._model_name,
                 device=self._device,
                 max_length=self._max_length,
             )
@@ -52,22 +51,17 @@ class BgeRerankerAdapter(Reranker):
         """Return top_k documents ranked by relevance to query using BGE reranker."""
         model = await self._ensure_loaded()
         bs = batch_size or self._batch_size
-        
+
         # Build (query, doc_content) pairs
-        pairs = [
-            (query, doc["content"][:self._max_length]) 
-            for doc in documents
-        ]
-        
+        pairs = [(query, doc["content"][: self._max_length]) for doc in documents]
+
         # Predict in thread (sync operation)
-        scores = await asyncio.to_thread(
-            model.predict, pairs, batch_size=bs
-        )
-        
+        scores = await asyncio.to_thread(model.predict, pairs, batch_size=bs)
+
         # Sort by score descending
         indexed = [(i, float(s)) for i, s in enumerate(scores)]
         indexed.sort(key=lambda x: x[1], reverse=True)
-        
+
         return [
             RerankResult(
                 doc_id=documents[i].get("id", str(i)),

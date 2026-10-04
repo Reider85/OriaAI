@@ -5,7 +5,7 @@ from llm_client.rag.rerankers.base import Reranker, RerankResult
 
 class IdentityReranker(Reranker):
     """No-op reranker for tests and development (returns documents unchanged)."""
-    
+
     @property
     def name(self) -> str:
         return "identity"

@@ -204,7 +204,9 @@ class TestRenderArtifact:
         from llm_client.ui import render
 
         rendered: list[list[dict]] = []
-        monkeypatch.setattr(render, "render_artifact_buttons", lambda artifacts: rendered.append(artifacts))
+        monkeypatch.setattr(
+            render, "render_artifact_buttons", lambda artifacts: rendered.append(artifacts)
+        )
 
         ref = ArtifactRef(
             artifact_id="art-1", format="pdf", filename="report.pdf", s3_key="k/report.pdf"
@@ -235,7 +237,9 @@ class TestHandleUserInput:
         sid = uuid.uuid4().hex
         fake_st.session_state = {"current_session_id": sid}
         client.handle_user_input()
-        assert fake_st.chat_inputs == [("Type your message...", f"streamlit_client_chat_input_{sid}")]
+        assert fake_st.chat_inputs == [
+            ("Type your message...", f"streamlit_client_chat_input_{sid}")
+        ]
 
     def test_returns_none_when_no_input(self, fake_st, client):
         fake_st.chat_input_return = None
@@ -286,9 +290,7 @@ class TestStreamingFragmentToolEvents:
                     {
                         "tool_call_id": "tc1",
                         "preview": {"snippet_count": 1},
-                        "full_results": [
-                            {"title": "T", "url": "https://e.org", "snippet": "s"}
-                        ],
+                        "full_results": [{"title": "T", "url": "https://e.org", "snippet": "s"}],
                     },
                 ),
             ],
@@ -303,9 +305,7 @@ class TestStreamingFragmentToolEvents:
         assert "🔧 web_search — done" in labels
         assert "\U0001f310 Web search results (1)" in labels
 
-    def test_records_pending_tool_calls_in_session_state(
-        self, fake_st, client, monkeypatch
-    ):
+    def test_records_pending_tool_calls_in_session_state(self, fake_st, client, monkeypatch):
         from llm_client.ui.streamlit_client import PENDING_TOOL_CALLS_KEY
 
         self._install_stream(
@@ -340,12 +340,8 @@ class TestStreamingFragmentToolEvents:
         assert pending["tc1"]["status"] == "done"
         assert pending["tc1"]["result_preview"]["chunk_count"] == 1
         assert pending["tc1"]["result_preview"]["top_score"] == 0.9
-        assert pending["tc1"]["chunks"] == [
-            {"source_uri": "s3://docs/a.pdf", "score": 0.9}
-        ]
-        assert "📚 RAG citations (1 chunks)" in [
-            call["label"] for call in fake_st.expander_calls
-        ]
+        assert pending["tc1"]["chunks"] == [{"source_uri": "s3://docs/a.pdf", "score": 0.9}]
+        assert "📚 RAG citations (1 chunks)" in [call["label"] for call in fake_st.expander_calls]
 
     def test_rerun_restores_tool_previews(self, fake_st, client, monkeypatch):
         self._install_stream(
@@ -364,9 +360,7 @@ class TestStreamingFragmentToolEvents:
                     {
                         "tool_call_id": "tc1",
                         "preview": {"snippet_count": 1},
-                        "full_results": [
-                            {"title": "T", "url": "https://e.org", "snippet": "s"}
-                        ],
+                        "full_results": [{"title": "T", "url": "https://e.org", "snippet": "s"}],
                     },
                 ),
             ],
@@ -385,9 +379,7 @@ class TestStreamingFragmentToolEvents:
         assert "🔧 web_search — done" in labels
         assert "\U0001f310 Web search results (1)" in labels
 
-    def test_clears_tool_event_buffer_before_each_stream(
-        self, fake_st, client, monkeypatch
-    ):
+    def test_clears_tool_event_buffer_before_each_stream(self, fake_st, client, monkeypatch):
         def _spy(name, cleared):
             def _clear():
                 cleared.append(name)

@@ -43,6 +43,7 @@ def sample_documents():
 
 # ---------- rerank() ----------
 
+
 @pytest.mark.asyncio
 async def test_rerank_returns_correct_count(bge_reranker, sample_documents):
     results = await bge_reranker.rerank("query", sample_documents, top_k=3)
@@ -120,6 +121,7 @@ async def test_rerank_truncates_long_content():
 
 # ---------- lazy loading ----------
 
+
 @pytest.mark.asyncio
 async def test_lazy_loading_not_loaded_in_init():
     adapter = BgeRerankerAdapter()
@@ -141,6 +143,7 @@ async def test_lazy_loading_loads_on_first_rerank():
 
 # ---------- health_check ----------
 
+
 @pytest.mark.asyncio
 async def test_health_check_success(bge_reranker):
     assert await bge_reranker.health_check() is True
@@ -155,11 +158,13 @@ async def test_health_check_failure():
 
 # ---------- name ----------
 
+
 def test_name_property(bge_reranker):
     assert bge_reranker.name == "bge-reranker-base"
 
 
 # ---------- constructor defaults ----------
+
 
 @pytest.mark.asyncio
 async def test_constructor_reads_env(monkeypatch):

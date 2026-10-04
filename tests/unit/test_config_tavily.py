@@ -26,8 +26,9 @@ def test_settings_tools_enabled_default():
 def test_settings_tools_enabled_env_parsing_comma():
     """Test parsing comma-separated TOOLS_ENABLED from env."""
     import os
+
     os.environ["TOOLS_ENABLED"] = "file_export,web_search"
-    
+
     try:
         settings = Settings()
         assert settings.tools_enabled == ["file_export", "web_search"]
@@ -38,8 +39,9 @@ def test_settings_tools_enabled_env_parsing_comma():
 def test_settings_tools_enabled_env_parsing_json():
     """Test parsing JSON TOOLS_ENABLED from env."""
     import os
+
     os.environ["TOOLS_ENABLED"] = '["file_export", "rag_query"]'
-    
+
     try:
         settings = Settings()
         assert settings.tools_enabled == ["file_export", "rag_query"]
@@ -50,8 +52,9 @@ def test_settings_tools_enabled_env_parsing_json():
 def test_settings_tools_enabled_empty():
     """Test empty TOOLS_ENABLED from env."""
     import os
+
     os.environ["TOOLS_ENABLED"] = ""
-    
+
     try:
         settings = Settings()
         assert settings.tools_enabled == []
@@ -62,13 +65,17 @@ def test_settings_tools_enabled_empty():
 def test_settings_tavily_key_validation_web_search_enabled():
     """Test that TAVILY_API_KEY is required when web_search is in tools_enabled."""
     # Default tools_enabled includes web_search - should fail
-    with pytest.raises(ValueError, match="TAVILY_API_KEY required when tools_enabled contains 'web_search'"):
+    with pytest.raises(
+        ValueError, match="TAVILY_API_KEY required when tools_enabled contains 'web_search'"
+    ):
         Settings(tavily_api_key="")
-    
+
     # Explicitly enable web_search - should fail
-    with pytest.raises(ValueError, match="TAVILY_API_KEY required when tools_enabled contains 'web_search'"):
+    with pytest.raises(
+        ValueError, match="TAVILY_API_KEY required when tools_enabled contains 'web_search'"
+    ):
         Settings(tools_enabled="web_search", tavily_api_key="")
-    
+
     # With web_search and key set - should pass
     settings = Settings(tools_enabled="web_search", tavily_api_key="test-key")
     assert settings.tools_enabled == ["web_search"]
@@ -81,7 +88,7 @@ def test_settings_tavily_key_validation_web_search_disabled():
     settings = Settings(tools_enabled="", tavily_api_key="")
     assert settings.tools_enabled == []
     assert settings.tavily_api_key == ""
-    
+
     # Other tools only - should pass
     settings = Settings(tools_enabled="file_export,rag_query", tavily_api_key="")
     assert settings.tools_enabled == ["file_export", "rag_query"]
@@ -103,7 +110,7 @@ def test_settings_tavily_key_validation_with_other_tools():
     # web_search not present - should pass
     settings = Settings(tools_enabled="file_export,rag_query", tavily_api_key="")
     assert settings.tools_enabled == ["file_export", "rag_query"]
-    
+
     # web_search present with key - should pass
     settings = Settings(tools_enabled="file_export,web_search,rag_query", tavily_api_key="test-key")
     assert settings.tools_enabled == ["file_export", "web_search", "rag_query"]

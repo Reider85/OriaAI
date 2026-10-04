@@ -17,18 +17,19 @@ def reset_singleton_state():
     """Reset singleton and cache state between tests."""
     # Import the actual module to access module-level globals
     from llm_client.rag import pipeline_singleton
-    
+
     original_pipeline = pipeline_singleton._pipeline
     original_cache = pipeline_singleton._override_cache.copy()
     original_contextvar = get_rag_request_overrides()
-    
+
     yield
-    
+
     # Reset state
     pipeline_singleton._pipeline = original_pipeline
     pipeline_singleton._override_cache.clear()
     pipeline_singleton._override_cache.update(original_cache)
     set_rag_request_overrides(original_contextvar)
+
 
 # ── RagQueryArgs schema tests ─────────────────────────────────────────────────
 
@@ -207,18 +208,18 @@ async def test_rag_query_with_request_overrides():
         "top_score": 0.0,
         "source_uris": [],
     }
-    
+
     request_overrides = {"retrieval_strategy": "vector", "reranker": "cohere", "top_k": 10}
-    
+
     with patch("llm_client.rag.pipeline_singleton.get_pipeline_for_request") as mock_get_pipeline:
         mock_pipeline = AsyncMock(return_value=mock_result)
         mock_get_pipeline.return_value = mock_pipeline
-        
+
         # Set contextvar before calling tool
         set_rag_request_overrides(request_overrides)
-        
+
         await rag_query.ainvoke({"query": "test with overrides", "top_k": 5})
-        
+
         # Tool should pass request overrides to get_pipeline_for_request
         mock_get_pipeline.assert_awaited_once_with(None, request_overrides)
         mock_pipeline.retrieve.assert_awaited_once_with("test with overrides", top_k=5)
@@ -233,16 +234,16 @@ async def test_rag_query_with_no_overrides():
         "top_score": 0.0,
         "source_uris": [],
     }
-    
+
     with patch("llm_client.rag.pipeline_singleton.get_pipeline_for_request") as mock_get_pipeline:
         mock_pipeline = AsyncMock(return_value=mock_result)
         mock_get_pipeline.return_value = mock_pipeline
-        
+
         # Ensure contextvar is None
         set_rag_request_overrides(None)
-        
+
         await rag_query.ainvoke({"query": "test no overrides"})
-        
+
         # Tool should pass None overrides
         mock_get_pipeline.assert_awaited_once_with(None, None)
 
@@ -252,9 +253,9 @@ async def test_rag_pipeline_none_fallback():
     """Test rag_query handles None pipeline gracefully."""
     with patch("llm_client.rag.pipeline_singleton.get_pipeline_for_request") as mock_get_pipeline:
         mock_get_pipeline.return_value = None
-        
+
         result = await rag_query.ainvoke({"query": "test"})
-        
+
         # Should return empty result
         assert result["chunks"] == []
         assert result["chunk_count"] == 0

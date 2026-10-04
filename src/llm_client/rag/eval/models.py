@@ -8,7 +8,7 @@ from typing import Any
 @dataclass
 class QueryResult:
     """Result for a single query evaluation."""
-    
+
     query: str
     category: str
     retrieved_ids: list[str]
@@ -22,7 +22,7 @@ class QueryResult:
 @dataclass
 class CategoryReport:
     """Report for a specific category (exact_term, semantic, fuzzy)."""
-    
+
     category: str
     query_count: int
     recall_at_5: float
@@ -33,13 +33,13 @@ class CategoryReport:
 @dataclass
 class EvalReport:
     """Complete evaluation report for RAG pipeline."""
-    
+
     recall_at_5: float
     avg_latency_ms: float
     per_category: dict[str, CategoryReport]
     query_results: list[QueryResult]
     timestamp: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%S"))
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {

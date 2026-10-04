@@ -47,9 +47,7 @@ class FileExportArgs(BaseModel):
     format: Literal["md", "txt", "pdf", "docx", "odt", "xls", "xlsx"] = Field(
         ..., description="Формат файла"
     )
-    filename: str | None = Field(
-        default=None, description="Имя файла (без path)"
-    )
+    filename: str | None = Field(default=None, description="Имя файла (без path)")
 
 
 @tool(args_schema=FileExportArgs)

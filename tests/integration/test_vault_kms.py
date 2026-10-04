@@ -3,6 +3,7 @@
 Verifies the VaultTransitKeyProvider works against the docker-compose Vault dev-mode
 service and that a ciphertext produced by encrypt() can be recovered by decrypt().
 """
+
 import os
 
 import pytest

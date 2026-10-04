@@ -4,6 +4,7 @@ Uses a simple text diff (difflib.SequenceMatcher) on the last 2 messages in the
 LangGraph state. When similarity stays above CYCLE_DETECTION_THRESHOLD for two
 consecutive iterations, flags ``cycle_detected`` for escalation.
 """
+
 import difflib
 import logging
 import os

@@ -10,6 +10,7 @@ Behaviour:
   * encryption/S3 failures are NEVER swallowed — a ForensicWriteError is raised so
     the caller can fail the request (privacy-first: no plaintext fallback).
 """
+
 import asyncio
 import json
 import logging
@@ -71,7 +72,9 @@ class ForensicStreamWriter:
         try:
             payload = await self._kms.encrypt(serialized)
         except Exception as exc:
-            logger.error("Forensic encryption failed for event %s: %s", event.get("event_type"), exc)
+            logger.error(
+                "Forensic encryption failed for event %s: %s", event.get("event_type"), exc
+            )
             raise ForensicWriteError("forensic encryption failed") from exc
 
         session_id = event.get("session_id", "unknown")

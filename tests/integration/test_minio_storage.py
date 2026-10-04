@@ -1,4 +1,5 @@
 """Integration test: S3CompatibleStorage against real MinIO (Block A-2)."""
+
 import os
 
 import pytest

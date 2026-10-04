@@ -3,6 +3,7 @@
 Provides storage for user/assistant/tool messages in the messages table,
 with PII metadata for user messages and proper UUID mapping for session/user IDs.
 """
+
 import uuid
 from typing import Any
 
@@ -18,11 +19,13 @@ NAMESPACE = uuid.UUID("6c2e8e5e-2a4f-4a6b-8c4e-4f6a8c4e4f6a")
 
 class MessageContent(BaseModel):
     """Content model for messages table JSONB column."""
+
     text: str
 
 
 class ToolMessageContent(BaseModel):
     """Content model for tool messages."""
+
     tool_call_id: str
     tool_name: str
     text: str
@@ -30,7 +33,7 @@ class ToolMessageContent(BaseModel):
 
 def map_string_id(s: str) -> uuid.UUID:
     """Map string ID to deterministic UUID using namespace.
-    
+
     Ensures stable mapping of user_id/session_id from API (strings) to DB (UUID).
     """
     return uuid.uuid5(NAMESPACE, s)
@@ -44,27 +47,27 @@ async def ensure_chat_parents(
     model_name: str,
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """Ensure users and sessions exist, return UUIDs.
-    
+
     Args:
         pool: PostgreSQL connection pool
         user_key: string user_id from API
         session_key: string session_id from API
         provider: LLM provider (e.g., "openai")
         model_name: model name (e.g., "gpt-4-turbo")
-        
+
     Returns:
         Tuple of (user_uuid, session_uuid)
     """
     user_uuid = map_string_id(user_key)
     session_uuid = map_string_id(session_key)
-    
+
     async with pool.acquire() as conn:
         # Ensure user exists
         await conn.execute(
             "INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING",
             user_uuid,
         )
-        
+
         # Ensure session exists
         await conn.execute(
             """
@@ -80,7 +83,7 @@ async def ensure_chat_parents(
             provider,
             model_name,
         )
-    
+
     return user_uuid, session_uuid
 
 
@@ -98,7 +101,7 @@ async def insert_message(
     pii_entities: list[dict] | None = None,
 ) -> None:
     """Insert a message into the messages table.
-    
+
     Args:
         pool: PostgreSQL connection pool
         message_id: UUID of the message
@@ -114,7 +117,7 @@ async def insert_message(
     if pool is None:
         # Graceful degradation when pool unavailable (e.g., no DB)
         return
-    
+
     async with pool.acquire() as conn:
         await conn.execute(
             """
@@ -141,23 +144,20 @@ def detection_to_columns(
     enabled: bool,
 ) -> tuple[float | None, list[dict] | None]:
     """Convert PIIDetectionResult to DB columns.
-    
+
     Args:
         detection: PII detection result
         enabled: Whether PII metadata is enabled
-        
+
     Returns:
         Tuple of (pii_score, pii_entities)
     """
     if not enabled:
         return None, None
-    
+
     # Convert entities to DB format (type, start, end only)
-    entities = [
-        {"type": e.type, "start": e.start, "end": e.end}
-        for e in detection.entities
-    ]
-    
+    entities = [{"type": e.type, "start": e.start, "end": e.end} for e in detection.entities]
+
     return detection.score, entities
 
 

@@ -16,6 +16,7 @@ Notes:
     ``en_core_web_lg`` default model.
   * PII text is never logged here; only types and spans are surfaced.
 """
+
 import logging
 from dataclasses import dataclass, field
 
@@ -52,6 +53,7 @@ ENTITY_LABELS: dict[str, str] = {
     "EMPLOYEE_ID": "EMPLOYEE_ID",
     "PROJECT_CODE": "PROJECT_CODE",
 }
+
 
 class PIIDetector:
     """Detect and mask PII using Presidio + custom regex recognizers."""

@@ -1,4 +1,5 @@
 """Unit tests for AccessLogIngestor (Block E-4)."""
+
 import pytest
 
 from llm_client.observability.access_log_ingestor import AccessLogIngestor
@@ -7,7 +8,7 @@ SAMPLE_LINE = (
     "79a59df900b949e55d96a1e698fbacedfd6e09d98eacf8f8d5218e7cd47ef2be llm-client-forensic "
     "[06/Feb/2026:00:00:38:131 +0000] 192.0.2.3 llm-client-service 3E57427F3EXAMPLE "
     'REST.GET.OBJECT forensic/2026/02/06/x.json "GET /llm-client-forensic/forensic/2026/02/06/x.json HTTP/1.1" '
-    "200 - 113 113 7 1 \"-\" \"aws-sdk/2.15.0\" - - - - - -"
+    '200 - 113 113 7 1 "-" "aws-sdk/2.15.0" - - - - - -'
 )
 
 

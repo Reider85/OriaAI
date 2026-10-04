@@ -5,6 +5,7 @@ Dev mode (default): forensic stream is off — no Vault dependency, operational 
 always enabled, PII masking always on. Staging/prod: forensic stream enabled and Vault
 is mandatory (startup fails fast if unreachable).
 """
+
 import logging
 
 from fastapi import FastAPI

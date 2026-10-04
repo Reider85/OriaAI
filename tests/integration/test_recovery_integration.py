@@ -139,9 +139,7 @@ async def clean_state(redis_client, pg_pool):
 class TestPlannedRestart:
     """Redis and PG both live; PG lags Redis by up to one flush interval."""
 
-    async def test_redis_delta_is_replayed_into_postgres(
-        self, make_composite, clean_state
-    ):
+    async def test_redis_delta_is_replayed_into_postgres(self, make_composite, clean_state):
         if not await _services_ready():
             pytest.skip("Redis and PostgreSQL required")
 
@@ -361,9 +359,7 @@ class TestConflictResolution:
 
 
 class TestRecoveryTiming:
-    async def test_recovery_is_well_inside_the_startup_budget(
-        self, make_composite, clean_state
-    ):
+    async def test_recovery_is_well_inside_the_startup_budget(self, make_composite, clean_state):
         """The 30 s startup budget must not be the binding constraint in practice."""
         if not await _services_ready():
             pytest.skip("Redis and PostgreSQL required")
@@ -403,9 +399,7 @@ class TestRecoveryTiming:
 
 
 class TestThreadDiscovery:
-    async def test_postgres_lists_only_threads_inside_the_window(
-        self, pg_pool, clean_state
-    ):
+    async def test_postgres_lists_only_threads_inside_the_window(self, pg_pool, clean_state):
         if not await _pg_up():
             pytest.skip("PostgreSQL not available")
 
@@ -416,9 +410,12 @@ class TestThreadDiscovery:
                 "INSERT INTO agent_checkpoints (thread_id, checkpoint_id, state, created_at) "
                 "VALUES ($1, $2, $3, NOW()), ($1, $4, $3, NOW()), ($5, $6, $3, "
                 "NOW() - INTERVAL '48 hours')",
-                uuid.UUID(recent), uuid.uuid4(), "{}",
+                uuid.UUID(recent),
                 uuid.uuid4(),
-                uuid.UUID(stale), uuid.uuid4(),
+                "{}",
+                uuid.uuid4(),
+                uuid.UUID(stale),
+                uuid.uuid4(),
             )
 
         saver = PostgresCheckpointer(pg_pool=pg_pool)
@@ -440,9 +437,7 @@ class TestThreadDiscovery:
 
         assert thread_id in found
 
-    async def test_replay_lands_in_postgres_after_a_flush(
-        self, make_composite, clean_state
-    ):
+    async def test_replay_lands_in_postgres_after_a_flush(self, make_composite, clean_state):
         if not await _services_ready():
             pytest.skip("Redis and PostgreSQL required")
 

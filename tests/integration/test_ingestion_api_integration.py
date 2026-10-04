@@ -54,15 +54,14 @@ class TestIngestionIntegration:
                 doc.id,
             )
             assert row is not None
-            assert "hybrid" in str(row["search_vector"]).lower() or "retrieval" in str(
-                row["search_vector"]
-            ).lower()
+            assert (
+                "hybrid" in str(row["search_vector"]).lower()
+                or "retrieval" in str(row["search_vector"]).lower()
+            )
 
         await indexer.delete_document(doc.id)
         async with pool.acquire() as conn:
-            gone = await conn.fetchval(
-                "SELECT 1 FROM documents WHERE id = $1", doc.id
-            )
+            gone = await conn.fetchval("SELECT 1 FROM documents WHERE id = $1", doc.id)
             assert gone is None
 
     @pytest.mark.asyncio
@@ -78,17 +77,13 @@ class TestIngestionIntegration:
         )
 
         async with pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING", uid
-            )
+            await conn.execute("INSERT INTO users (id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
 
         await indexer.index_document(doc)
 
         async with pool.acquire() as conn:
             user_exists = await conn.fetchval("SELECT 1 FROM users WHERE id = $1", uid)
-            doc_exists = await conn.fetchval(
-                "SELECT 1 FROM documents WHERE id = $1", doc.id
-            )
+            doc_exists = await conn.fetchval("SELECT 1 FROM documents WHERE id = $1", doc.id)
             assert user_exists == 1
             assert doc_exists == 1
 

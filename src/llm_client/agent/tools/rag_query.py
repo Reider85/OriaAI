@@ -42,13 +42,8 @@ async def rag_query(query: str, top_k: int = 5) -> dict[str, Any]:
         pipeline = await get_pipeline_for_request(settings, request_overrides)
         if pipeline is None:
             logger.warning("RAG pipeline not available - returning empty results")
-            return {
-                "chunks": [],
-                "chunk_count": 0,
-                "top_score": 0.0,
-                "source_uris": []
-            }
-        
+            return {"chunks": [], "chunk_count": 0, "top_score": 0.0, "source_uris": []}
+
         result = await pipeline.retrieve(query, top_k=top_k)
         logger.info(
             "rag_query query=%r top_k=%d returned=%d chunks",
@@ -59,12 +54,7 @@ async def rag_query(query: str, top_k: int = 5) -> dict[str, Any]:
         return result
     except (ImportError, ValueError, RuntimeError) as exc:
         logger.error("rag_query failed: %s", exc)
-        return {
-            "chunks": [],
-            "chunk_count": 0,
-            "top_score": 0.0,
-            "source_uris": []
-        }
+        return {"chunks": [], "chunk_count": 0, "top_score": 0.0, "source_uris": []}
 
 
 rag_query = tool(rag_query, args_schema=RagQueryArgs)  # type: ignore[assignment]

@@ -105,7 +105,7 @@ class _FakeStreamlit:
             "tool_name": tool_name,
             "args": args,
             "status": status,
-            "result_preview": result_preview
+            "result_preview": result_preview,
         }
 
     def spinner(self, text):
@@ -285,9 +285,7 @@ def test_render_artifact_buttons_retry_reruns(fake_streamlit, monkeypatch):
 
 def test_render_status_badge_streaming_uses_status(fake_streamlit):
     render.render_status_badge("streaming")
-    assert fake_streamlit.status_calls == [
-        {"label": "Generating response...", "expanded": False}
-    ]
+    assert fake_streamlit.status_calls == [{"label": "Generating response...", "expanded": False}]
     assert fake_streamlit.errors == []
     assert fake_streamlit.warnings == []
 
@@ -307,9 +305,7 @@ def test_render_status_badge_error_with_traceback(fake_streamlit):
     render.render_status_badge("error", "LLM provider failed", "traceback\nline")
     assert fake_streamlit.warnings == ["Error: LLM provider failed"]
     assert fake_streamlit.expander_calls == [{"label": "Details", "expanded": False}]
-    assert fake_streamlit.code_calls == [
-        {"text": "traceback\nline", "language": "python"}
-    ]
+    assert fake_streamlit.code_calls == [{"text": "traceback\nline", "language": "python"}]
 
 
 def test_render_status_badge_error_without_traceback(fake_streamlit):
@@ -450,8 +446,12 @@ def test_render_history_passes_metadata(fake_streamlit):
 
 # G-1 Tool-call preview tests
 def test_render_tool_call_running(fake_streamlit):
-    render._render_tool_call_fragment("web_search", {"query": "python", "max_results": 5}, "running")
-    assert fake_streamlit.expander_calls == [{"label": "🔧 web_search — running", "expanded": False}]
+    render._render_tool_call_fragment(
+        "web_search", {"query": "python", "max_results": 5}, "running"
+    )
+    assert fake_streamlit.expander_calls == [
+        {"label": "🔧 web_search — running", "expanded": False}
+    ]
     assert len(fake_streamlit.json_calls) == 1
     assert fake_streamlit.json_calls[0] == {"query": "python", "max_results": 5}
     assert len(fake_streamlit.spinner_calls) == 1
@@ -479,20 +479,22 @@ def test_render_tool_call_error(fake_streamlit):
 
 def test_render_tool_call_file_export_content_truncation(fake_streamlit):
     long_content = "x" * 300
-    render._render_tool_call_fragment("file_export", {"content": long_content, "filename": "test.txt"})
+    render._render_tool_call_fragment(
+        "file_export", {"content": long_content, "filename": "test.txt"}
+    )
     assert fake_streamlit.json_calls[0] == {"content": "x" * 200 + "...", "filename": "test.txt"}
 
 
 def test_handle_tool_event_tool_call(fake_streamlit):
     client = fake_streamlit  # Mock client
     pending_tool_calls = {}
-    
+
     data = {
         "tool_call_id": "tc1",
         "tool_name": "web_search",
-        "args": {"query": "python", "max_results": 5}
+        "args": {"query": "python", "max_results": 5},
     }
-    
+
     render.handle_tool_event("tool_call", data, client, pending_tool_calls)
     assert len(pending_tool_calls) == 1
     assert pending_tool_calls["tc1"]["tool_name"] == "web_search"
@@ -508,15 +510,12 @@ def test_handle_tool_event_tool_result(fake_streamlit):
             "tool_name": "web_search",
             "args": {"query": "python"},
             "status": "running",
-            "result_preview": None
+            "result_preview": None,
         }
     }
-    
-    data = {
-        "tool_call_id": "tc1",
-        "preview": {"snippet_count": 3}
-    }
-    
+
+    data = {"tool_call_id": "tc1", "preview": {"snippet_count": 3}}
+
     render.handle_tool_event("tool_result", data, client, pending_tool_calls)
     assert pending_tool_calls["tc1"]["status"] == "done"
     assert pending_tool_calls["tc1"]["result_preview"] == {"snippet_count": 3}
@@ -531,7 +530,7 @@ def test_handle_tool_event_retrieved_docs(fake_streamlit):
             "tool_name": "rag_query",
             "args": {"query": "error"},
             "status": "running",
-            "result_preview": None
+            "result_preview": None,
         }
     }
 
@@ -540,9 +539,7 @@ def test_handle_tool_event_retrieved_docs(fake_streamlit):
         "chunk_count": 5,
         "top_score": 0.95,
         "source_uris": ["doc1.pdf", "doc2.txt"],
-        "chunks": [
-            {"source_uri": "doc1.pdf", "content_preview": "Error 123", "score": 0.95}
-        ]
+        "chunks": [{"source_uri": "doc1.pdf", "content_preview": "Error 123", "score": 0.95}],
     }
 
     render.handle_tool_event("retrieved_docs", data, client, pending_tool_calls)
@@ -550,7 +547,9 @@ def test_handle_tool_event_retrieved_docs(fake_streamlit):
     assert pending_tool_calls["tc1"]["result_preview"]["chunk_count"] == 5
     assert pending_tool_calls["tc1"]["result_preview"]["top_score"] == 0.95
     assert client.tool_call_rendered["status"] == "done"
-    assert len(fake_streamlit.expander_calls) == 1  # Only citations panel gets added, tool call updates existing
+    assert (
+        len(fake_streamlit.expander_calls) == 1
+    )  # Only citations panel gets added, tool call updates existing
 
 
 def test_render_rag_citations_empty(fake_streamlit):
@@ -573,9 +572,7 @@ def test_render_rag_citations_one_chunk(fake_streamlit):
     assert fake_streamlit.expander_calls == [
         {"label": "📚 RAG citations (1 chunks)", "expanded": False}
     ]
-    assert fake_streamlit.markdown_calls[0]["text"] == (
-        "**1. [Manual](s3://docs/manual.pdf)**"
-    )
+    assert fake_streamlit.markdown_calls[0]["text"] == ("**1. [Manual](s3://docs/manual.pdf)**")
     assert fake_streamlit.caption_calls == ["📎 s3://docs/manual.pdf · 📄 p.7"]
     assert fake_streamlit.progress_calls == [{"value": 0.95, "text": "Relevance: 0.95"}]
     assert fake_streamlit.markdown_calls[1]["text"] == "Error 123"
@@ -655,7 +652,9 @@ def test_render_rag_citations_escapes_brackets_in_title(fake_streamlit):
     [(0.95, 0.95), (None, 0.0), ("n/a", 0.0), (-1.0, 0.0), (4.2, 1.0)],
 )
 def test_render_rag_citations_score_normalized(fake_streamlit, raw, expected):
-    render.render_rag_citations([{"source_uri": "s3://a.pdf", "content_preview": "x", "score": raw}])
+    render.render_rag_citations(
+        [{"source_uri": "s3://a.pdf", "content_preview": "x", "score": raw}]
+    )
     assert fake_streamlit.progress_calls[0]["value"] == expected
 
 
@@ -678,7 +677,12 @@ def test_handle_tool_event_retrieved_docs_renders_citations(fake_streamlit, monk
         }
     }
     chunks = [
-        {"source_uri": "s3://doc1.pdf", "title": "Doc 1", "content_preview": "Error 123", "score": 0.95}
+        {
+            "source_uri": "s3://doc1.pdf",
+            "title": "Doc 1",
+            "content_preview": "Error 123",
+            "score": 0.95,
+        }
     ]
     data = {
         "tool_call_id": "tc1",
@@ -689,9 +693,7 @@ def test_handle_tool_event_retrieved_docs_renders_citations(fake_streamlit, monk
     }
 
     captured = []
-    monkeypatch.setattr(
-        render, "_render_rag_citations_fragment", lambda c: captured.append(c)
-    )
+    monkeypatch.setattr(render, "_render_rag_citations_fragment", lambda c: captured.append(c))
 
     render.handle_tool_event("retrieved_docs", data, client, pending_tool_calls)
 
@@ -751,12 +753,8 @@ def test_render_web_search_results_many(fake_streamlit):
     assert fake_streamlit.expander_calls == [{"label": f"{WEB_PANEL} (5)", "expanded": False}]
     assert len(fake_streamlit.divider_calls) == 5
     assert len(fake_streamlit.metric_calls) == 5
-    assert fake_streamlit.markdown_calls[0]["text"] == (
-        "**1. [Result 1](https://example.com/1)**"
-    )
-    assert fake_streamlit.markdown_calls[8]["text"] == (
-        "**5. [Result 5](https://example.com/5)**"
-    )
+    assert fake_streamlit.markdown_calls[0]["text"] == ("**1. [Result 1](https://example.com/1)**")
+    assert fake_streamlit.markdown_calls[8]["text"] == ("**5. [Result 5](https://example.com/5)**")
 
 
 def test_render_web_search_results_count_is_not_hardcoded(fake_streamlit):
@@ -768,9 +766,7 @@ def test_render_web_search_results_missing_snippet(fake_streamlit):
     render.render_web_search_results(
         [{"title": "No snippet", "url": "https://example.com", "score": 0.5}]
     )
-    assert fake_streamlit.markdown_calls[0]["text"] == (
-        "**1. [No snippet](https://example.com)**"
-    )
+    assert fake_streamlit.markdown_calls[0]["text"] == ("**1. [No snippet](https://example.com)**")
     assert len(fake_streamlit.markdown_calls) == 1
     assert len(fake_streamlit.divider_calls) == 1
 
@@ -960,14 +956,14 @@ def test_render_settings_panel_defaults():
     """Test render_settings_panel with default values (all tools enabled)."""
     session_state = {}
     settings = render.render_settings_panel(session_state)
-    
+
     # Check default values
     assert settings["tools_enabled"] == ["web_search", "rag_query", "file_export"]
     assert settings["retrieval_strategy"] == "hybrid"
     assert settings["reranker"] == "bge"
     assert settings["max_results"] == 5
     assert settings["top_k"] == 5
-    
+
     # Check session_state persistence
     assert session_state["settings"] == settings
 
@@ -975,21 +971,22 @@ def test_render_settings_panel_defaults():
 def test_render_settings_panel_disable_web_search():
     """Test render_settings_panel with web_search disabled."""
     session_state = {}
-    
+
     # Mock st.checkbox to return False for web_search
     import streamlit as st
+
     original_checkbox = st.checkbox
-    
+
     def mock_checkbox(label, value=True, key=None):
         if key == "settings_tool_web_search":
             return False  # Disable web_search
         return original_checkbox(label, value, key)
-    
+
     st.checkbox = mock_checkbox
-    
+
     try:
         settings = render.render_settings_panel(session_state)
-        
+
         # Check web_search is disabled
         assert "web_search" not in settings["tools_enabled"]
         assert settings["tools_enabled"] == ["rag_query", "file_export"]
@@ -1001,25 +998,26 @@ def test_render_settings_panel_disable_web_search():
 def test_render_settings_panel_disable_rag_query():
     """Test render_settings_panel with rag_query disabled (retrieval section hidden)."""
     session_state = {}
-    
+
     # Mock st.checkbox to return False for rag_query
     import streamlit as st
+
     original_checkbox = st.checkbox
-    
+
     def mock_checkbox(label, value=True, key=None):
         if key == "settings_tool_rag_query":
             return False  # Disable rag_query
         return original_checkbox(label, value, key)
-    
+
     st.checkbox = mock_checkbox
-    
+
     try:
         settings = render.render_settings_panel(session_state)
-        
+
         # Check rag_query is disabled
         assert "rag_query" not in settings["tools_enabled"]
         assert settings["tools_enabled"] == ["web_search", "file_export"]
-        
+
         # Check defaults when rag_query is disabled
         assert settings["retrieval_strategy"] == "hybrid"
         assert settings["reranker"] == "bge"
@@ -1031,21 +1029,22 @@ def test_render_settings_panel_disable_rag_query():
 def test_render_settings_panel_choose_vector():
     """Test render_settings_panel with vector retrieval strategy."""
     session_state = {}
-    
+
     # Mock st.selectbox to return "vector"
     import streamlit as st
+
     original_selectbox = st.selectbox
-    
+
     def mock_selectbox(label, options=None, index=0, key=None, help=None):
         if key == "settings_retrieval_strategy":
             return "vector"  # Choose vector strategy
         return original_selectbox(label, options, index, key, help)
-    
+
     st.selectbox = mock_selectbox
-    
+
     try:
         settings = render.render_settings_panel(session_state)
-        
+
         # Check vector strategy is selected
         assert settings["retrieval_strategy"] == "vector"
         assert settings["top_k"] == 5  # Default slider value
@@ -1056,21 +1055,22 @@ def test_render_settings_panel_choose_vector():
 def test_render_settings_panel_choose_cohere():
     """Test render_settings_panel with Cohere reranker."""
     session_state = {}
-    
+
     # Mock st.radio to return "cohere"
     import streamlit as st
+
     original_radio = st.radio
-    
+
     def mock_radio(label, options=None, index=0, key=None, help=None):
         if key == "settings_reranker":
             return "cohere"  # Choose Cohere reranker
         return original_radio(label, options, index, key, help)
-    
+
     st.radio = mock_radio
-    
+
     try:
         settings = render.render_settings_panel(session_state)
-        
+
         # Check Cohere reranker is selected
         assert settings["reranker"] == "cohere"
         assert settings["top_k"] == 5  # Default slider value
@@ -1081,21 +1081,22 @@ def test_render_settings_panel_choose_cohere():
 def test_render_settings_panel_choose_none_reranker():
     """Test render_settings_panel with no reranker (A/B baseline mode)."""
     session_state = {}
-    
+
     # Mock st.radio to return "none"
     import streamlit as st
+
     original_radio = st.radio
-    
+
     def mock_radio(label, options=None, index=0, key=None, help=None):
         if key == "settings_reranker":
             return "none"  # Disable reranker (A/B baseline)
         return original_radio(label, options, index, key, help)
-    
+
     st.radio = mock_radio
-    
+
     try:
         settings = render.render_settings_panel(session_state)
-        
+
         # Check no reranker is selected
         assert settings["reranker"] == "none"
         assert settings["top_k"] == 5  # Default slider value
@@ -1116,9 +1117,7 @@ def test_handle_tool_event_tool_result_records_full_results(fake_streamlit):
     data = {
         "tool_call_id": "tc1",
         "preview": {"snippet_count": 2},
-        "full_results": [
-            {"title": "asyncio", "url": "https://docs.python.org", "snippet": "..."}
-        ],
+        "full_results": [{"title": "asyncio", "url": "https://docs.python.org", "snippet": "..."}],
     }
 
     render.handle_tool_event("tool_result", data, fake_streamlit, pending_tool_calls)

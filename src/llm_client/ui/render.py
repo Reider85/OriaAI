@@ -105,7 +105,9 @@ def _render_artifact_button(artifact: dict[str, Any]) -> None:
         st.warning(f"Artifact not found ({filename})")
         return
     if status_code == 200 and content is not None:
-        st.download_button(label, data=content, file_name=filename, mime=mime)  # Streamlit-specific, not in UIClient interface.
+        st.download_button(
+            label, data=content, file_name=filename, mime=mime
+        )  # Streamlit-specific, not in UIClient interface.
         return
 
     # Slow path (pdf/docx/odt/xls/xlsx): still generating, non-blocking.
@@ -113,15 +115,13 @@ def _render_artifact_button(artifact: dict[str, Any]) -> None:
         st.warning("Still generating")
     disabled_label = f"{label} (Generating...)"
     st.download_button(
-            disabled_label, data=b"", file_name=None, mime=mime, disabled=True
-        )  # Streamlit-specific, not in UIClient interface.
+        disabled_label, data=b"", file_name=None, mime=mime, disabled=True
+    )  # Streamlit-specific, not in UIClient interface.
     if st.button(f"Retry {filename}"):
         st.rerun()
 
 
-def render_message(
-    role: str, content: str, metadata: dict[str, Any] | None = None
-) -> None:
+def render_message(role: str, content: str, metadata: dict[str, Any] | None = None) -> None:
     """Render a single chat message as a Streamlit bubbles + markdown block.
 
     When ``metadata`` carries a ``pii_score`` and ``role`` is ``"user"``, a
@@ -462,8 +462,7 @@ def _render_tool_call_fragment(
     display_args = dict(args)
     if tool_name == "file_export" and "content" in display_args:
         content = str(display_args["content"])
-        display_args["content"] = (content[:200] + "...") \
-            if len(content) > 200 else content
+        display_args["content"] = (content[:200] + "...") if len(content) > 200 else content
 
     # Collapsible panel inside current chat_message
     with st.expander(f"🔧 {tool_name} — {status}", expanded=False):
@@ -515,9 +514,7 @@ def handle_tool_event(
         tc_id = data["tool_call_id"]
         if tc_id in pending_tool_calls:
             pending_tool_calls[tc_id]["status"] = "done"
-            pending_tool_calls[tc_id]["result_preview"] = (
-                data.get("preview") or {}
-            )
+            pending_tool_calls[tc_id]["result_preview"] = data.get("preview") or {}
             # Kept so the panel can be re-rendered after the stream ends
             # (Streamlit drops the live tree on the next fragment run).
             if data.get("full_results"):
@@ -631,14 +628,11 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
         # Sub-section: Tools:
         st.markdown("**Tools**")
         tools_enabled = []
-        if st.checkbox("Web search (Tavily)", value=True,
-                        key="settings_tool_web_search"):
+        if st.checkbox("Web search (Tavily)", value=True, key="settings_tool_web_search"):
             tools_enabled.append("web_search")
-        if st.checkbox("RAG query (documents)", value=True,
-                        key="settings_tool_rag_query"):
+        if st.checkbox("RAG query (documents)", value=True, key="settings_tool_rag_query"):
             tools_enabled.append("rag_query")
-        if st.checkbox("File export", value=True,
-                        key="settings_tool_file_export"):
+        if st.checkbox("File export", value=True, key="settings_tool_file_export"):
             tools_enabled.append("file_export")
 
         # Sub-section: Retrieval (only relevant if rag_query enabled):
@@ -650,11 +644,14 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
                 index=0,  # ADR-020 default
                 key="settings_retrieval_strategy",
                 help="hybrid = BM25 + vector (ADR-020 default); "
-                     "vector = semantic only; bm25 = exact-term only",
+                "vector = semantic only; bm25 = exact-term only",
             )
             top_k = st.slider(
                 "top_k (chunks to return)",
-                min_value=1, max_value=20, value=5, step=1,
+                min_value=1,
+                max_value=20,
+                value=5,
+                step=1,
                 key="settings_top_k",
                 help="After reranker (ADR-017); 5 is recommended",
             )
@@ -666,8 +663,8 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
                 index=0,  # ADR-017 default
                 key="settings_reranker",
                 help="bge = local in-process (ADR-017 default); "
-                     "cohere = external API (optional); "
-                     "none = disable reranking (A/B baseline)",
+                "cohere = external API (optional); "
+                "none = disable reranking (A/B baseline)",
             )
         else:
             # Defaults if rag_query disabled:
@@ -680,7 +677,10 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
             st.markdown("**Web search**")
             max_results = st.slider(
                 "max_results",
-                min_value=1, max_value=20, value=5, step=1,
+                min_value=1,
+                max_value=20,
+                value=5,
+                step=1,
                 key="settings_max_results",
                 help="Tavily API max results per query",
             )

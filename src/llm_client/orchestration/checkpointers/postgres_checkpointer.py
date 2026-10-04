@@ -42,15 +42,12 @@ __all__ = ["PostgresCheckpointer"]
 
 _CHECKPOINT_COLUMNS = "thread_id, checkpoint_id, parent_id, state, metadata, created_at"
 
-_FLUSH_PREAMBLE = (
-    f"INSERT INTO agent_checkpoints ({_CHECKPOINT_COLUMNS}) VALUES "
-)
+_FLUSH_PREAMBLE = f"INSERT INTO agent_checkpoints ({_CHECKPOINT_COLUMNS}) VALUES "
 
 # Single-row upsert. Used for the common case of one buffered checkpoint so the
 # statement text stays constant and can be cached by the PG planner.
 _FLUSH_ONE_SQL = (
-    _FLUSH_PREAMBLE
-    + "($1, $2, $3, $4, $5, $6) "
+    _FLUSH_PREAMBLE + "($1, $2, $3, $4, $5, $6) "
     "ON CONFLICT (thread_id, checkpoint_id) DO UPDATE SET "
     "state = EXCLUDED.state, "
     "metadata = EXCLUDED.metadata, "
@@ -199,8 +196,7 @@ class PostgresCheckpointer(BaseCheckpointSaver):
 
         if len(self._buffer) >= self._max_buffer_size and not self._panic_mode:
             logger.warning(
-                "checkpoint buffer full (%d/%d), entering panic mode — "
-                "flushing on every aput",
+                "checkpoint buffer full (%d/%d), entering panic mode — flushing on every aput",
                 len(self._buffer),
                 self._max_buffer_size,
             )
@@ -281,11 +277,21 @@ class PostgresCheckpointer(BaseCheckpointSaver):
                 continue
             seen_ids.add(str(pending.checkpoint_id))
             yield CheckpointTuple(
-                config={"configurable": {"thread_id": thread_id, "checkpoint_id": str(pending.checkpoint_id)}},
+                config={
+                    "configurable": {
+                        "thread_id": thread_id,
+                        "checkpoint_id": str(pending.checkpoint_id),
+                    }
+                },
                 checkpoint=pending.checkpoint,
                 metadata=pending.metadata,
                 parent_config=(
-                    {"configurable": {"thread_id": thread_id, "checkpoint_id": str(pending.parent_id)}}
+                    {
+                        "configurable": {
+                            "thread_id": thread_id,
+                            "checkpoint_id": str(pending.parent_id),
+                        }
+                    }
                     if pending.parent_id
                     else None
                 ),
@@ -438,8 +444,7 @@ class PostgresCheckpointer(BaseCheckpointSaver):
                     await asyncio.wait_for(task, timeout=10.0)
                 except (TimeoutError, asyncio.CancelledError):
                     logger.warning(
-                        "Flush loop did not finish within 10s, "
-                        "final flush will be retried directly"
+                        "Flush loop did not finish within 10s, final flush will be retried directly"
                     )
 
             try:
@@ -471,7 +476,7 @@ class PostgresCheckpointer(BaseCheckpointSaver):
                 # Sleep until next check (or until cancelled)
                 await asyncio.wait_for(
                     asyncio.sleep(self._current_flush_interval),
-                    timeout=self._current_flush_interval + 1
+                    timeout=self._current_flush_interval + 1,
                 )
             except asyncio.CancelledError:
                 # Shutdown signal — perform final flush before exiting
@@ -613,8 +618,7 @@ class PostgresCheckpointer(BaseCheckpointSaver):
             return
 
         placeholders = ", ".join(
-            "(" + ", ".join(f"${i * 6 + j + 1}" for j in range(6)) + ")"
-            for i in range(len(batch))
+            "(" + ", ".join(f"${i * 6 + j + 1}" for j in range(6)) + ")" for i in range(len(batch))
         )
         sql = (
             _FLUSH_PREAMBLE

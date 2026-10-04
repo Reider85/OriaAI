@@ -347,9 +347,7 @@ class StreamlitClient(UIClient):
         from llm_client.ui.session import current_session_id
 
         session_id = current_session_id()
-        return st.chat_input(
-            "Type your message...", key=f"{_CHAT_INPUT_KEY}{session_id}"
-        )
+        return st.chat_input("Type your message...", key=f"{_CHAT_INPUT_KEY}{session_id}")
 
     def render_tool_call(
         self,

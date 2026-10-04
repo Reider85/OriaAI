@@ -6,7 +6,7 @@ from llm_client.rag.rerankers.base import Reranker, RerankResult
 
 class CohereRerankAdapter(Reranker):
     """Cohere Rerank API adapter for external reranking (optional alternative to BGE)."""
-    
+
     def __init__(
         self,
         api_key: str | None = None,  # from env COHERE_API_KEY
@@ -26,9 +26,12 @@ class CohereRerankAdapter(Reranker):
         if self._client is None:
             try:
                 import cohere
+
                 self._client = cohere.AsyncClient(self._api_key)
             except ImportError:
-                raise ImportError("cohere package is required for CohereRerankAdapter. Install with: pip install 'llm-client[rerank]'")
+                raise ImportError(
+                    "cohere package is required for CohereRerankAdapter. Install with: pip install 'llm-client[rerank]'"
+                )
         return self._client
 
     async def rerank(
@@ -40,7 +43,7 @@ class CohereRerankAdapter(Reranker):
     ) -> list[RerankResult]:
         client = await self._ensure_client()
         docs_text = [doc["content"][:5000] for doc in documents]
-        
+
         # Handle cohere v5/v6 vs v7 API differences
         try:
             # Try v7 API first
@@ -62,7 +65,7 @@ class CohereRerankAdapter(Reranker):
                 return_documents=False,
             )
             results = response.results
-        
+
         return [
             RerankResult(
                 doc_id=documents[r.index].get("id", str(r.index)),
