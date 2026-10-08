@@ -8,6 +8,8 @@ import logging
 import os
 from typing import Any
 
+from pydantic import SecretStr
+
 from llm_client.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -25,8 +27,8 @@ def _config_get(config: Any, key: str, default: Any = None) -> Any:
 def create_embedding_function(settings: Settings | None = None) -> Any | None:
     """Build an embeddings instance for vector indexing/retrieval.
 
-    Returns None when the provider is "none" or no API key is available —
-    callers must handle a missing embedding function gracefully.
+    Returns None when the provider is "none" — explicit disable.
+    Falls back to local embeddings when cloud providers have no API keys available.
     """
     if settings is None:
         from llm_client.config import settings as default_settings
@@ -34,30 +36,86 @@ def create_embedding_function(settings: Settings | None = None) -> Any | None:
         settings = default_settings
 
     provider = (settings.embedding_provider or "none").lower()
+    
+    # Explicit disable
     if provider == "none":
         logger.info("EMBEDDING_PROVIDER=none — embeddings disabled")
         return None
-    elif provider == "openai":
-        if not settings.openai_api_key:
-            logger.warning("OPENAI_API_KEY empty — embeddings disabled")
+    
+    # Local embeddings provider
+    elif provider == "local":
+        logger.info("EMBEDDING_PROVIDER=local — using local embeddings")
+        try:
+            from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+            return LocalSentenceTransformerEmbeddings(
+                model_name=settings.local_embedding_model,
+                model_dir=settings.local_embedding_model_dir,
+                device=settings.local_embedding_device
+            )
+        except ImportError:
+            logger.warning("sentence-transformers not available — local embeddings disabled")
             return None
-        api_key = settings.openai_api_key
+    
+    # Cloud providers with fallback to local
+    elif provider in {"openai", "custom-openai", "zai"}:
+        # Check if cloud provider credentials are available
+        cloud_available = False
+        api_key = None
         base_url = None
-    elif provider == "custom-openai":
-        if not settings.custom_openai_api_key:
-            logger.warning("CUSTOM_OPENAI_API_KEY empty — embeddings disabled")
+        
+        if provider == "openai":
+            cloud_available = bool(settings.openai_api_key)
+            api_key = settings.openai_api_key
+            base_url = None
+        elif provider == "custom-openai":
+            cloud_available = bool(settings.custom_openai_api_key) and bool(settings.custom_openai_base_url)
+            api_key = settings.custom_openai_api_key
+            base_url = settings.custom_openai_base_url
+        elif provider == "zai":
+            cloud_available = bool(settings.zai_api_key)
+            api_key = settings.zai_api_key
+            base_url = settings.zai_base_url
+        
+        if cloud_available:
+            logger.info(f"EMBEDDING_PROVIDER={provider} — using cloud embeddings")
+        else:
+            logger.warning(
+                f"EMBEDDING_PROVIDER={provider} API keys missing — falling back to local embeddings"
+            )
+            try:
+                from llm_client.rag.retrieval.local_embeddings import (
+                    LocalSentenceTransformerEmbeddings,
+                )
+                return LocalSentenceTransformerEmbeddings(
+                    model_name=settings.local_embedding_model,
+                    model_dir=settings.local_embedding_model_dir,
+                    device=settings.local_embedding_device
+                )
+            except ImportError:
+                logger.warning("sentence-transformers not available — embeddings disabled")
+                return None
+        
+        # Build cloud embeddings
+        try:
+            from langchain_openai import OpenAIEmbeddings
+            
+            # Use provider-specific model if available, otherwise fallback to embedding_model
+            if provider == "custom-openai":
+                model = settings.custom_openai_model
+            elif provider == "zai":
+                model = settings.embedding_model  # ZAI uses embedding_model for embeddings
+            else:
+                model = settings.embedding_model
+
+            return OpenAIEmbeddings(
+                model=model,
+                api_key=SecretStr(api_key or "") if api_key else None,
+                base_url=base_url,
+            )
+        except ImportError:
+            logger.warning("langchain-openai not installed — embeddings disabled")
             return None
-        if not settings.custom_openai_base_url:
-            logger.warning("CUSTOM_OPENAI_BASE_URL empty — embeddings disabled")
-            return None
-        api_key = settings.custom_openai_api_key
-        base_url = settings.custom_openai_base_url
-    elif provider == "zai":
-        if not settings.zai_api_key:
-            logger.warning("ZAI_API_KEY empty — embeddings disabled")
-            return None
-        api_key = settings.zai_api_key
-        base_url = settings.zai_base_url
+    
     else:
         logger.info("EMBEDDING_PROVIDER=%s — embeddings disabled", provider)
         return None
@@ -75,7 +133,7 @@ def create_embedding_function(settings: Settings | None = None) -> Any | None:
 
         return OpenAIEmbeddings(
             model=model,
-            api_key=api_key,
+            api_key=SecretStr(api_key) if api_key else None,
             base_url=base_url,
         )
     except ImportError:
@@ -222,12 +280,14 @@ def get_vector_writer(settings: Settings | None = None) -> Any | None:
         from langchain_text_splitters import RecursiveCharacterTextSplitter
     except ImportError:
         try:
-            from langchain.text_splitter import RecursiveCharacterTextSplitter
+            from langchain.text_splitter import RecursiveCharacterTextSplitter as TextSplitter
         except ImportError:
             logger.warning("langchain text splitter not available — vector writer disabled")
             return None
-
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        else:
+            splitter = TextSplitter(chunk_size=1000, chunk_overlap=200)
+    else:
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
     async def _index_document(document: Any) -> None:
         chunks = splitter.split_text(document.content)

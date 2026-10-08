@@ -455,24 +455,34 @@ function Test-CheckpointRedis {
     Write-Host "Redis checkpoint WAL (DB 1) is ready with maxmemory-policy=$expectedPolicy." -ForegroundColor DarkGray
 }
 
-function Ensure-BgeModel {
+function Get-EffectiveRerankerDefault {
+    $rerankerDefault = (Get-EnvValue -Name "RERANKER_DEFAULT")
+    if (-not $rerankerDefault) {
+        $rerankerDefault = "bge"
+    }
+
+    # If Cohere is selected but no API key is available, fall back to BGE
+    if ($rerankerDefault -eq "cohere" -and -not (Get-EnvValue -Name "COHERE_API_KEY")) {
+        $rerankerDefault = "bge"
+    }
+
+    return $rerankerDefault
+}
+
+function Ensure-RerankerModel {
     param(
         [pscustomobject]$Python,
         [switch]$Skip
     )
 
     if ($Skip) {
-        Write-Host "Skipping BGE reranker model check (-SkipModelDownload)." -ForegroundColor DarkGray
+        Write-Host "Skipping reranker model check (-SkipModelDownload)." -ForegroundColor DarkGray
         return $false
     }
 
-    $rerankerDefault = (Get-EnvValue -Name "RERANKER_DEFAULT")
-    if (-not $rerankerDefault) {
-        $rerankerDefault = "bge"
-    }
-
-    if ($rerankerDefault -ne "bge") {
-        Write-Host "RERANKER_DEFAULT=$rerankerDefault; BGE model download is not required." -ForegroundColor DarkGray
+    $effectiveDefault = Get-EffectiveRerankerDefault
+    if ($effectiveDefault -ne "bge") {
+        Write-Host "Effective reranker=$effectiveDefault; BGE model download is not required." -ForegroundColor DarkGray
         return $false
     }
 
@@ -506,6 +516,88 @@ function Ensure-BgeModel {
 
     if ($exitCode -ne 0) {
         throw "BGE reranker download failed with exit code $exitCode. Run manually: $($Python.Path) scripts\download_bge_reranker.py"
+    }
+
+    return $true
+}
+
+function Get-EffectiveEmbeddingProvider {
+    $provider = (Get-EnvValue -Name "EMBEDDING_PROVIDER")
+    if (-not $provider) {
+        $provider = "openai"
+    }
+
+    # If provider is explicitly none, return none (no download)
+    if ($provider -eq "none") {
+        return "none"
+    }
+
+    # If provider is explicitly local, return local (download if needed)
+    if ($provider -eq "local") {
+        return "local"
+    }
+
+    # For cloud providers, check if API keys are available
+    if ($provider -eq "openai" -and -not (Get-EnvValue -Name "OPENAI_API_KEY")) {
+        return "local"
+    }
+    if ($provider -eq "zai" -and -not (Get-EnvValue -Name "ZAI_API_KEY")) {
+        return "local"
+    }
+    if ($provider -eq "custom-openai" -and (-not (Get-EnvValue -Name "CUSTOM_OPENAI_API_KEY") -or -not (Get-EnvValue -Name "CUSTOM_OPENAI_BASE_URL"))) {
+        return "local"
+    }
+
+    return $provider
+}
+
+function Ensure-EmbeddingModel {
+    param(
+        [pscustomobject]$Python,
+        [switch]$Skip
+    )
+
+    if ($Skip) {
+        Write-Host "Skipping embedding model check (-SkipModelDownload)." -ForegroundColor DarkGray
+        return $false
+    }
+
+    $effectiveProvider = Get-EffectiveEmbeddingProvider
+    if ($effectiveProvider -ne "local") {
+        Write-Host "Effective embedding provider=$effectiveProvider; local model download is not required." -ForegroundColor DarkGray
+        return $false
+    }
+
+    $modelDir = Get-EnvValue -Name "LOCAL_EMBEDDING_MODEL_DIR"
+    if (-not $modelDir) {
+        $modelDir = "./models/bge-m3"
+    }
+    if (-not [System.IO.Path]::IsPathRooted($modelDir)) {
+        $modelDir = Join-Path $RepoRoot $modelDir.TrimStart(".", "/", "\")
+    }
+
+    if (Test-Path -LiteralPath (Join-Path $modelDir "config.json")) {
+        Write-Host "Local embedding model is present at $modelDir." -ForegroundColor DarkGray
+        return $true
+    }
+
+    Write-Host "Downloading local embedding model (BAAI/bge-m3, ~2.2GB, one-time)..." -ForegroundColor Cyan
+    $downloadScript = Join-Path $RepoRoot "scripts\download_embedding_model.py"
+    if (-not (Test-Path -LiteralPath $downloadScript)) {
+        throw "Local embedding model is missing and scripts\download_embedding_model.py was not found."
+    }
+
+    $previousLocation = Get-Location
+    try {
+        Set-Location -LiteralPath $RepoRoot
+        $exitCode = Invoke-Python -Python $Python -Arguments @("scripts\download_embedding_model.py")
+    }
+    finally {
+        Set-Location -LiteralPath $previousLocation
+    }
+
+    if ($exitCode -ne 0) {
+        throw "Local embedding model download failed with exit code $exitCode. Run manually: $($Python.Path) scripts\download_embedding_model.py"
     }
 
     return $true
@@ -770,7 +862,8 @@ if ($dependencyCheck -ne 0) {
     throw "UI dependencies are missing. Run: $($python.Path) -m pip install -e `"$RepoRoot`""
 }
 
-$bgeModelReady = Ensure-BgeModel -Python $python -Skip:$SkipModelDownload
+$rerankerModelReady = Ensure-RerankerModel -Python $python -Skip:$SkipModelDownload
+$embeddingModelReady = Ensure-EmbeddingModel -Python $python -Skip:$SkipModelDownload
 
 if (-not (Get-EnvValue -Name "TAVILY_API_KEY")) {
     $toolsEnabled = Get-EnvValue -Name "TOOLS_ENABLED"
@@ -800,11 +893,19 @@ Write-Host "Starting Streamlit UI..." -ForegroundColor Cyan
 Start-Streamlit -Python $python -PortNumber $Port
 
 $rerankerStatus = (Get-EnvValue -Name "RERANKER_DEFAULT" "bge")
-if ($bgeModelReady) {
+if ($rerankerModelReady) {
     $rerankerStatus = "$rerankerStatus (model ready)"
 }
 elseif ($SkipModelDownload -or $rerankerStatus -ne "bge") {
     $rerankerStatus = "$rerankerStatus (model not verified)"
+}
+
+$embeddingStatus = (Get-EffectiveEmbeddingProvider)
+if ($embeddingModelReady -and $embeddingStatus -eq "local") {
+    $embeddingStatus = "local bge-m3 (model ready)"
+}
+else {
+    $embeddingStatus = "$embeddingStatus (cloud or disabled)"
 }
 
 Write-Host ""
@@ -819,6 +920,7 @@ Write-Host "  Prometheus:  http://127.0.0.1:9090"
 Write-Host "  Vault:       http://127.0.0.1:8200"
 Write-Host "  Ideality:    http://127.0.0.1:9101/metrics"
 Write-Host "  Reranker:    $rerankerStatus"
+Write-Host "  Embeddings:  $embeddingStatus"
 Write-Host "  Logs:        $RuntimeDir"
 Write-Host ""
 Write-Host "Stop everything with: powershell -ExecutionPolicy Bypass -File scripts\stop.ps1"

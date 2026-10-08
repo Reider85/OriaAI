@@ -69,8 +69,12 @@ class Settings(BaseSettings):
     # Vector write-path (ADR-003 / ADR-020)
     vector_store_kind: str = "none"  # none | chroma | pgvector
     embedding_model: str = "text-embedding-3-small"
-    embedding_provider: str = "openai"  # openai | none
+    embedding_provider: str = "openai"  # openai | custom-openai | zai | local | none
     chroma_persist_dir: str = "./chroma_db"
+    # Local embedding fallback settings
+    local_embedding_model: str = "BAAI/bge-m3"
+    local_embedding_model_dir: str = "./models/bge-m3"
+    local_embedding_device: str = "cpu"
 
     # Web Search (AG-5, Phase 2)
     tavily_api_url: str = "https://api.tavily.com/search"
@@ -168,24 +172,13 @@ class Settings(BaseSettings):
             raise ValueError("TAVILY_API_KEY required when tools_enabled contains 'web_search'")
 
         # Validate embedding provider
-        if self.embedding_provider not in {"openai", "custom-openai", "zai", "none"}:
+        if self.embedding_provider not in {"openai", "custom-openai", "zai", "local", "none"}:
             raise ValueError(
-                f"EMBEDDING_PROVIDER must be openai|custom-openai|zai|none, got {self.embedding_provider!r}"
+                f"EMBEDDING_PROVIDER must be openai|custom-openai|zai|local|none, got {self.embedding_provider!r}"
             )
 
-        # Validate embedding provider credentials
-        if self.embedding_provider == "custom-openai":
-            if not self.custom_openai_api_key:
-                raise ValueError(
-                    "CUSTOM_OPENAI_API_KEY required when EMBEDDING_PROVIDER=custom-openai"
-                )
-            if not self.custom_openai_base_url:
-                raise ValueError(
-                    "CUSTOM_OPENAI_BASE_URL required when EMBEDDING_PROVIDER=custom-openai"
-                )
-        elif self.embedding_provider == "zai":
-            if not self.zai_api_key:
-                raise ValueError("ZAI_API_KEY required when EMBEDDING_PROVIDER=zai")
+        # Note: For fallback logic, API keys are not required for cloud providers
+        # when local fallback is available. Validation moved to create_embedding_function.
 
         return self
 

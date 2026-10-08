@@ -11,6 +11,7 @@ to models/bge-reranker-base/ for use in ADR-017 (Reranker Model in RAG).
 The model is cached locally and can be reused across sessions without re-downloading.
 """
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -21,8 +22,15 @@ from sentence_transformers import CrossEncoder
 
 def main():
     """Download BGE-reranker-base model with smoke test."""
-    model_name = "BAAI/bge-reranker-base"
-    model_dir = Path("models/bge-reranker-base")
+    model_name = os.getenv("RERANKER_MODEL_NAME", "BAAI/bge-reranker-base")
+    model_dir_str = os.getenv("RERANKER_MODEL_DIR", "./models/bge-reranker-base")
+    model_dir = Path(model_dir_str)
+    
+    print(f"Downloading {model_name} to {model_dir}...")
+    
+    # Ensure model_dir is absolute if relative path provided
+    if not model_dir.is_absolute():
+        model_dir = Path.cwd() / model_dir
     
     print(f"Downloading {model_name} to {model_dir}...")
     
@@ -30,6 +38,9 @@ def main():
         # Download model if not exists
         if not model_dir.exists():
             model_dir.mkdir(parents=True, exist_ok=True)
+        elif (model_dir / "config.json").exists():
+            print(f"Model is already present at {model_dir} (config.json found).")
+            return
             
             print("Downloading from HuggingFace Hub...")
             start_time = time.time()

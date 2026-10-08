@@ -48,6 +48,11 @@ class RerankerRegistry:
     def get_default(self) -> Reranker:
         """Get default reranker (from RERANKER_DEFAULT env or first available)."""
         default_name = os.getenv("RERANKER_DEFAULT", "identity")
+        
+        # If Cohere is selected but no API key is available, fall back to BGE
+        if default_name == "cohere" and not os.getenv("COHERE_API_KEY"):
+            default_name = "bge"
+        
         return self.get(default_name)
 
 

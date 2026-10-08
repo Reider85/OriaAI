@@ -57,8 +57,15 @@ class RetrieverConfig:
         if fallback_chain_env:
             fallback_chain = [name.strip() for name in fallback_chain_env.split(",")]
 
+        # Get the intended reranker name
+        reranker_name = os.getenv("RERANKER_NAME", "bge")
+        
+        # If Cohere is selected but no API key is available, fall back to BGE
+        if reranker_name == "cohere" and not os.getenv("COHERE_API_KEY"):
+            reranker_name = "bge"
+
         return cls(
-            reranker_name=os.getenv("RERANKER_NAME", "bge"),
+            reranker_name=reranker_name,
             reranker_top_k=int(os.getenv("RERANKER_TOP_K", "5")),
             reranker_enabled=os.getenv("RERANKER_ENABLED", "true").lower() == "true",
             reranker_fallback_chain=fallback_chain,

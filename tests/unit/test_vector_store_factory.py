@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import ValidationError
+from pydantic import ValidationError, SecretStr
 
 from llm_client.config import Settings
 from llm_client.rag.retrieval.vector_store_factory import (
@@ -50,7 +50,12 @@ def test_embedding_function_missing_key():
         embedding_provider="openai",
         llm_provider="ollama",
     )
-    assert create_embedding_function(settings) is None
+    # Should fallback to local embeddings when cloud API key is missing
+    result = create_embedding_function(settings)
+    assert result is not None
+    # Should be a local embeddings instance
+    from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+    assert isinstance(result, LocalSentenceTransformerEmbeddings)
 
 
 def test_create_vector_store_none():
@@ -126,11 +131,17 @@ def test_get_vector_writer_builds_callable():
         content="word " * 500,
     )
 
-    asyncio.get_event_loop().run_until_complete(writer(doc))
-    texts, metadatas, ids = store._written
-    assert len(texts) >= 1
-    assert metadatas[0]["document_id"] == "d1"
-    assert ids[0] == "d1:0"
+    # Create a new event loop for the test
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(writer(doc))
+        texts, metadatas, ids = store._written
+        assert len(texts) >= 1
+        assert metadatas[0]["document_id"] == "d1"
+        assert ids[0] == "d1:0"
+    finally:
+        loop.close()
 
 
 def test_create_embedding_function_custom_openai():
@@ -146,29 +157,35 @@ def test_create_embedding_function_custom_openai():
             assert result is not None
             mock_embeddings.assert_called_once_with(
                 model="custom-embedding-model",
-                api_key="sk-custom",
+                api_key=SecretStr("sk-custom"),
                 base_url="https://api.custom.com/v1",
             )
 
 
 def test_create_embedding_function_custom_openai_missing_key():
-        with pytest.raises(ValidationError, match="CUSTOM_OPENAI_API_KEY required when EMBEDDING_PROVIDER=custom-openai"):
-            settings = _settings(
-                embedding_provider="custom-openai",
-                custom_openai_api_key="",
-                custom_openai_base_url="https://api.custom.com/v1",
-            )
-        # Should not reach here
+        settings = _settings(
+            embedding_provider="custom-openai",
+            custom_openai_api_key="",
+            custom_openai_base_url="https://api.custom.com/v1",
+        )
+        # Should fallback to local embeddings when custom-openai API key is missing
+        result = create_embedding_function(settings)
+        assert result is not None
+        from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+        assert isinstance(result, LocalSentenceTransformerEmbeddings)
 
 
 def test_create_embedding_function_custom_openai_missing_base_url():
-        with pytest.raises(ValidationError, match="CUSTOM_OPENAI_BASE_URL required when EMBEDDING_PROVIDER=custom-openai"):
-            settings = _settings(
-                embedding_provider="custom-openai",
-                custom_openai_api_key="sk-custom",
-                custom_openai_base_url="",
-            )
-        # Should not reach here
+        settings = _settings(
+            embedding_provider="custom-openai",
+            custom_openai_api_key="sk-custom",
+            custom_openai_base_url="",
+        )
+        # Should fallback to local embeddings when custom-openai base URL is missing
+        result = create_embedding_function(settings)
+        assert result is not None
+        from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+        assert isinstance(result, LocalSentenceTransformerEmbeddings)
 
 
 def test_create_embedding_function_zai():
@@ -182,17 +199,20 @@ def test_create_embedding_function_zai():
         result = create_embedding_function(settings)
         assert result is not None
         mock_embeddings.assert_called_once_with(
-            model="text-embedding-3-small",
-            api_key="sk-zai",
-            base_url="https://api.z.ai/api/paas/v4",
-        )
+                model="text-embedding-3-small",
+                api_key=SecretStr("sk-zai"),
+                base_url="https://api.z.ai/api/paas/v4",
+            )
 
 
 def test_create_embedding_function_zai_missing_key():
-        with pytest.raises(ValidationError, match="ZAI_API_KEY required when EMBEDDING_PROVIDER=zai"):
-            settings = _settings(
-                embedding_provider="zai",
-                zai_api_key="",
-                zai_base_url="https://api.z.ai/api/paas/v4",
-            )
-        # Should not reach here
+        settings = _settings(
+            embedding_provider="zai",
+            zai_api_key="",
+            zai_base_url="https://api.z.ai/api/paas/v4",
+        )
+        # Should fallback to local embeddings when ZAI API key is missing
+        result = create_embedding_function(settings)
+        assert result is not None
+        from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+        assert isinstance(result, LocalSentenceTransformerEmbeddings)
