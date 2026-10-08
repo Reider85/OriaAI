@@ -84,6 +84,8 @@ for artifact in st.session_state.get(PENDING_ARTIFACTS_KEY, []):
 prompt = client.handle_user_input()
 if prompt:
     user_message = session.add_message(session_id, "user", prompt)
+    # Reset streaming state for new prompt (bugfix: streaming_done was never cleared)
+    session.reset_streaming_state()
     # Streamlit-specific: st.empty() placeholder for the live PII badge.
     pii_badge_area = client.render_user_message(prompt)
     # Streaming handled inside @st.fragment — sidebar clicks do not interrupt.

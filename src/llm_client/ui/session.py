@@ -86,6 +86,7 @@ def switch_session(session_id: str) -> None:
     _load_messages_into_state(session_id, state)
     _register_session_id(session_id, state)
     _set_url_session_id(session_id)
+    reset_streaming_state()
 
 
 def new_session() -> str:
@@ -96,6 +97,7 @@ def new_session() -> str:
     state[MESSAGES_KEY] = []
     _register_session_id(session_id, state)
     _set_url_session_id(session_id)
+    reset_streaming_state()
     return session_id
 
 
@@ -122,6 +124,7 @@ def get_messages() -> list[dict[str, Any]]:
 def clear() -> None:
     """Drop the active chat history from session_state (used by "New session")."""
     _session_state()[MESSAGES_KEY] = []
+    reset_streaming_state()
 
 
 def get_sessions_list() -> list[dict[str, Any]]:
@@ -205,6 +208,30 @@ def _set_url_session_id(session_id: str) -> None:
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("streamlit is required for the chat UI") from exc
     st.query_params["session_id"] = session_id
+
+
+def reset_streaming_state() -> None:
+    """Reset streaming state keys from StreamlitClient (ADR-002).
+    
+    Clears fragment state to enable new streaming after previous completion.
+    Called on new prompts, session switches, and session clears.
+    """
+    state = _session_state()
+    # Lazy import to avoid circular dependencies at module level
+    from llm_client.ui.streamlit_client import (
+        _ANSWER_KEY,
+        _PLACEHOLDER_KEY,
+        _STREAMING_DONE_KEY,
+        _STREAMING_PLACEHOLDER_KEY,
+        _TOKEN_BUFFER_KEY,
+        PENDING_TOOL_CALLS_KEY,
+    )
+    state[_STREAMING_DONE_KEY] = False
+    state[_ANSWER_KEY] = ""
+    state[_STREAMING_PLACEHOLDER_KEY] = None
+    state[PENDING_TOOL_CALLS_KEY] = {}
+    state[_TOKEN_BUFFER_KEY] = ""
+    state[_PLACEHOLDER_KEY] = None
 
 
 def _now_iso() -> str:

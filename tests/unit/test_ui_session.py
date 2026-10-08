@@ -179,3 +179,56 @@ def test_switch_session_loads_history_and_registers(monkeypatch, state):
     assert state["current_session_id"] == "target"
     assert state["messages"] == [{"role": "user", "content": "old chat"}]
     assert "target" in state[session.SESSIONS_REGISTRY_KEY]
+
+
+def test_new_session_clears_streaming_state(monkeypatch, state):
+    """New session resets streaming state keys from StreamlitClient."""
+    # Set some streaming state
+    state["streamlit_client_streaming_done"] = True
+    state["streamlit_client_answer"] = "test"
+    state["streamlit_client_pending_tool_calls"] = {"tc1": {"status": "done"}}
+    
+    monkeypatch.setattr(session, "_session_state", lambda: state)
+    monkeypatch.setattr(session, "_set_url_session_id", lambda s: None)
+    
+    session.new_session()
+    
+    # Streaming state should be reset
+    assert state["streamlit_client_streaming_done"] is False
+    assert state["streamlit_client_answer"] == ""
+    assert state["streamlit_client_pending_tool_calls"] == {}
+
+
+def test_clear_clears_streaming_state(monkeypatch, state):
+    """Clear() resets streaming state keys from StreamlitClient."""
+    # Set some streaming state
+    state["streamlit_client_streaming_done"] = True
+    state["streamlit_client_answer"] = "test"
+    state["streamlit_client_pending_tool_calls"] = {"tc1": {"status": "done"}}
+    
+    monkeypatch.setattr(session, "_session_state", lambda: state)
+    
+    session.clear()
+    
+    # Streaming state should be reset
+    assert state["streamlit_client_streaming_done"] is False
+    assert state["streamlit_client_answer"] == ""
+    assert state["streamlit_client_pending_tool_calls"] == {}
+
+
+def test_switch_session_clears_streaming_state(monkeypatch, state):
+    """Switch session resets streaming state keys from StreamlitClient."""
+    # Set some streaming state
+    state["streamlit_client_streaming_done"] = True
+    state["streamlit_client_answer"] = "test"
+    state["streamlit_client_pending_tool_calls"] = {"tc1": {"status": "done"}}
+    
+    monkeypatch.setattr(session, "_session_state", lambda: state)
+    monkeypatch.setattr(session, "_set_url_session_id", lambda s: None)
+    
+    session.switch_session("new-session")
+    
+    # Streaming state should be reset
+    assert state["streamlit_client_streaming_done"] is False
+    assert state["streamlit_client_answer"] == ""
+    assert state["streamlit_client_pending_tool_calls"] == {}

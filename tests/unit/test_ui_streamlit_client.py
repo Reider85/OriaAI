@@ -399,3 +399,55 @@ class TestStreamingFragmentToolEvents:
             "sid-1", "hello", {"role": "user", "content": "hello"}, None
         )
         assert "clear_pending_tool_events" in cleared
+
+    def test_new_prompt_after_completed_stream_resets_and_streams_again(
+        self, fake_st, client, monkeypatch
+    ):
+        """After a stream completes, a new prompt resets state and streams again.
+        
+        This test verifies the fix for the bug where only the first message
+        in a conversation would get a response due to streaming_done flag staying True.
+        """
+        # First stream: complete successfully
+        chat1 = self._install_stream(monkeypatch, [], tokens=("Hello", " world!"))
+        client.render_streaming_fragment(
+            "sid-1", "hello", {"role": "user", "content": "hello"}, None
+        )
+        
+        # Verify streaming state is True after completion
+        assert fake_st.session_state["streamlit_client_streaming_done"] is True
+        assert fake_st.session_state["streamlit_client_answer"] == "Hello world!"
+        
+        # Second stream: with new prompt - should reset state and call send_message/stream_tokens again
+        send_message_calls = []
+        stream_tokens_calls = []
+        
+        def mock_send_message(session_id, prompt, settings=None):
+            send_message_calls.append((session_id, prompt))
+            return _FakeResponse()
+        
+        def mock_stream_tokens(session_id, on_metadata=None, *, on_tool_event=None):
+            stream_tokens_calls.append((session_id, on_metadata, on_tool_event))
+            yield "Hi"
+        
+        monkeypatch.setattr(chat1, "send_message", mock_send_message)
+        monkeypatch.setattr(chat1, "stream_tokens", mock_stream_tokens)
+        
+        # Reset streaming state as app.py would do before calling render_streaming_fragment
+        from llm_client.ui import session
+        session.reset_streaming_state()
+        
+        # Call with new prompt - this should NOT short-circuit due to streaming_done
+        client.render_streaming_fragment(
+            "sid-1", "how are you", {"role": "user", "content": "how are you"}, None
+        )
+        
+        # Verify reset happened: send_message and stream_tokens were called
+        assert len(send_message_calls) == 1
+        assert send_message_calls[0] == ("sid-1", "how are you")
+        assert len(stream_tokens_calls) == 1
+        assert stream_tokens_calls[0][0] == "sid-1"
+        
+        # Verify streaming state was reset for the new stream
+        assert fake_st.session_state["streamlit_client_streaming_done"] is True
+        assert fake_st.session_state["streamlit_client_answer"] == "Hi"
