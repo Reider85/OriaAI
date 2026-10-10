@@ -156,7 +156,9 @@ services:
 
   # ── Agent Service (AG-0) ────────────────────────────────
   agent-service:
-    image: python:3.11-slim
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
     container_name: llm-agent-service
     restart: unless-stopped
     working_dir: /repo
@@ -175,7 +177,6 @@ services:
       - ./migrations:/repo/migrations:ro
       - ./alembic.ini:/repo/alembic.ini:ro
       - ./chroma_db:/app/chroma_db
-      - agent-pip-cache:/root/.cache/pip
     env_file:
       - .env
     environment:
@@ -218,8 +219,7 @@ services:
       - COHERE_API_KEY=${COHERE_API_KEY}
       - COHERE_RERANK_MODEL=${COHERE_RERANK_MODEL:-rerank-multilingual-v3.0}
     command: >
-      sh -c "pip install --quiet --retries 5 --timeout 120 --cache-dir /root/.cache/pip -e . &&
-             alembic upgrade head &&
+      sh -c "alembic upgrade head &&
              exec python -m llm_client.agent"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]

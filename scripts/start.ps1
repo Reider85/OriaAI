@@ -3,7 +3,7 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port = 8501,
     [ValidateRange(30, 3600)]
-    [int]$StartupTimeoutSeconds = 300,
+    [int]$StartupTimeoutSeconds = 900,
     [switch]$SkipModelDownload
 )
 

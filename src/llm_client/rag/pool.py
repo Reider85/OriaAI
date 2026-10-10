@@ -25,7 +25,8 @@ async def get_shared_pool(settings: Settings | None = None) -> asyncpg.Pool:
     """
     global _pool, _pool_settings
 
-    if _pool is not None and not _pool.is_closed():
+    # Handle both old (is_closed) and new (is_closing) asyncpg API
+    if _pool is not None and not _pool.is_closing():
         return _pool
 
     if settings is None:
@@ -47,7 +48,7 @@ async def get_shared_pool(settings: Settings | None = None) -> asyncpg.Pool:
 async def close_shared_pool() -> None:
     """Close the shared pool if one was created. Safe to call repeatedly."""
     global _pool, _pool_settings
-    if _pool is not None and not _pool.is_closed():
+    if _pool is not None and not _pool.is_closing():
         await _pool.close()
         logger.info("Shared pg_pool closed")
     _pool = None
@@ -56,7 +57,7 @@ async def close_shared_pool() -> None:
 
 def get_shared_pool_sync() -> asyncpg.Pool | None:
     """Return the shared pool if it already exists, else None."""
-    if _pool is not None and not _pool.is_closed():
+    if _pool is not None and not _pool.is_closing():
         return _pool
     return None
 

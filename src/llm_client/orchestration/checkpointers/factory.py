@@ -93,26 +93,7 @@ def build_checkpointer(
 
         if backend in {"redis_postgres", "postgres_only"}:
             if pg_pool is None:
-                # Create PostgreSQL connection pool (async — must be awaited)
-                pg_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-                pg_pool = asyncio.get_event_loop().run_until_complete(
-                    asyncpg.create_pool(
-                        pg_url,
-                        min_size=1,
-                        max_size=5,
-                        command_timeout=60,
-                    )
-                )
-
-                # Test connection
-                loop = asyncio.get_event_loop()
-                try:
-                    conn = loop.run_until_complete(pg_pool.acquire())
-                    loop.run_until_complete(pg_pool.release(conn))
-                except (asyncpg.PostgresError, Exception) as exc:  # noqa: BLE001
-                    logger.warning("PostgreSQL checkpoint connection failed: %s", exc)
-                    loop.run_until_complete(pg_pool.close())
-                    pg_pool = None  # Fall through to redis_only if available
+                logger.info("PostgreSQL pool not provided at factory time; will be created at startup")
             else:
                 logger.info("Reusing injected pg_pool for checkpointing")
 
