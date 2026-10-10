@@ -97,6 +97,23 @@ def test_clear_empties_history(monkeypatch, state):
     assert state["messages"] == []
 
 
+def test_clear_context_empties_history_and_store(monkeypatch, state):
+    """Test that clear_context clears both session_state and _message_store."""
+    monkeypatch.setattr(session, "_session_state", lambda: state)
+    
+    # Add message to both session state and message store
+    session.add_message("sid-1", "user", "hello")
+    assert len(session._message_store["sid-1"]) == 1
+    assert len(state["messages"]) == 1
+    
+    # Clear context
+    session.clear_context("sid-1")
+    
+    # Verify both are cleared
+    assert state["messages"] == []
+    assert "sid-1" not in session._message_store
+
+
 def test_current_session_id_falls_back_to_new(monkeypatch, state):
     monkeypatch.setattr(session, "_session_state", lambda: state)
     sid = session.current_session_id()

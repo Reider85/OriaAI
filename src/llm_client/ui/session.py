@@ -15,6 +15,7 @@ from typing import Any
 MESSAGES_KEY = "messages"
 CURRENT_SESSION_KEY = "current_session_id"
 SESSIONS_REGISTRY_KEY = "sessions_registry"
+CLEAR_CONTEXT_ACTION = "__clear_context__"
 
 _message_store: dict[str, list[dict[str, Any]]] = {}
 
@@ -127,6 +128,16 @@ def clear() -> None:
     reset_streaming_state()
 
 
+def clear_context(session_id: str) -> None:
+    """Clear both UI history and in-memory store for a session (used by "Clear context")."""
+    # Clear session state messages
+    _session_state()[MESSAGES_KEY] = []
+    # Clear in-memory message store to prevent resurrection on session switch
+    _message_store.pop(session_id, None)
+    # Reset streaming state
+    reset_streaming_state()
+
+
 def get_sessions_list() -> list[dict[str, Any]]:
     """Return session metadata for the sidebar, most recent activity first.
 
@@ -236,3 +247,23 @@ def reset_streaming_state() -> None:
 
 def _now_iso() -> str:
     return _dt.datetime.now(_dt.UTC).isoformat()
+
+
+__all__ = [
+    "CLEAR_CONTEXT_ACTION",
+    "CURRENT_SESSION_KEY",
+    "MESSAGES_KEY",
+    "SESSIONS_REGISTRY_KEY",
+    "add_message",
+    "clear",
+    "clear_context",
+    "current_session_id",
+    "generate_session_id",
+    "get_messages",
+    "get_session_id_from_url",
+    "get_sessions_list",
+    "init_state",
+    "new_session",
+    "reset_streaming_state",
+    "switch_session",
+]

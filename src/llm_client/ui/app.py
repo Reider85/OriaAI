@@ -17,10 +17,11 @@ import sys
 from collections.abc import MutableMapping
 from typing import Any, Literal, cast
 
+import httpx
 import streamlit as st
 
 from llm_client.types import ArtifactRef, MessageRole
-from llm_client.ui import session, sidebar
+from llm_client.ui import chat, session, sidebar
 from llm_client.ui.auto_cancel import inject_auto_cancel
 from llm_client.ui.client import get_ui_client
 from llm_client.ui.render import render_settings_panel
@@ -64,6 +65,14 @@ selected = sidebar.render_sidebar()
 settings = render_settings_panel(cast(MutableMapping[str, Any], st.session_state))
 if selected is None:
     session.new_session()
+    st.session_state[PENDING_ARTIFACTS_KEY] = []
+    st.rerun()
+elif selected == session.CLEAR_CONTEXT_ACTION:
+    try:
+        chat.clear_context(session_id)
+    except httpx.HTTPError as e:
+        st.warning(f"Failed to clear context: {e}")
+    session.clear_context(session_id)
     st.session_state[PENDING_ARTIFACTS_KEY] = []
     st.rerun()
 elif selected != session_id:

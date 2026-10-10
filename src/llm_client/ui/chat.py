@@ -87,6 +87,16 @@ def send_message(session_id: str, message: str, settings: dict | None = None) ->
     return httpx.post(url, json=body, timeout=_REQUEST_TIMEOUT)
 
 
+def clear_context(session_id: str) -> httpx.Response:
+    """DELETE session context (checkpointer thread + in-memory state).
+
+    Raises ``httpx.HTTPError`` on transport-level failures; non-2xx statuses
+    are returned as-is so the caller can decide how to surface them.
+    """
+    url = f"{agent_service_url()}/sessions/{session_id}/context"
+    return httpx.delete(url, timeout=_REQUEST_TIMEOUT)
+
+
 def stream_tokens(
     session_id: str,
     on_metadata: Callable[[Any], None] | None = None,
@@ -264,6 +274,7 @@ __all__ = [
     "ChatStreamError",
     "SSEEvent",
     "agent_service_url",
+    "clear_context",
     "clear_pending_artifacts",
     "clear_pending_metadata",
     "clear_pending_tool_events",

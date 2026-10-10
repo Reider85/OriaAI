@@ -45,6 +45,8 @@ def render_sidebar() -> str | None:
             st.subheader("Sessions")
             if st.button("New session", use_container_width=True):
                 return None
+            if st.button("Clear context", use_container_width=True):
+                return session.CLEAR_CONTEXT_ACTION
             if not sessions:
                 st.caption("No sessions yet")
                 return None

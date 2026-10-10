@@ -160,6 +160,11 @@ class ChatResponse(BaseModel):
     session_id: str
 
 
+class ContextClearedResponse(BaseModel):
+    status: str
+    session_id: str
+
+
 class DocumentIngestRequest(BaseModel):
     user_id: str
     content: str
@@ -367,17 +372,9 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     )
 
     # Shared asyncpg pool for checkpointing + RAG/indexing (ADR-010 / ADR-020).
-    # Created at factory time (no running loop yet when uvicorn imports the app);
-    # recreated on startup if the factory-time attempt failed.
-    from ..rag.pool import get_shared_pool
-
+    # Created at startup time (not at factory time to avoid event loop affinity issues).
+    # Will be recreated on startup if needed.
     pg_pool = None
-    try:
-        loop = asyncio.get_event_loop()
-        if not loop.is_closed():
-            pg_pool = loop.run_until_complete(get_shared_pool(settings))
-    except RuntimeError:
-        pg_pool = None
 
     # Build checkpointer for ADR-010 (reuses the shared pool when available)
     from ..orchestration.checkpointers.factory import build_checkpointer
@@ -821,6 +818,23 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             media_type="text/event-stream",
         )
 
+    @app.delete(
+        "/sessions/{session_id}/context",
+        response_model=ContextClearedResponse,
+        status_code=200,
+    )
+    async def clear_context(session_id: str) -> ContextClearedResponse:
+        # Clear checkpointer thread if available
+        checkpointer = app.state.checkpointer_bundle.checkpointer
+        if checkpointer is not None:
+            thread_id = generate_thread_id(session_id)
+            await checkpointer.adelete_thread(thread_id)
+        
+        # Clear in-memory session state
+        _sessions.pop(session_id, None)
+        
+        return ContextClearedResponse(status="context_cleared", session_id=session_id)
+
     # ── Artifact download (AG-4) ──────────────────────────────────────────────
 
     _MIME_BY_EXT = {
@@ -1033,7 +1047,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         if getattr(checkpointer_bundle, "owns_pg_pool", False):
             bundle_pool = getattr(checkpointer_bundle, "pg_pool", None)
-            if bundle_pool is not None and not bundle_pool.is_closed():
+            if bundle_pool is not None and not bundle_pool.is_closing():
                 try:
                     await bundle_pool.close()
                 except Exception as exc:  # noqa: BLE001

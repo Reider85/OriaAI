@@ -334,6 +334,18 @@ def test_send_message_posts_to_chat_endpoint(monkeypatch):
     assert captured["json"] == {"message": "hi"}
 
 
+def test_clear_context_posts_to_context_endpoint(monkeypatch):
+    captured = {}
+
+    def fake_delete(url, timeout):
+        captured["url"] = url
+        return "ok"
+
+    monkeypatch.setattr(chat.httpx, "delete", fake_delete)
+    assert chat.clear_context("sid-1") == "ok"
+    assert captured["url"] == "http://localhost:8000/sessions/sid-1/context"
+
+
 def test_stream_tokens_captures_tool_call_event(monkeypatch):
     lines = [
         "event: tool_call",
