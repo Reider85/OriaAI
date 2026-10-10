@@ -10,7 +10,7 @@ from llm_client.ui import session, sidebar
 class _FakeSidebar:
     def __init__(self):
         self.elements = []
-        self._button_result = False
+        self._button_results = {}
         self._selected = None
 
     def __enter__(self):
@@ -24,7 +24,7 @@ class _FakeSidebar:
 
     def button(self, label, use_container_width=False):
         self.elements.append(("button", label, use_container_width))
-        return self._button_result
+        return self._button_results.get(label, False)
 
     def selectbox(self, label, options, index=0, format_func=None):
         self.elements.append(("selectbox", label, options, index, format_func))
@@ -101,7 +101,7 @@ def test_render_sidebar_defaults_to_current(monkeypatch, fake_streamlit):
 def test_render_sidebar_new_session_button(monkeypatch, fake_streamlit):
     monkeypatch.setattr(session, "get_sessions_list", _sessions)
     monkeypatch.setattr(session, "current_session_id", lambda: "a")
-    fake_streamlit.sidebar._button_result = True
+    fake_streamlit.sidebar._button_results["New session"] = True
     assert sidebar.render_sidebar() is None
 
 
@@ -110,7 +110,7 @@ def test_render_sidebar_clear_context_button(monkeypatch, fake_streamlit):
     monkeypatch.setattr(session, "get_sessions_list", _sessions)
     monkeypatch.setattr(session, "current_session_id", lambda: "a")
     # Set button result to True to simulate a button click
-    fake_streamlit.sidebar._button_result = True
+    fake_streamlit.sidebar._button_results["Clear context"] = True
     
     result = sidebar.render_sidebar()
     
