@@ -362,13 +362,14 @@ function Test-TcpPort {
 function Wait-ForAgentService {
     param(
         [string]$DockerPath,
-        [int]$TimeoutSeconds
+        [int]$TimeoutSeconds,
+        [int]$AgentServicePort
     )
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
 
     while ([DateTime]::UtcNow -lt $deadline) {
-        if (Test-HttpEndpoint -Uri "http://127.0.0.1:8000/health") {
+        if (Test-HttpEndpoint -Uri "http://127.0.0.1:$AgentServicePort/health") {
             return
         }
         Start-Sleep -Seconds 2
@@ -381,7 +382,7 @@ function Wait-ForAgentService {
         "llm-agent-service"
     )
     $logText = if ($logs) { "`nLast container output:`n$logs" } else { "" }
-    throw "Agent service did not become ready within $TimeoutSeconds seconds on port 8000. It runs 'pip install -e .' on every start, so the first start after an image rebuild takes much longer (subsequent starts reuse the pip cache volume).$logText"
+    throw "Agent service did not become ready within $TimeoutSeconds seconds on port $AgentServicePort. It runs 'pip install -e .' on every start, so the first start after an image rebuild takes much longer (subsequent starts reuse the pip cache volume).$logText"
 }
 
 function Invoke-DockerExec {
@@ -612,6 +613,24 @@ function Get-GrafanaPort {
     return 3000
 }
 
+function Get-PrometheusPort {
+    $raw = Get-EnvValue -Name "PROMETHEUS_PORT"
+    $parsed = 0
+    if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -ge 1 -and $parsed -le 65535) {
+        return $parsed
+    }
+    return 9090
+}
+
+function Get-AgentServicePort {
+    $raw = Get-EnvValue -Name "AGENT_SERVICE_HOST_PORT"
+    $parsed = 0
+    if ([int]::TryParse($raw, [ref]$parsed) -and $parsed -ge 1 -and $parsed -le 65535) {
+        return $parsed
+    }
+    return 8000
+}
+
 function Get-ConflictingContainer {
     param(
         [string]$DockerPath,
@@ -646,6 +665,38 @@ function Get-ConflictingContainer {
     return $null
 }
 
+function Test-ContainerFromThisProject {
+    param(
+        [string]$DockerPath,
+        [string]$ContainerName,
+        [string]$RepoRootPath
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $labelLines = & $DockerPath inspect $ContainerName --format '{{.Config.Labels}}' 2>$null
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    $root = $RepoRootPath.TrimEnd('\', '/') -replace '\\', '/'
+    foreach ($line in @($labelLines)) {
+        if (-not $line) {
+            continue
+        }
+        if ($line -match 'com\.docker\.compose\.project\.working_dir:([^\s\]]+)') {
+            $workDir = $Matches[1] -replace '\\', '/'
+            if ($workDir.Equals($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+                return $true
+            }
+        }
+    }
+
+    return $false
+}
+
 function Assert-HostPortsAvailable {
     param(
         [string]$DockerPath,
@@ -672,7 +723,7 @@ function Assert-HostPortsAvailable {
             if (-not $container) {
                 continue
             }
-            if ($container.StartsWith("llm-")) {
+            if (Test-ContainerFromThisProject -DockerPath $DockerPath -ContainerName $container -RepoRootPath $RepoRoot) {
                 continue
             }
             $conflicts += "  ${portNumber}: container '$container' from another compose project"
@@ -691,7 +742,8 @@ function Wait-ForInfrastructure {
     param(
         [string]$DockerPath,
         [int]$TimeoutSeconds,
-        [int]$GrafanaPort
+        [int]$GrafanaPort,
+        [int]$PrometheusPort
     )
 
     $checks = @(
@@ -699,7 +751,7 @@ function Wait-ForInfrastructure {
         [pscustomobject]@{ Name = "PostgreSQL"; Test = { Test-PostgresReady -DockerPath $DockerPath } },
         [pscustomobject]@{ Name = "MinIO"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9000/minio/health/ready" } },
         [pscustomobject]@{ Name = "Vault"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:8200/v1/sys/health" } },
-        [pscustomobject]@{ Name = "Prometheus"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9090/-/healthy" } },
+        [pscustomobject]@{ Name = "Prometheus"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:$PrometheusPort/-/healthy" } },
         [pscustomobject]@{ Name = "Grafana"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:$GrafanaPort/api/health" } },
         [pscustomobject]@{ Name = "Ideality exporter"; Test = { Test-HttpEndpoint -Uri "http://127.0.0.1:9101/metrics" } }
     )
@@ -878,17 +930,19 @@ if (-not (Get-EnvValue -Name "TAVILY_API_KEY")) {
 
 $docker = Resolve-DockerExecutable
 $grafanaPort = Get-GrafanaPort
+$prometheusPort = Get-PrometheusPort
+$agentServicePort = Get-AgentServicePort
 Write-Host "Waiting for Docker Desktop..." -ForegroundColor Cyan
 Wait-DockerEngine -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
-Assert-HostPortsAvailable -DockerPath $docker -PortNumbers @(5434, 6380, 8000, 8200, 9000, 9001, 9090, 9101, $grafanaPort)
+Assert-HostPortsAvailable -DockerPath $docker -PortNumbers @(5434, 6380, $agentServicePort, 8200, 9000, 9001, $prometheusPort, 9101, $grafanaPort)
 Write-Host "Starting infrastructure..." -ForegroundColor Cyan
 Invoke-Compose -DockerPath $docker -Arguments @("up", "-d")
 Wait-ForInitContainers -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
-Wait-ForInfrastructure -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds -GrafanaPort $grafanaPort
+Wait-ForInfrastructure -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds -GrafanaPort $grafanaPort -PrometheusPort $prometheusPort
 Write-Host "Verifying checkpoint WAL (ADR-010)..." -ForegroundColor Cyan
 Test-CheckpointRedis -DockerPath $docker
 Write-Host "Waiting for agent-service (first start installs dependencies, this can take a while)..." -ForegroundColor Cyan
-Wait-ForAgentService -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds
+Wait-ForAgentService -DockerPath $docker -TimeoutSeconds $StartupTimeoutSeconds -AgentServicePort $agentServicePort
 Write-Host "Starting Streamlit UI..." -ForegroundColor Cyan
 Start-Streamlit -Python $python -PortNumber $Port
 
@@ -911,12 +965,12 @@ else {
 Write-Host ""
 Write-Host "OriaAI is running:" -ForegroundColor Green
 Write-Host "  UI:          http://127.0.0.1:$Port"
-Write-Host "  Agent:       http://127.0.0.1:8000"
+Write-Host "  Agent:       http://127.0.0.1:$agentServicePort"
 Write-Host "  PostgreSQL:  127.0.0.1:5434 (db llm_client)"
 Write-Host "  Redis:       127.0.0.1:6380 (db 0 pub/sub, db 1 checkpoint WAL)"
 Write-Host "  MinIO:       http://127.0.0.1:9001"
 Write-Host "  Grafana:     http://127.0.0.1:$grafanaPort"
-Write-Host "  Prometheus:  http://127.0.0.1:9090"
+Write-Host "  Prometheus:  http://127.0.0.1:$prometheusPort"
 Write-Host "  Vault:       http://127.0.0.1:8200"
 Write-Host "  Ideality:    http://127.0.0.1:9101/metrics"
 Write-Host "  Reranker:    $rerankerStatus"

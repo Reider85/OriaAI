@@ -30,9 +30,9 @@ pytest tests -v
 | MinIO Console | 9001 | Login from `.env` MINIO_ROOT_USER/PASSWORD |
 | Vault | 8200 | Dev mode, root token = `root` |
 | PostgreSQL | 5434 | Host port 5434 (5432 may be in use). `postgres:5432` inside compose network. Database: `llm_client` |
-| Prometheus | 9090 | |
+| Prometheus | 9090 | Host port configurable via `PROMETHEUS_PORT` in `.env` |
 | Grafana | 3000 | admin/admin by default |
-| Agent Service | 8000 | FastAPI, health at `/health`; ingestion `POST /documents` |
+| Agent Service | 8000 | FastAPI, health at `/health`; ingestion `POST /documents`. Host port configurable via `AGENT_SERVICE_HOST_PORT` in `.env` |
 | Streamlit UI | 8501 | Started via `scripts/start.ps1` |
 
 ## Commands

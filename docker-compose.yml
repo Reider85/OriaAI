@@ -231,7 +231,7 @@ services:
     networks:
       - llm-network
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${AGENT_SERVICE_HOST_PORT:-8000}:8000"
 
   # ── Prometheus (ideality metric, G-2) ────────────────────
   prometheus:
@@ -253,7 +253,7 @@ services:
     networks:
       - llm-network
     ports:
-      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
 
   # ── Grafana (dashboards + alerting, G-2) ─────────────────
   grafana:
