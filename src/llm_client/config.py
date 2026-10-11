@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
@@ -28,6 +30,13 @@ class Settings(BaseSettings):
     redis_checkpoint_ttl_seconds: int = 86400
     redis_checkpoint_maxmemory_policy: str = "noeviction"
     checkpoint_backend: str = "redis_postgres"
+
+    # Phase 3 — ADR-011 semantic cache (Redis DB 2)
+    redis_semantic_cache_url: str = "redis://127.0.0.1:6379/2"
+    semantic_cache_enabled: bool = True
+    semantic_cache_ttl_seconds: int = 86400
+    semantic_cache_similarity_threshold: float = 0.92
+    semantic_cache_max_entries: int = 10000
 
     # MinIO / S3
     s3_endpoint: str = "http://127.0.0.1:9000"
@@ -155,6 +164,24 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"CHECKPOINT_BACKEND must be redis_postgres|redis_only|postgres_only, got {self.checkpoint_backend!r}"
             )
+
+        # Phase 3 — ADR-011 semantic cache validation
+        if self.semantic_cache_enabled:
+            url = (self.redis_semantic_cache_url or "").strip()
+            if not url:
+                raise ValueError(
+                    "REDIS_SEMANTIC_CACHE_URL must be set when SEMANTIC_CACHE_ENABLED=true"
+                )
+
+            # Parse URL to check database index (must not be DB 0 or DB 1)
+            parsed = urlparse(url)
+            path = parsed.path.strip("/")
+            if path.isdigit():
+                db_index = int(path)
+                if db_index in {0, 1}:
+                    raise ValueError(
+                        f"semantic cache must not use Redis DB 0 (pub/sub) or DB 1 (checkpoint-WAL), got DB {db_index}"
+                    )
 
         # Validate Tavily API URL
         if not self.tavily_api_url:
