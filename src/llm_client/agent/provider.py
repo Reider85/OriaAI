@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import httpx
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
@@ -188,6 +189,11 @@ class LLMProviderFactory:
             case "ZAI":
                 # Extract base_url from kwargs to avoid duplication
                 base_url = kwargs.pop("base_url", None)
+                
+                # Check if OryaSecurity proxy is configured
+                orya_proxy_url = kwargs.pop("orya_proxy_url", None)
+                orya_proxy_key = kwargs.pop("orya_proxy_key", None)
+                
                 return ChatOpenAI(
                     model=model,
                     streaming=streaming,

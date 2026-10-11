@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     zai_api_key: str = ""
     zai_base_url: str = "https://api.z.ai/api/paas/v4"
     zai_model: str = "glm-4.5"
+    # OryaSecurity proxy settings
+    orya_proxy_url: str = ""
+    orya_proxy_key: str = ""
 
     # RAG Pipeline (ADR-017/020, Phase 2)
     reranker_enabled: bool = True  # Enable/disable reranking in RAG pipeline
@@ -144,6 +147,14 @@ class Settings(BaseSettings):
         # Validate ZAI provider
         if self.llm_provider == "ZAI" and not self.zai_api_key:
             raise ValueError("ZAI_API_KEY required when LLM_PROVIDER=ZAI")
+        
+        # Validate OryaSecurity proxy settings
+        if self.llm_provider == "ZAI" and self.orya_proxy_url:
+            if not self.orya_proxy_key:
+                raise ValueError("ORYA_PROXY_KEY required when ORYA_PROXY_URL is set")
+            # Validate proxy URL format
+            if not self.orya_proxy_url.startswith(("http://", "https://")):
+                raise ValueError("ORYA_PROXY_URL must start with http:// or https://")
         if self.tavily_search_depth not in {"basic", "advanced"}:
             raise ValueError(
                 f"TAVILY_SEARCH_DEPTH must be basic|advanced, got {self.tavily_search_depth!r}"

@@ -8,6 +8,7 @@ import logging
 import os
 from typing import Any
 
+import httpx
 from pydantic import SecretStr
 
 from llm_client.config import Settings
@@ -75,6 +76,8 @@ def create_embedding_function(settings: Settings | None = None) -> Any | None:
             cloud_available = bool(settings.zai_api_key)
             api_key = settings.zai_api_key
             base_url = settings.zai_base_url
+            orya_proxy_url = settings.orya_proxy_url if settings.orya_proxy_url else None
+            orya_proxy_key = settings.orya_proxy_key if settings.orya_proxy_key else None
         
         if cloud_available:
             logger.info(f"EMBEDDING_PROVIDER={provider} — using cloud embeddings")
@@ -118,26 +121,6 @@ def create_embedding_function(settings: Settings | None = None) -> Any | None:
     
     else:
         logger.info("EMBEDDING_PROVIDER=%s — embeddings disabled", provider)
-        return None
-
-    try:
-        from langchain_openai import OpenAIEmbeddings
-
-        # Use provider-specific model if available, otherwise fallback to embedding_model
-        if provider == "custom-openai":
-            model = settings.custom_openai_model
-        elif provider == "zai":
-            model = settings.embedding_model  # ZAI uses embedding_model for embeddings
-        else:
-            model = settings.embedding_model
-
-        return OpenAIEmbeddings(
-            model=model,
-            api_key=SecretStr(api_key) if api_key else None,
-            base_url=base_url,
-        )
-    except ImportError:
-        logger.warning("langchain-openai not installed — embeddings disabled")
         return None
 
 

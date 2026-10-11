@@ -500,12 +500,23 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         # Create LLM via provider factory (AG-2)
         try:
-            llm = LLMProviderFactory.create(
-                provider=settings.llm_provider,
-                model=model_name,
-                api_key=api_key,
-                base_url=base_url,
-            )
+            # Add OryaSecurity proxy settings for ZAI provider
+            if settings.llm_provider == "ZAI" and settings.orya_proxy_url:
+                llm = LLMProviderFactory.create(
+                    provider=settings.llm_provider,
+                    model=model_name,
+                    api_key=api_key,
+                    base_url=base_url,
+                    orya_proxy_url=settings.orya_proxy_url,
+                    orya_proxy_key=settings.orya_proxy_key if settings.orya_proxy_key else None,
+                )
+            else:
+                llm = LLMProviderFactory.create(
+                    provider=settings.llm_provider,
+                    model=model_name,
+                    api_key=api_key,
+                    base_url=base_url,
+                )
         except NotImplementedError:
             # Fallback for non-implemented providers (anthropic/ollama in Phase 1)
             from langchain_core.language_models import FakeListChatModel

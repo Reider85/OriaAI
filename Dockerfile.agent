@@ -1,0 +1,77 @@
+# Dockerfile for agent service with pre-installed dependencies
+# Use Python 3.11 slim base image
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /repo
+
+# Install system dependencies needed for Python packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files first to leverage Docker layer caching
+COPY pyproject.toml README.md ./
+
+# Install Python dependencies with CPU-only torch to avoid CUDA download
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    torch --extra-index-url https://download.pytorch.org/whl/cpu \
+    sentence-transformers \
+    langgraph>=0.2.0 \
+    langchain>=0.3.0 \
+    langchain-openai>=0.2.0 \
+    langchain-anthropic>=0.3.0 \
+    redis>=5.0.0 \
+    aiofiles>=24.0.0 \
+    aiobotocore>=2.15.0 \
+    boto3>=1.35.0 \
+    fastapi>=0.115.0 \
+    uvicorn>=0.32.0 \
+    streamlit>=1.40.0 \
+    pydantic>=2.9.0 \
+    pydantic-settings>=2.5.0 \
+    httpx>=0.27.0 \
+    presidio-analyzer>=2.2.0 \
+    spacy>=3.7.0 \
+    hvac>=2.3.0 \
+    cryptography>=42.0.0 \
+    alembic>=1.14.0 \
+    asyncpg>=0.30.0 \
+    sqlalchemy[asyncio]>=2.0.0 \
+    prometheus-client>=0.20.0 \
+    tenacity>=8.2.0 \
+    huggingface-hub>=0.23.0
+
+# Install optional dependencies
+RUN pip install --no-cache-dir \
+    cohere>=5.0.0 \
+    chromadb>=0.5.0 \
+    langchain-chroma>=0.2.0 \
+    langchain-text-splitters>=0.3.0
+
+# Download spaCy model for PII detection
+RUN python -m spacy download en_core_web_md
+
+# Copy source code
+COPY src/ ./src/
+COPY migrations/ ./migrations/
+COPY alembic.ini ./
+
+# Install the package itself
+RUN pip install --no-cache-dir -e .
+
+# Create models directory for local models
+RUN mkdir -p /app/models
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"
+
+# Default command
+CMD ["sh", "-c", "alembic upgrade head && exec python -m llm_client.agent"]
