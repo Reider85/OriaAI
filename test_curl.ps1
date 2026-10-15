@@ -1,0 +1,1 @@
+curl -X POST http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer dev-key-12345" -d "{\"model\": \"glm-4.5-flash\", \"messages\": [{\"role\": \"user\", \"content\": \"test\"}], \"max_tokens\": 5}"
