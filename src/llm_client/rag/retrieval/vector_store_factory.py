@@ -8,7 +8,6 @@ import logging
 import os
 from typing import Any
 
-import httpx
 from pydantic import SecretStr
 
 from llm_client.config import Settings
@@ -37,39 +36,42 @@ def create_embedding_function(settings: Settings | None = None) -> Any | None:
         settings = default_settings
 
     provider = (settings.embedding_provider or "none").lower()
-    
+
     # Explicit disable
     if provider == "none":
         logger.info("EMBEDDING_PROVIDER=none — embeddings disabled")
         return None
-    
+
     # Local embeddings provider
     elif provider == "local":
         logger.info("EMBEDDING_PROVIDER=local — using local embeddings")
         try:
             from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+
             return LocalSentenceTransformerEmbeddings(
                 model_name=settings.local_embedding_model,
                 model_dir=settings.local_embedding_model_dir,
-                device=settings.local_embedding_device
+                device=settings.local_embedding_device,
             )
         except ImportError:
             logger.warning("sentence-transformers not available — local embeddings disabled")
             return None
-    
+
     # Cloud providers with fallback to local
     elif provider in {"openai", "custom-openai", "zai"}:
         # Check if cloud provider credentials are available
         cloud_available = False
         api_key = None
         base_url = None
-        
+
         if provider == "openai":
             cloud_available = bool(settings.openai_api_key)
             api_key = settings.openai_api_key
             base_url = None
         elif provider == "custom-openai":
-            cloud_available = bool(settings.custom_openai_api_key) and bool(settings.custom_openai_base_url)
+            cloud_available = bool(settings.custom_openai_api_key) and bool(
+                settings.custom_openai_base_url
+            )
             api_key = settings.custom_openai_api_key
             base_url = settings.custom_openai_base_url
         elif provider == "zai":
@@ -78,7 +80,7 @@ def create_embedding_function(settings: Settings | None = None) -> Any | None:
             base_url = settings.zai_base_url
             orya_proxy_url = settings.orya_proxy_url if settings.orya_proxy_url else None
             orya_proxy_key = settings.orya_proxy_key if settings.orya_proxy_key else None
-        
+
         if cloud_available:
             logger.info(f"EMBEDDING_PROVIDER={provider} — using cloud embeddings")
         else:
@@ -89,19 +91,20 @@ def create_embedding_function(settings: Settings | None = None) -> Any | None:
                 from llm_client.rag.retrieval.local_embeddings import (
                     LocalSentenceTransformerEmbeddings,
                 )
+
                 return LocalSentenceTransformerEmbeddings(
                     model_name=settings.local_embedding_model,
                     model_dir=settings.local_embedding_model_dir,
-                    device=settings.local_embedding_device
+                    device=settings.local_embedding_device,
                 )
             except ImportError:
                 logger.warning("sentence-transformers not available — embeddings disabled")
                 return None
-        
+
         # Build cloud embeddings
         try:
             from langchain_openai import OpenAIEmbeddings
-            
+
             # Use provider-specific model if available, otherwise fallback to embedding_model
             if provider == "custom-openai":
                 model = settings.custom_openai_model
@@ -110,15 +113,25 @@ def create_embedding_function(settings: Settings | None = None) -> Any | None:
             else:
                 model = settings.embedding_model
 
-            return OpenAIEmbeddings(
-                model=model,
-                api_key=SecretStr(api_key or "") if api_key else None,
-                base_url=base_url,
-            )
+            if orya_proxy_url:
+                # Use OryaSecurity as reverse proxy for embeddings
+                logger.info(f"Using OryaSecurity proxy for embeddings: {orya_proxy_url}")
+                return OpenAIEmbeddings(
+                    model=model,
+                    api_key=SecretStr(orya_proxy_key) if orya_proxy_key else None,
+                    base_url=orya_proxy_url,
+                )
+            else:
+                # Direct connection to provider
+                return OpenAIEmbeddings(
+                    model=model,
+                    api_key=SecretStr(api_key or "") if api_key else None,
+                    base_url=base_url,
+                )
         except ImportError:
             logger.warning("langchain-openai not installed — embeddings disabled")
             return None
-    
+
     else:
         logger.info("EMBEDDING_PROVIDER=%s — embeddings disabled", provider)
         return None

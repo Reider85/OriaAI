@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
@@ -189,18 +188,31 @@ class LLMProviderFactory:
             case "ZAI":
                 # Extract base_url from kwargs to avoid duplication
                 base_url = kwargs.pop("base_url", None)
-                
+
                 # Check if OryaSecurity proxy is configured
                 orya_proxy_url = kwargs.pop("orya_proxy_url", None)
                 orya_proxy_key = kwargs.pop("orya_proxy_key", None)
-                
-                return ChatOpenAI(
-                    model=model,
-                    streaming=streaming,
-                    api_key=SecretStr(api_key) if api_key else None,
-                    base_url=base_url,
-                    **kwargs,
-                )
+
+                if orya_proxy_url:
+                    # Use OryaSecurity as reverse proxy
+                    logger.info(f"Using OryaSecurity proxy: {orya_proxy_url}")
+                    # For reverse proxy, use the proxy URL as base_url and proxy key as API key
+                    return ChatOpenAI(
+                        model=model,
+                        streaming=False,  # OryaSecurity doesn't support streaming properly
+                        api_key=SecretStr(orya_proxy_key) if orya_proxy_key else None,
+                        base_url=orya_proxy_url,
+                        **kwargs,
+                    )
+                else:
+                    # Direct connection to ZAI
+                    return ChatOpenAI(
+                        model=model,
+                        streaming=streaming,
+                        api_key=SecretStr(api_key) if api_key else None,
+                        base_url=base_url,
+                        **kwargs,
+                    )
             case "anthropic":
                 raise NotImplementedError(
                     "Anthropic provider is Phase 3 (ADR-015 cost-aware router)"
