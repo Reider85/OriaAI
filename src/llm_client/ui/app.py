@@ -15,10 +15,56 @@ import os
 import subprocess
 import sys
 from collections.abc import MutableMapping
+from pathlib import Path
 from typing import Any, Literal, cast
 
 import httpx
 import streamlit as st
+
+# Load .env into environment variables (needed for AGENT_SERVICE_URL and others)
+# python-dotenv is already a transitive dependency via pydantic-settings
+print("Attempting to load .env...")
+try:
+    print("Importing dotenv...")
+    from dotenv import load_dotenv, find_dotenv
+    print("SUCCESS: dotenv imported successfully")
+    
+    # Try to find .env file
+    print("Finding .env file...")
+    env_file = find_dotenv(usecwd=True, raise_error_if_not_found=False)
+    if env_file:
+        print(f"Found .env at: {env_file}")
+        load_dotenv(env_file, override=False)
+        print("SUCCESS: Loaded .env")
+        
+        # Verify the load worked
+        loaded_url = os.getenv("AGENT_SERVICE_URL", "NOT SET")
+        print(f"After load, AGENT_SERVICE_URL: {loaded_url}")
+    else:
+        print("WARNING: .env file not found")
+        
+except ImportError as e:
+    # dotenv not available, fallback (pydantic-settings Settings will still work if env vars are set)
+    print(f"WARNING: python-dotenv not available: {e}")
+    
+    # Manual fallback: try to read .env directly
+    try:
+        env_file = Path(__file__).resolve().parents[3] / ".env"
+        if env_file.exists():
+            print(f"Manually reading .env from: {env_file}")
+            with open(env_file, 'r') as f:
+                for line in f:
+                    if line.startswith('AGENT_SERVICE_URL='):
+                        value = line.split('=', 1)[1].strip()
+                        os.environ['AGENT_SERVICE_URL'] = value
+                        print(f"SUCCESS: Manually set AGENT_SERVICE_URL: {value}")
+                        break
+    except Exception as e:
+        print(f"WARNING: Manual fallback failed: {e}")
+except Exception as e:
+    print(f"WARNING: Error loading .env: {e}")
+
+print("Continuing with app.py...")
 
 from llm_client.types import ArtifactRef, MessageRole
 from llm_client.ui import chat, session, sidebar

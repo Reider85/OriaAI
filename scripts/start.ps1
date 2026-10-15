@@ -845,6 +845,15 @@ function Start-Streamlit {
     $srcPath = Join-Path $RepoRoot "src"
     $env:PYTHONPATH = if ($env:PYTHONPATH) { "$srcPath;$env:PYTHONPATH" } else { $srcPath }
 
+    # Export AGENT_SERVICE_URL to child Streamlit process (needed for UI to connect to agent-service)
+    $agentUrl = Get-EnvValue -Name "AGENT_SERVICE_URL"
+    if ($agentUrl) {
+        $env:AGENT_SERVICE_URL = $agentUrl
+        Write-Host "Using agent service URL: $agentUrl" -ForegroundColor DarkGray
+    } else {
+        Write-Host "Warning: AGENT_SERVICE_URL not found in .env, using default" -ForegroundColor Yellow
+    }
+
     $arguments = @($Python.Prefix) + @(
         "-m",
         "streamlit",
