@@ -26,7 +26,7 @@ import streamlit as st
 print("Attempting to load .env...")
 try:
     print("Importing dotenv...")
-    from dotenv import load_dotenv, find_dotenv
+    from dotenv import find_dotenv, load_dotenv
     print("SUCCESS: dotenv imported successfully")
     
     # Try to find .env file
@@ -49,9 +49,9 @@ except ImportError as e:
     
     # Manual fallback: try to read .env directly
     try:
-        env_file = Path(__file__).resolve().parents[3] / ".env"
-        if env_file.exists():
-            print(f"Manually reading .env from: {env_file}")
+        env_file_path = Path(__file__).resolve().parents[3] / ".env"
+        if env_file_path.exists():
+            print(f"Manually reading .env from: {env_file_path}")
             with open(env_file, 'r') as f:
                 for line in f:
                     if line.startswith('AGENT_SERVICE_URL='):
@@ -59,9 +59,9 @@ except ImportError as e:
                         os.environ['AGENT_SERVICE_URL'] = value
                         print(f"SUCCESS: Manually set AGENT_SERVICE_URL: {value}")
                         break
-    except Exception as e:
+    except OSError as e:
         print(f"WARNING: Manual fallback failed: {e}")
-except Exception as e:
+except OSError as e:
     print(f"WARNING: Error loading .env: {e}")
 
 print("Continuing with app.py...")
@@ -100,11 +100,14 @@ def _artifact_ref(artifact: dict[str, Any]) -> ArtifactRef:
 st.set_page_config(page_title="LLM Client", layout="wide")
 st.title("LLM Client")
 
-inject_auto_cancel()
-
 client = get_ui_client()
 
 session_id = session.init_state()
+
+inject_auto_cancel(
+    backend_origin=chat.agent_service_url(),
+    session_id=session_id
+)
 
 # Streamlit-specific, not in UIClient interface.
 selected = sidebar.render_sidebar()

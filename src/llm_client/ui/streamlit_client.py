@@ -165,6 +165,7 @@ class StreamlitClient(UIClient):
         import streamlit as st
 
         from llm_client.ui import chat, render
+        from llm_client.ui.auto_cancel import render_stop_button
 
         @st.fragment
         def _streaming() -> None:
@@ -248,6 +249,10 @@ class StreamlitClient(UIClient):
                 with status_ph.container():
                     render.render_status_badge("streaming")
 
+                # Render Stop button during streaming
+                stop_ph = st.empty()
+                render_stop_button(session_id)
+
                 for token in chat.stream_tokens(
                     session_id,
                     on_metadata=on_pii_metadata if on_pii_metadata is not None else _on_metadata,
@@ -263,6 +268,9 @@ class StreamlitClient(UIClient):
                 )
             else:
                 status_ph.empty()
+
+            # Clean up Stop button
+            stop_ph.empty()
 
             st_state[_STREAMING_DONE_KEY] = True
             st_state[_ANSWER_KEY] = answer

@@ -24,6 +24,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from langchain_core.messages import HumanMessage, ToolMessage
 from prometheus_client.registry import Collector
@@ -403,6 +404,16 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         logger.warning("Vector writer unavailable: %s", exc)
 
     app = FastAPI(title="LLM Client — agent-service", version="0.1.0")
+    
+    # CORS middleware for cross-origin requests from Streamlit UI
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:8501", "http://127.0.0.1:8501"],
+        allow_methods=["POST"],
+        allow_headers=["Content-Type"],
+        allow_credentials=False,
+    )
+    
     app.state.redis = redis_client
     app.state.registry = registry
     app.state.subscriber = subscriber

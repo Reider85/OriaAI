@@ -1,4 +1,4 @@
-from llm_client.ui.auto_cancel import AUTO_CANCEL_JS, _quote
+from llm_client.ui.auto_cancel import AUTO_CANCEL_JS, _quote, inject_auto_cancel, render_stop_button
 
 
 def test_js_contains_required_listeners():
@@ -23,7 +23,7 @@ def test_js_cancel_channel_and_reason():
 
 
 def test_js_session_id_from_query_or_localstorage():
-    assert "getAttribute" in AUTO_CANCEL_JS or "URLSearchParams" in AUTO_CANCEL_JS
+    assert "window.location.search.match" in AUTO_CANCEL_JS
     assert "localStorage" in AUTO_CANCEL_JS
 
 
@@ -39,3 +39,31 @@ def test_quote_escapes_safely():
 
 def test_stop_button_calls_cancel():
     assert "window.stop_llm_session" in AUTO_CANCEL_JS
+
+
+def test_placeholder_session_id():
+    assert "{{SESSION_ID}}" in AUTO_CANCEL_JS
+
+
+def test_js_uses_text_plain_for_sendbeacon():
+    assert 'type: "text/plain;charset=UTF-8"' in AUTO_CANCEL_JS
+
+
+def test_inject_auto_cancel_accepts_parameters():
+    # This test doesn't actually call inject_auto_cancel (requires streamlit)
+    # but verifies the function signature exists
+    import inspect
+    sig = inspect.signature(inject_auto_cancel)
+    assert "backend_origin" in sig.parameters
+    assert "session_id" in sig.parameters
+
+
+def test_render_stop_button_exists():
+    # This test verifies the function exists (doesn't call it)
+    assert callable(render_stop_button)
+
+
+def test_session_id_from_location_injects_session_id():
+    # Test that sessionIdFromLocation() uses injected SESSION_ID first
+    js_with_session = AUTO_CANCEL_JS.replace("{{SESSION_ID}}", '"test-session-id"')
+    assert 'return SESSION_ID || window.location.search.match(/session_id=([^&]+)/)?.[1] || localStorage.getItem("llm_session_id");' in js_with_session
