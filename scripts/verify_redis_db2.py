@@ -1,5 +1,7 @@
 """Verify Redis DB 2 (semantic cache) is reachable."""
+
 import asyncio
+
 import redis.asyncio as redis
 from llm_client.config import settings
 

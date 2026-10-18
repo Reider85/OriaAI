@@ -147,7 +147,7 @@ class Settings(BaseSettings):
         # Validate ZAI provider
         if self.llm_provider == "ZAI" and not self.zai_api_key:
             raise ValueError("ZAI_API_KEY required when LLM_PROVIDER=ZAI")
-        
+
         # Validate OryaSecurity proxy settings
         if self.llm_provider == "ZAI" and self.orya_proxy_url:
             if not self.orya_proxy_key:
