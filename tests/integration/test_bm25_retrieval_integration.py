@@ -51,7 +51,7 @@ class TestBM25RetrievalIntegration:
                     "information about system failures and troubleshooting steps "
                     "for network connectivity issues."
                 ),
-                metadata={"title": f"Error Document {i}", "category": "system"},
+                meta={"title": f"Error Document {i}", "category": "system"},
             )
             for i in range(5)
         ]

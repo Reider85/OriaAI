@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "token_fps": 100.91743114178703,
+    "sidebar_rerender_count": 0,
+    "chat_rerender_count": 0,
+    "total_tokens_received": 11,
+    "elapsed_ms": 10000.0,
+    "first_token_ms": 109.00000005494803,
+    "mode": "baseline",
+    "ui3_enabled": false,
+    "token_count_target": 1000,
+    "token_delay_ms": 50.0
+  },
+  "with_fragments": {
+    "token_fps": 100.00000001269984,
+    "sidebar_rerender_count": 0,
+    "chat_rerender_count": 0,
+    "total_tokens_received": 11,
+    "elapsed_ms": 10015.00000001397,
+    "first_token_ms": 125.0,
+    "mode": "with_fragments",
+    "ui3_enabled": true,
+    "token_count_target": 1000,
+    "token_delay_ms": 50.0
+  },
+  "ratio": 0.9909,
+  "threshold": 1.3,
+  "decision": "rejected"
+}

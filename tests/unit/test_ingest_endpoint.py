@@ -58,7 +58,7 @@ def _build_client(bm25_indexer=None, vector_writer=None, pg_pool=None):
             source_uri=body.source_uri,
             content_hash=content_hash,
             content=body.content,
-            metadata=body.metadata or {},
+            meta=body.metadata or {},
         )
 
         vector_writer = getattr(app.state, "vector_writer", None)

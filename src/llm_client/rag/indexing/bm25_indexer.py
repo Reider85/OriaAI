@@ -84,7 +84,7 @@ class BM25IndexBuilder:
                 document.source_uri,
                 document.content_hash,
                 document.content,
-                json.dumps(document.metadata) if document.metadata else "{}",
+                json.dumps(document.meta) if document.meta else "{}",
             )
 
         logger.debug("Indexed document %s", document.id)
@@ -112,7 +112,7 @@ class BM25IndexBuilder:
                 doc.source_uri,
                 doc.content_hash,
                 doc.content,
-                json.dumps(doc.metadata) if doc.metadata else "{}",
+                json.dumps(doc.meta) if doc.meta else "{}",
             )
             for doc in documents
         ]
@@ -164,7 +164,7 @@ class BM25IndexBuilder:
                     content_hash=first.content_hash
                     or hashlib.sha256(content.encode("utf-8")).hexdigest(),
                     content=content,
-                    metadata=first.metadata,
+                    meta=first.meta,
                 )
             )
 

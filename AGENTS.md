@@ -98,7 +98,7 @@ CI runs: `ruff check` → `ruff format --check` → `mypy` → `pytest tests/uni
 
 ```bash
 alembic upgrade head
-alembic current   # expected: 008 (fix_documents_search_schema)
+alembic current   # expected: 009 (create_documents_facts)
 ```
 
 Head chain: `004 baseline → 005 messages PII → 006 documents → 007 tsvector → 008 corrective`.  

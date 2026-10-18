@@ -15,6 +15,7 @@ def _doc() -> Document:
         source_type="file",
         content_hash="hash-1",
         content="hello",
+        meta={},
     )
 
 

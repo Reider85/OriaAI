@@ -34,7 +34,7 @@ jobs:
     
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: llm_client
           POSTGRES_USER: postgres
@@ -124,7 +124,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: llm_client
           POSTGRES_USER: postgres
@@ -198,11 +198,11 @@ jobs:
     if: >
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_dispatch' &&
-       (github.event.inputs.test_type == 'durability' || github.event.inputs.test_type == 'all'))
-    
+        (github.event.inputs.test_type == 'durability' || github.event.inputs.test_type == 'all'))
+     
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: llm_client
           POSTGRES_USER: postgres

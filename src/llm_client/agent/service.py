@@ -941,7 +941,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             source_uri=body.source_uri,
             content_hash=content_hash,
             content=body.content,
-            metadata=body.metadata or {},
+            meta=body.metadata or {},
         )
 
         vector_writer = getattr(app.state, "vector_writer", None)

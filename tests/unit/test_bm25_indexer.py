@@ -61,7 +61,7 @@ class TestBM25IndexBuilder:
             source_uri="/path/to/doc.txt",
             content_hash="abc123",
             content="This is the document content for testing.",
-            metadata={"title": "Test Document", "author": "Test Author"},
+            meta={"title": "Test Document", "author": "Test Author"},
         )
 
     @pytest.mark.asyncio
@@ -104,7 +104,7 @@ class TestBM25IndexBuilder:
             source_uri="/path/to/updated.txt",
             content_hash="abc123",
             content="Updated document content.",
-            metadata={"title": "Updated Document"},
+            meta={"title": "Updated Document"},
         )
 
         await indexer.index_document(doc)
@@ -169,7 +169,7 @@ class TestBM25IndexBuilder:
                 content="second part",
                 chunk_index=1,
                 content_hash="hash-doc-1",
-                metadata={"title": "Doc 1"},
+                meta={"title": "Doc 1"},
             ),
             Chunk(
                 document_id="doc-1",
@@ -178,7 +178,7 @@ class TestBM25IndexBuilder:
                 content="first part",
                 chunk_index=0,
                 content_hash="hash-doc-1",
-                metadata={"title": "Doc 1"},
+                meta={"title": "Doc 1"},
             ),
         ]
 

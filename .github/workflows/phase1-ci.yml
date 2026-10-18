@@ -226,7 +226,7 @@ jobs:
       P99_BUDGET_MS: '5.0'  # Looser budget for quick test
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: llm_client
           POSTGRES_USER: postgres

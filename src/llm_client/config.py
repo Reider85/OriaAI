@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     semantic_cache_similarity_threshold: float = 0.92
     semantic_cache_max_entries: int = 10000
 
+    # Phase 3 — ADR-011 Tier-1 facts cache (PostgreSQL)
+    facts_extraction_enabled: bool = True
+    facts_extractor_model: str = "gpt-4o-mini"
+    facts_extraction_max_facts_per_doc: int = 10
+    facts_embedding_model: str = "text-embedding-3-small"
+    facts_embedding_dimension: int = 1536
+
     # MinIO / S3
     s3_endpoint: str = "http://127.0.0.1:9000"
     s3_access_key: str = "minioadmin"
@@ -214,6 +221,25 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"EMBEDDING_PROVIDER must be openai|custom-openai|zai|local|none, got {self.embedding_provider!r}"
             )
+
+        # Validate facts extraction settings
+        if self.facts_extraction_enabled:
+            if self.facts_extractor_model not in {"gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"}:
+                raise ValueError(
+                    f"FACTS_EXTRACTOR_MODEL must be gpt-4o-mini|gpt-4o|gpt-3.5-turbo, got {self.facts_extractor_model!r}"
+                )
+            if self.facts_extraction_max_facts_per_doc <= 0:
+                raise ValueError(
+                    f"FACTS_EXTRACTION_MAX_FACTS_PER_DOC must be > 0, got {self.facts_extraction_max_facts_per_doc!r}"
+                )
+            if self.facts_embedding_model not in {"text-embedding-3-small", "text-embedding-3-large"}:
+                raise ValueError(
+                    f"FACTS_EMBEDDING_MODEL must be text-embedding-3-small|text-embedding-3-large, got {self.facts_embedding_model!r}"
+                )
+            if self.facts_embedding_dimension not in {1536, 3072}:
+                raise ValueError(
+                    f"FACTS_EMBEDDING_DIMENSION must be 1536|3072, got {self.facts_embedding_dimension!r}"
+                )
 
         # Note: For fallback logic, API keys are not required for cloud providers
         # when local fallback is available. Validation moved to create_embedding_function.

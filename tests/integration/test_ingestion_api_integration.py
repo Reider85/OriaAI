@@ -42,7 +42,7 @@ class TestIngestionIntegration:
             source_type="api",
             content_hash=f"ingest-{uuid.uuid4()}",
             content="Ingestion integration test document about hybrid retrieval.",
-            metadata={"title": "Ingest Test"},
+            meta={"title": "Ingest Test"},
         )
 
         result = await index_document_with_hybrid(doc, indexer, None)

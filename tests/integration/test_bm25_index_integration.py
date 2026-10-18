@@ -46,7 +46,7 @@ class TestBM25IndexIntegration:
                     f"Test document content {i}. This is some sample text "
                     "for testing BM25 indexing functionality."
                 ),
-                metadata={"title": f"Test Doc {i}", "category": "test"},
+                meta={"title": f"Test Doc {i}", "category": "test"},
             )
             for i in range(5)
         ]
@@ -181,7 +181,7 @@ class TestBM25IndexIntegration:
             source_type="test",
             content_hash=f"fuzzy-{uuid.uuid4()}",
             content="The quick brown fox jumps over the lazy dog near the riverbank",
-            metadata={},
+            meta={},
         )
         await indexer.index_document(doc)
 
