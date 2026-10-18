@@ -440,6 +440,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         """Prometheus exposition for Phase 2 control-point dashboards (F-2)."""
         from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+        from ..observability.llm_metrics import REGISTRY as llm_metrics_registry
         from ..orchestration.checkpointers.metrics import default_checkpoint_metrics
         from ..rag.metrics import default_reranker_metrics
 
@@ -449,6 +450,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             _PROMETHEUS_DEFAULT_REGISTRY,
             default_checkpoint_metrics,
             default_reranker_metrics,
+            llm_metrics_registry,
         ):
             if source is None:
                 continue

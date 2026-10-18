@@ -11,6 +11,7 @@ Phase 2: CUSTOM-OPENAI (any OpenAI-compatible endpoint) + ZAI (z.ai).
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -60,12 +61,15 @@ class TokenUsageTracker(BaseCallbackHandler):
         *,
         pii_mask: bool = False,
         provider: str = "openai",
+        tool_calling_mode: str = "native",
     ) -> None:
         super().__init__()
         self._writer = operational_writer
         self._session_id = session_id
         self._pii_mask = pii_mask
         self._provider = provider
+        self._tool_calling_mode = tool_calling_mode
+        self._llm_start_time: float | None = None
 
     # BaseChatModel callback — fires after a successful LLM invocation
     async def on_llm_end(self, response: Any, **kwargs: Any) -> None:
@@ -88,6 +92,28 @@ class TokenUsageTracker(BaseCallbackHandler):
 
         cost = _estimate_cost(model, prompt_tokens, completion_tokens)
 
+        # Calculate latency
+        latency_seconds = 0.0
+        if self._llm_start_time is not None:
+            latency_seconds = time.monotonic() - self._llm_start_time
+
+        # Record to Prometheus metrics (Phase 3 ADR-015)
+        try:
+            from ..observability.llm_metrics import record_llm_call
+            record_llm_call(
+                provider=self._provider,
+                model=model,
+                status="success" if response else "error",
+                mode=self._tool_calling_mode,
+                latency_seconds=latency_seconds,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cost_usd=cost,
+            )
+        except Exception:
+            logger.debug("Failed to record llm_usage metrics", exc_info=True)
+
+        # Write to operational stream (existing D-2 logging)
         event: dict[str, Any] = {
             "event_type": "llm_usage",
             "provider": self._provider,
@@ -101,6 +127,40 @@ class TokenUsageTracker(BaseCallbackHandler):
             await self._writer.write(event)
         except Exception:
             logger.debug("Failed to write llm_usage event", exc_info=True)
+
+    # LLM start callback — record start time for latency tracking
+    def on_llm_start(self, serialized: dict[Any, Any], **kwargs: Any) -> None:
+        """Record LLM start time for latency calculation."""
+        self._llm_start_time = time.monotonic()
+
+    # Chat model start callback — record start time for latency tracking
+    def on_chat_model_start(self, serialized: dict[Any, Any], messages: list[Any], **kwargs: Any) -> None:
+        """Record chat model start time for latency calculation."""
+        self._llm_start_time = time.monotonic()
+
+    # Error callback — record error status for circuit breaker
+    async def on_llm_error(self, error: Exception, **kwargs: Any) -> None:
+        """Record LLM error status for circuit breaker metrics."""
+        # Extract model from kwargs if available
+        model = kwargs.get("invocation_params", {}).get("model_name", "unknown")
+        
+        # Calculate latency (if start time was recorded)
+        latency_seconds = 0.0
+        if self._llm_start_time is not None:
+            latency_seconds = time.monotonic() - self._llm_start_time
+        
+        # Record error status
+        try:
+            from ..observability.llm_metrics import record_llm_call
+            record_llm_call(
+                provider=self._provider,
+                model=model,
+                status="error",
+                mode=self._tool_calling_mode,
+                latency_seconds=latency_seconds,
+            )
+        except Exception:
+            logger.debug("Failed to record llm_usage error metrics", exc_info=True)
 
 
 # ── Retry decorator (exponential backoff for transient LLM errors) ─────────────
