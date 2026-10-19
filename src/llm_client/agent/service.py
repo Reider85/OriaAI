@@ -924,7 +924,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 status_code=503,
             )
 
-        from ..rag.indexing import Document, index_document_with_hybrid
+        from ..rag.indexing import Document, FactsExtractor, get_facts_extractor, index_document_with_hybrid
 
         async with pool.acquire() as conn:
             await conn.execute(
@@ -945,11 +945,13 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         )
 
         vector_writer = getattr(app.state, "vector_writer", None)
+        facts_extractor = get_facts_extractor()
         try:
             result = await index_document_with_hybrid(
                 document,
                 indexer,
                 vector_writer,
+                facts_extractor,
             )
         except Exception as exc:
             logger.exception("Document ingestion failed for %s", document_id)

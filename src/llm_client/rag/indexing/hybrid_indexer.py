@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .bm25_indexer import BM25IndexBuilder
+from .facts_extractor import FactsExtractor
 from .models import Document
 
 logger = logging.getLogger(__name__)
@@ -17,12 +18,16 @@ async def index_document_with_hybrid(
     document: Document,
     bm25_indexer: BM25IndexBuilder,
     vector_indexer: VectorIndexer | None = None,
+    facts_extractor: FactsExtractor | None = None,
 ) -> dict[str, Any]:
     """Index a document into BM25 and (optionally) the vector store in parallel.
 
     Failures are independent: if the vector leg fails the BM25 row is kept
     and a warning is logged, and vice versa. Only when *every* leg fails is
     the first exception raised.
+
+    Facts extraction is optional and runs after BM25/vector indexing.
+    Facts extraction failures are logged as warnings but do not raise.
 
     Returns:
         {"bm25_indexed": bool, "vector_indexed": bool | None}
@@ -47,6 +52,18 @@ async def index_document_with_hybrid(
                 label,
                 document.id,
                 result,
+            )
+
+    # Optional facts extraction (runs after BM25/vector, independent failures)
+    if facts_extractor is not None:
+        try:
+            await facts_extractor.extract_from_document(document)
+            logger.info("Facts extraction succeeded for document %s", document.id)
+        except Exception as e:
+            logger.warning(
+                "Facts extraction failed for document %s: %s",
+                document.id,
+                str(e),
             )
 
     if not bm25_ok and vector_ok is not True:
