@@ -10,8 +10,9 @@ TRIZ: Standard 1.1.5 (введение второго поля в веполь),
 #17 (переход в другое измерение — extraction на индекс-тайм).
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects import postgresql
 
 revision = "009"
@@ -43,7 +44,7 @@ def upgrade() -> None:
         sa.Column("fact_text", sa.Text, nullable=False),
         sa.Column(
             "fact_embedding",
-            postgresql.ARRAY(sa.Float),
+            Vector(1536),  # pgvector type; dimension 1536 = text-embedding-3-small (Phase 3 default)
             nullable=True,  # nullable: facts can be extracted without embedding first
         ),
         sa.Column(

@@ -7,18 +7,19 @@ Phase 3 A-3: Convert from dataclasses to SQLAlchemy declarative models.
 """
 
 import hashlib
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
+from pgvector.sqlalchemy import Vector  # pgvector for fact_embedding
 from sqlalchemy import ForeignKey, event
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.types import DateTime, String, Text
-
-# pgvector Vector type will be imported where used (avoiding circular import)
 
 
 class Base(DeclarativeBase):
@@ -34,8 +35,8 @@ class Document(Base):
 
     __tablename__ = "documents"
 
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True
+    id: Mapped[uuid.UUID] = mapped_column(
+        postgresql.UUID(as_uuid=True), primary_key=True
     )
     user_id: Mapped[str] = mapped_column(String, nullable=False)
     source_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -71,7 +72,7 @@ class Document(Base):
         if id is None:
             self.id = uuid4()
         else:
-            self.id = UUID(id)
+            self.id = id if isinstance(id, uuid.UUID) else uuid.UUID(id)
 
         self.user_id = user_id
         self.source_type = source_type
@@ -91,18 +92,18 @@ class DocumentFact(Base):
 
     __tablename__ = "documents_facts"
 
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    id: Mapped[uuid.UUID] = mapped_column(
+        postgresql.UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
-    document_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        postgresql.UUID(as_uuid=True),
         ForeignKey("documents.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     fact_text: Mapped[str] = mapped_column(Text, nullable=False)
     fact_embedding: Mapped[list[float] | None] = mapped_column(
-        "fact_embedding", JSONB, nullable=True  # TODO: Use pgvector.Vector when available
+        "fact_embedding", Vector(1536), nullable=True  # pgvector type, dimension 1536
     )
     fact_metadata: Mapped[dict] = mapped_column(
         "fact_metadata", JSONB, server_default="{}", nullable=False
@@ -120,8 +121,8 @@ class DocumentFact(Base):
 @event.listens_for(Document, "before_update")
 def normalize_metadata(mapper, connection, target):
     """Ensure metadata is never None (convert empty dict to JSONB '{}')."""
-    if target.metadata is None:
-        target.metadata = {}
+    if target.meta is None:
+        target.meta = {}
 
 
 # Keep Chunk as dataclass (not used as ORM entity)
