@@ -32,17 +32,17 @@ def test_get_cache_invalidator_singleton():
 async def test_invalidate_doc_calls_mark_stale():
     """Test invalidate_doc calls cache.mark_stale with UUID."""
     fake_cache = FakeSemanticCache()
-    
+
     # Use the same doc_id for both the key and the test
     doc_id = uuid4()
     fake_cache.mark_stale_results[doc_id] = 2  # Return 2 for this specific doc_id
-    
+
     invalidator = CacheInvalidator()
-    
+
     # Mock get_semantic_cache to return our fake cache
     with patch("llm_client.rag.cache_invalidator.get_semantic_cache", return_value=fake_cache):
         result = await invalidator.invalidate_doc(doc_id)
-        
+
         assert fake_cache.mark_stale_calls == [doc_id]
         assert result == 2
 
@@ -54,7 +54,7 @@ async def test_invalidate_doc_returns_zero_if_cache_disabled():
         invalidator = CacheInvalidator()
         doc_id = uuid4()
         result = await invalidator.invalidate_doc(doc_id)
-        
+
         assert result == 0
 
 
@@ -62,19 +62,23 @@ async def test_invalidate_doc_returns_zero_if_cache_disabled():
 async def test_invalidate_batch():
     """Test invalidate_batch calls invalidate_doc for each doc."""
     invalidator = CacheInvalidator()
-    
+
     doc1 = uuid4()
     doc2 = uuid4()
     doc3 = uuid4()
-    
+
     # Mock individual invalidate_doc calls
-    with patch.object(invalidator, 'invalidate_doc', side_effect=[
-        1,  # doc1
-        2,  # doc2
-        3,  # doc3
-    ]) as mock_invalidate:
+    with patch.object(
+        invalidator,
+        "invalidate_doc",
+        side_effect=[
+            1,  # doc1
+            2,  # doc2
+            3,  # doc3
+        ],
+    ) as mock_invalidate:
         result = await invalidator.invalidate_batch([doc1, doc2, doc3])
-        
+
         assert result == 6  # 1 + 2 + 3
         assert mock_invalidate.call_count == 3
 
@@ -94,22 +98,22 @@ async def test_invalidate_batch_with_disabled_cache():
         invalidator = CacheInvalidator()
         doc1 = uuid4()
         doc2 = uuid4()
-        
+
         result = await invalidator.invalidate_batch([doc1, doc2])
-        
+
         assert result == 0
 
 
 @pytest.mark.asyncio
 async def test_invalidate_doc_logs_when_cache_disabled():
     """Test that appropriate debug log is written when cache is disabled."""
-    with patch("llm_client.rag.cache_invalidator.logger") as mock_logger:
-        
+    with (
+        patch("llm_client.rag.cache_invalidator.logger") as mock_logger,
+        patch("llm_client.rag.cache_invalidator.get_semantic_cache", return_value=None),
+    ):
         invalidator = CacheInvalidator()
         doc_id = uuid4()
-        
+
         await invalidator.invalidate_doc(doc_id)
-        
-        mock_logger.debug.assert_called_once_with(
-            "Semantic cache disabled — skip invalidation"
-        )
+
+        mock_logger.debug.assert_called_once_with("Semantic cache disabled — skip invalidation")

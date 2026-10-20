@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     semantic_cache_ttl_seconds: int = 86400
     semantic_cache_similarity_threshold: float = 0.92
     semantic_cache_max_entries: int = 10000
+    semantic_cache_invalidation_timeout_seconds: int = 60
 
     # Phase 3 — ADR-011 semantic cache pilot criteria (B-6)
     pilot_semantic_cache_hit_rate_threshold: float = 0.15
@@ -239,7 +240,10 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"FACTS_EXTRACTION_MAX_FACTS_PER_DOC must be > 0, got {self.facts_extraction_max_facts_per_doc!r}"
                 )
-            if self.facts_embedding_model not in {"text-embedding-3-small", "text-embedding-3-large"}:
+            if self.facts_embedding_model not in {
+                "text-embedding-3-small",
+                "text-embedding-3-large",
+            }:
                 raise ValueError(
                     f"FACTS_EMBEDDING_MODEL must be text-embedding-3-small|text-embedding-3-large, got {self.facts_embedding_model!r}"
                 )

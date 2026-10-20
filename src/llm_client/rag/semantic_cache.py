@@ -209,7 +209,11 @@ class SemanticAnswerCache:
         # Phase 3: placeholder — rely on Redis allkeys-lru
 
     async def close(self) -> None:
+        """Close Redis connection; reset singleton so next get_semantic_cache() creates a fresh instance."""
+        global _singleton
         await self._redis.aclose()
+        if _singleton is self:
+            _singleton = None
 
 
 _singleton: SemanticAnswerCache | None = None

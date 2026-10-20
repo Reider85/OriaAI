@@ -24,6 +24,12 @@ def test_semantic_cache_enabled_default_true():
     assert settings.semantic_cache_enabled is True
 
 
+def test_semantic_cache_invalidation_timeout_default():
+    """Test semantic_cache_invalidation_timeout_seconds default is 60 (B-7)."""
+    settings = Settings()
+    assert settings.semantic_cache_invalidation_timeout_seconds == 60
+
+
 def test_semantic_cache_disabled_via_env():
     """Test SEMANTIC_CACHE_ENABLED=false via env var."""
     try:

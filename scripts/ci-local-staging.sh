@@ -28,7 +28,7 @@ PORT=8501
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        checkpoint-latency|checkpoint-recovery|reranker-ab-test|hybrid-rag-ab-test|web-search-integration|rag-query-integration|sse-tool-events|idealidad|all)
+        checkpoint-latency|checkpoint-recovery|reranker-ab-test|hybrid-rag-ab-test|web-search-integration|rag-query-integration|sse-tool-events|idealidad|phase3-adr011-integration|all)
             TARGETS=("$1")
             shift
             ;;
@@ -46,7 +46,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --help)
             echo "Usage: $0 [TARGETS...] [OPTIONS]"
-            echo "  TARGETS: checkpoint-latency, checkpoint-recovery, reranker-ab-test, hybrid-rag-ab-test, web-search-integration, rag-query-integration, sse-tool-events, idealidad, all"
+            echo "  TARGETS: checkpoint-latency, checkpoint-recovery, reranker-ab-test, hybrid-rag-ab-test, web-search-integration, rag-query-integration, sse-tool-events, idealidad, phase3-adr011-integration, all"
             echo "  OPTIONS:"
             echo "    --port PORT        Streamlit UI port (default: 8501)"
             echo "    --timeout SEC     Timeout in seconds (default: 1800)"
@@ -236,6 +236,15 @@ run_tests() {
             log_info "Running ideality metrics test..."
             "${PYTHON_EXE}" scripts/collect_idealidad_metrics.py --once
             ;;
+        phase3-adr011-integration)
+            log_info "Running Phase 3 ADR-011 integration tests (stale-answer guard, semantic cache, invalidator, facts, cache-aware LLM, graph e2e)..."
+            "${PYTHON_EXE}" -m pytest tests/integration/test_stale_answer_guard.py -v --timeout=600
+            "${PYTHON_EXE}" -m pytest tests/integration/test_semantic_cache_integration.py -v --timeout=600
+            "${PYTHON_EXE}" -m pytest tests/integration/test_invalidator_integration.py -v --timeout=600
+            "${PYTHON_EXE}" -m pytest tests/integration/test_facts_extractor_integration.py -v --timeout=600
+            "${PYTHON_EXE}" -m pytest tests/integration/test_cache_aware_llm_integration.py -v --timeout=600
+            "${PYTHON_EXE}" -m pytest tests/integration/test_graph_cache_e2e.py -v --timeout=600
+            ;;
         all)
             log_info "Running all staging targets..."
             run_tests checkpoint-latency
@@ -246,6 +255,7 @@ run_tests() {
             run_tests rag-query-integration
             run_tests sse-tool-events
             run_tests idealidad
+            run_tests phase3-adr011-integration
             ;;
         *)
             log_error "Unknown target: ${target}"

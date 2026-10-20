@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("checkpoint-latency", "checkpoint-recovery", "reranker-ab-test", "hybrid-rag-ab-test", "web-search-integration", "rag-query-integration", "sse-tool-events", "idealidad", "forensic", "all")]
+    [ValidateSet("checkpoint-latency", "checkpoint-recovery", "reranker-ab-test", "hybrid-rag-ab-test", "web-search-integration", "rag-query-integration", "sse-tool-events", "idealidad", "phase3-adr011-integration", "forensic", "all")]
     [string[]]$Target = @("all"),
     [ValidateRange(1, 65535)]
     [int]$Port = 8501,
@@ -571,6 +571,28 @@ function Run-SSEToolEvents {
     return Run-Test -TestName "sse-tool-events" -TestCommand "tests/unit/test_sse.py::test_sse_tool_events_staging" -TimeoutSeconds 120 -Python $Python
 }
 
+function Run-Phase3Adr011Integration {
+    param([pscustomobject]$Python)
+    Write-Host "Running Phase 3 ADR-011 integration tests (stale-answer guard, semantic cache, invalidator, facts, cache-aware LLM, graph e2e)..." -ForegroundColor Cyan
+    $envVars = @{
+        "REDIS_SEMANTIC_CACHE_URL" = "redis://localhost:6380/2"
+        "SEMANTIC_CACHE_ENABLED" = "true"
+    }
+    $tests = @(
+        @{ Name = "stale-answer-guard"; Path = "tests/integration/test_stale_answer_guard.py" },
+        @{ Name = "semantic-cache-integration"; Path = "tests/integration/test_semantic_cache_integration.py" },
+        @{ Name = "invalidator-integration"; Path = "tests/integration/test_invalidator_integration.py" },
+        @{ Name = "facts-extractor-integration"; Path = "tests/integration/test_facts_extractor_integration.py" },
+        @{ Name = "cache-aware-llm-integration"; Path = "tests/integration/test_cache_aware_llm_integration.py" },
+        @{ Name = "graph-cache-e2e"; Path = "tests/integration/test_graph_cache_e2e.py" }
+    )
+    foreach ($test in $tests) {
+        $result = Run-Test -TestName "phase3-$($test.Name)" -TestCommand $test.Path -TimeoutSeconds 600 -Environment $envVars -Python $Python
+        if ($result -ne 0) { return $result }
+    }
+    return 0
+}
+
 function Run-IdealidadMetric {
     param([pscustomobject]$Python)
     Write-Host "Running ideality metric collection..." -ForegroundColor Cyan
@@ -740,6 +762,10 @@ foreach ($target in $Target) {
             $exitCode = Run-IdealidadMetric -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
+        "phase3-adr011-integration" {
+            $exitCode = Run-Phase3Adr011Integration -Python $python
+            $totalExitCode = $totalExitCode -bor $exitCode
+        }
         "forensic" {
             $exitCode = Run-ForensicStaging -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
@@ -767,6 +793,9 @@ foreach ($target in $Target) {
             $totalExitCode = $totalExitCode -bor $exitCode
             
             $exitCode = Run-IdealidadMetric -Python $python
+            $totalExitCode = $totalExitCode -bor $exitCode
+            
+            $exitCode = Run-Phase3Adr011Integration -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
             $exitCode = Run-ForensicStaging -Python $python
