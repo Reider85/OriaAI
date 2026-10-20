@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     semantic_cache_similarity_threshold: float = 0.92
     semantic_cache_max_entries: int = 10000
 
+    # Phase 3 — ADR-011 semantic cache pilot criteria (B-6)
+    pilot_semantic_cache_hit_rate_threshold: float = 0.15
+    pilot_semantic_cache_stale_rate_threshold: float = 0.01
+    pilot_semantic_cache_hit_latency_ms: float = 100.0
+    pilot_semantic_cache_rollback_hit_rate: float = 0.10
+    pilot_semantic_cache_avg_llm_cost_usd: float = 0.001
+
     # Phase 3 — ADR-011 Tier-1 facts cache (PostgreSQL)
     facts_extraction_enabled: bool = True
     facts_extractor_model: str = "gpt-4o-mini"

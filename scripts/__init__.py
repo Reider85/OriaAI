@@ -1,0 +1,1 @@
+# Scripts directory for OriaAI LLM client

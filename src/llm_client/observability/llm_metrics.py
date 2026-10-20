@@ -118,3 +118,17 @@ def update_budget_usage(used_usd: float, budget_usd: float) -> None:
 def record_cache_hit(status: str) -> None:
     """Called from SemanticAnswerCache (Блок B-1)."""
     SEMANTIC_CACHE_HITS.labels(status=status).inc()
+
+
+def get_cache_hit_counts() -> dict[str, int]:
+    """Get current counts of semantic cache hits/misses/stale.
+    
+    Returns:
+        Dict with "hit", "miss", "stale" counts (all values ≥ 0).
+        Used by A/B test framework (B-6) to distinguish stale vs miss.
+    """
+    return {
+        "hit": int(SEMANTIC_CACHE_HITS.labels(status="hit")._value.get()),
+        "miss": int(SEMANTIC_CACHE_HITS.labels(status="miss")._value.get()),
+        "stale": int(SEMANTIC_CACHE_HITS.labels(status="stale")._value.get()),
+    }

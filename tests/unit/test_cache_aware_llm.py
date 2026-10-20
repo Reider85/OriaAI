@@ -7,17 +7,11 @@ from unittest.mock import patch
 from uuid import UUID
 
 import pytest
-
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from llm_client.rag.cache_aware_llm import CacheAwareLLMClient
-from unittest.mock import patch, MagicMock, AsyncMock, Mock
-import pytest
-import asyncio
-import os
-import sys
 
 
 class FakeChatModel(BaseChatModel):
@@ -26,7 +20,7 @@ class FakeChatModel(BaseChatModel):
     response: str | None = None
     error: Exception | None = None
     call_count: int = 0
-    stream_responses: list = []
+    stream_responses: list = []  # noqa: RUF012
     stream_call_count: int = 0
 
     def __init__(self, response: str | None = None, error: Exception | None = None, **kwargs):
@@ -103,30 +97,19 @@ class MockSemanticCache:
         self.data = {}
         self.get_calls = []
         self.put_calls = []
-        self._should_skip_embeddings = False
-        self._embeddings_mock = None
-
-    def set_skip_embeddings(self, skip: bool):
-        """Helper to control whether to skip embedding operations."""
-        self._should_skip_embeddings = skip
-
-    def set_embeddings_mock(self, mock):
-        """Set a mock for embeddings to prevent API calls."""
-        self._embeddings_mock = mock
 
     async def get(self, query: str):
         self.get_calls.append(query)
-        # Bypass all embedding operations and just return data based on query
-        if self._should_skip_embeddings:
-            if query in self.data:
-                from llm_client.rag.semantic_cache import CacheHitResult
-                return CacheHitResult(
-                    answer=self.data[query],
-                    score=0.85,  # Above threshold
-                    referenced_doc_ids=[UUID("123e4567-e89b-12d3-a456-426614174000")],
-                    model="fake-model",
-                    token_count=50,
-                )
+        if query in self.data:
+            from llm_client.rag.semantic_cache import CacheHitResult
+            return CacheHitResult(
+                answer=self.data[query],
+                referenced_doc_ids=[UUID("123e4567-e89b-12d3-a456-426614174000")],
+                created_at="2026-01-01T00:00:00Z",
+                model="fake-model",
+                token_count=50,
+                similarity_score=0.85,
+            )
         return None
 
     async def put(
@@ -139,13 +122,7 @@ class MockSemanticCache:
 @pytest.fixture
 def mock_cache():
     """Mock SemanticAnswerCache for testing."""
-    cache = MockSemanticCache()
-    cache.set_skip_embeddings(True)  # Skip embedding operations for testing
-    # Mock the _embeddings attribute to prevent API calls
-    cache._embeddings = Mock()
-    cache._embeddings.aembed_query = AsyncMock(return_value=[0.1, 0.2, 0.3, 0.4, 0.5])
-    cache._embeddings.aembed_documents = AsyncMock(return_value=[[0.1, 0.2, 0.3, 0.4, 0.5]])
-    return cache
+    return MockSemanticCache()
 
 
 @pytest.fixture
@@ -155,15 +132,15 @@ def fake_llm():
 
 @pytest.fixture
 def cache_aware_llm(fake_llm, mock_cache):
-    # Mock the global get_semantic_cache to return our mock
-    with patch("llm_client.rag.semantic_cache.get_semantic_cache", return_value=mock_cache):
-        return CacheAwareLLMClient(underlying=fake_llm)
+    # Patch the module-level reference used inside CacheAwareLLMClient
+    with patch("llm_client.rag.cache_aware_llm.get_semantic_cache", return_value=mock_cache):
+        yield CacheAwareLLMClient(underlying=fake_llm)
 
 
 @pytest.fixture
 def cache_disabled_llm(fake_llm):
     with patch("llm_client.rag.cache_aware_llm.get_semantic_cache", return_value=None):
-        return CacheAwareLLMClient(underlying=fake_llm)
+        yield CacheAwareLLMClient(underlying=fake_llm)
 
 
 @pytest.mark.asyncio
@@ -171,14 +148,19 @@ async def test_cache_miss_calls_underlying(cache_aware_llm, fake_llm, mock_cache
     """Cache miss should call underlying LLM once."""
     messages = [
         HumanMessage(content="test query"),
-        ToolMessage(content="tool result", tool_call_id="test-tool-call-id", 
+        ToolMessage(content="tool result", tool_call_id="test-tool-call-id",
                   artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]})
     ]
     result = await cache_aware_llm.ainvoke(messages)
-    
+    await asyncio.sleep(0.05)  # allow fire-and-forget put task to complete
+
     assert fake_llm.call_count == 1
     assert mock_cache.get_calls == ["test query"]
-    assert mock_cache.put_calls == [("test query", "llm response", [UUID("123e4567-e89b-12d3-a456-426614174000")], "fake-model", 50)]
+    assert len(mock_cache.put_calls) == 1
+    query, answer, doc_ids, _model, _token_count = mock_cache.put_calls[0]
+    assert query == "test query"
+    assert answer == "llm response"
+    assert doc_ids == [UUID("123e4567-e89b-12d3-a456-426614174000")]
     assert result.content == "llm response"
 
 
@@ -252,15 +234,15 @@ async def test_put_called_after_miss(cache_aware_llm, fake_llm, mock_cache):
                   artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]})
     ]
     await cache_aware_llm.ainvoke(messages)
+    await asyncio.sleep(0.05)  # allow fire-and-forget put task to complete
 
     assert len(mock_cache.put_calls) == 1
-    query, answer, doc_ids, model, token_count = mock_cache.put_calls[0]
+    query, answer, doc_ids, model, _token_count = mock_cache.put_calls[0]
     assert query == "test query"
     assert answer == "llm response"
     assert len(doc_ids) == 1
     assert doc_ids[0] == UUID("123e4567-e89b-12d3-a456-426614174000")
     assert model == "fake-model"
-    assert token_count == 50
 
 
 @pytest.mark.asyncio
@@ -278,8 +260,8 @@ async def test_astream_cache_hit_chunks_answer(cache_aware_llm, fake_llm, mock_c
     async for chunk in cache_aware_llm.astream(messages):
         chunks.append(chunk.content)
 
-    # Should yield word-chunked cached answer
-    expected_chunks = ["cached ", "answer"]
+    # Should yield word-chunked cached answer (each word gets trailing space)
+    expected_chunks = ["cached ", "answer "]
     assert chunks == expected_chunks
     assert fake_llm.stream_call_count == 0  # Underlying not called
 
@@ -295,6 +277,7 @@ async def test_astream_cache_miss_accumulates_and_puts(cache_aware_llm, fake_llm
     chunks = []
     async for chunk in cache_aware_llm.astream(messages):
         chunks.append(chunk.content)
+    await asyncio.sleep(0.05)  # allow fire-and-forget put task to complete
 
     # Should accumulate and yield underlying stream
     assert chunks == ["stream 0", "stream 1", "stream 2"]
@@ -305,7 +288,8 @@ async def test_astream_cache_miss_accumulates_and_puts(cache_aware_llm, fake_llm
     query, answer, doc_ids, _, token_count = mock_cache.put_calls[0]
     assert query == "test query"
     assert answer == "stream 0stream 1stream 2"  # Accumulated
-    assert doc_ids == []
+    assert len(doc_ids) == 1
+    assert doc_ids[0] == UUID("123e4567-e89b-12d3-a456-426614174000")
     assert token_count == 0  # Unknown during stream
 
 

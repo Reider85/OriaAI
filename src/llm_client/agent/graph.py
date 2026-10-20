@@ -422,6 +422,7 @@ def build_agent_graph(
     rag_triggers: tuple[str, ...] | None = None,
     settings: dict[str, Any] | None = None,
     llm_invoke_timeout_s: float | None = None,
+    use_semantic_cache: bool | None = None,
 ) -> Any:
     """Construct and compile the agent graph (Phase 1 + Phase 2).
 
@@ -431,6 +432,11 @@ def build_agent_graph(
     - route_after_planner extended: 3 exits (direct_llm / tools_needed /
       rag_first). Simplified heuristic routes rag_first when user message
       contains trigger words.
+
+    Phase 3 extensions (B-5):
+    - use_semantic_cache: Optional bool — if None, defaults to
+      settings.semantic_cache_enabled and get_semantic_cache() availability.
+      If True, wraps LLM in CacheAwareLLMClient for Tier-3 semantic cache.
 
     Args:
         llm:    LangChain chat model.
@@ -444,10 +450,27 @@ def build_agent_graph(
         settings: Optional UI settings panel payload (G-4). Only ``top_k`` is
             consumed here, and it is applied via the node closure rather than
             threaded through graph state.
+        use_semantic_cache: Optional bool — whether to wrap LLM in CacheAwareLLMClient.
+            If None, uses settings.semantic_cache_enabled and cache availability.
 
     Returns:
         Compiled LangGraph graph ready for ``graph.astream(state)``.
     """
+    # ── Phase 3: Optionally wrap LLM in CacheAwareLLMClient (B-5) ─────────────
+    if use_semantic_cache is None:
+        # Lazy import to avoid cycle and defer cost until needed
+        from ..config import settings
+        from ..rag.cache_aware_llm import CacheAwareLLMClient
+        from ..rag.semantic_cache import get_semantic_cache
+        use_semantic_cache = (
+            settings.semantic_cache_enabled
+            and get_semantic_cache() is not None
+        )
+    if use_semantic_cache:
+        from ..rag.cache_aware_llm import CacheAwareLLMClient
+        llm = CacheAwareLLMClient(underlying=llm)
+        logger.info("Semantic cache enabled — wrapping LLM in CacheAwareLLMClient")
+
     # ── Bind tools to LLM (AG-4) ─────────────────────────────────────────────
     bound_llm = llm
     if tools:

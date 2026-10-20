@@ -193,6 +193,35 @@ class BM25IndexBuilder:
         else:
             logger.debug("Deleted document %s", document_id)
 
+    async def update_document(self, document: Document) -> None:
+        """Update a document content and metadata in the documents table.
+
+        The tsvector column is updated automatically (generated column).
+
+        Args:
+            document: Document with updated content and metadata
+
+        Raises:
+            asyncpg.PostgresError: If database operation fails
+        """
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE documents 
+                SET content = $1, content_hash = $2, indexed_at = now(), meta = $3
+                WHERE id = $4
+                """,
+                document.content,
+                document.content_hash,
+                document.meta,
+                document.id,
+            )
+
+        if "UPDATE 0" in result:
+            logger.warning("Document %s not found for update", document.id)
+        else:
+            logger.debug("Updated document %s", document.id)
+
     @classmethod
     async def create_from_settings(
         cls,

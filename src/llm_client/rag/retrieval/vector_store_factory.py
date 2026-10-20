@@ -306,3 +306,32 @@ def get_vector_writer(settings: Settings | None = None) -> Any | None:
             store.add_texts(chunks, metadatas=metadatas, ids=ids)
 
     return _index_document
+
+
+def get_vector_deleter(settings: Settings | None = None) -> Any | None:
+    """Build an async callable that deletes all vector chunks for a document.
+
+    Returns None when no vector store is configured — callers
+    treat that as "vector leg disabled".
+    """
+    if settings is None:
+        from llm_client.config import settings as default_settings
+        settings = default_settings
+
+    store = create_vector_store(settings=settings)
+    if store is None:
+        return None
+
+    async def _delete_document_chunks(document_id: str) -> None:
+        """Delete all vector chunks for a document by document_id metadata."""
+        if hasattr(store, "adelete"):
+            try:
+                await store.adelete(where={"document_id": document_id})
+                logger.info("Deleted vector chunks for document %s", document_id)
+            except Exception as e:
+                logger.warning("Failed to delete vector chunks for %s: %s", document_id, e)
+        else:
+            # Fallback: if store doesn't support adelete, log warning
+            logger.warning("Vector store %s does not support adelete — skipping cleanup", type(store).__name__)
+
+    return _delete_document_chunks
