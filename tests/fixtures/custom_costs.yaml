@@ -1,0 +1,9 @@
+# Test fixture — custom model costs
+openai:
+  gpt-4o-mini:
+    prompt: 0.99
+    completion: 1.99
+anthropic:
+  claude-test:
+    prompt: 1.00
+    completion: 2.00

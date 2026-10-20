@@ -28,20 +28,7 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
-# ── Cost table (USD per 1M tokens) — Phase 1 hardcode, env-overridable later ──
-
-_COST_PER_1M: dict[str, dict[str, float]] = {
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-    "gpt-4o": {"input": 2.50, "output": 10.00},
-}
-
-
-def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
-    """Return estimated cost in USD for the given token counts."""
-    prices = _COST_PER_1M.get(model)
-    if prices is None:
-        return 0.0
-    return (prompt_tokens * prices["input"] + completion_tokens * prices["output"]) / 1_000_000
+# ── Cost estimation — Phase 3 ADR-015: see model_cost_table.compute_call_cost ──
 
 
 # ── Token usage tracker (D-2 operational logging) ─────────────────────────────
@@ -90,7 +77,9 @@ class TokenUsageTracker(BaseCallbackHandler):
             prompt_tokens = getattr(token_usage, "prompt_tokens", 0) or 0
             completion_tokens = getattr(token_usage, "completion_tokens", 0) or 0
 
-        cost = _estimate_cost(model, prompt_tokens, completion_tokens)
+        from .model_cost_table import compute_call_cost
+
+        cost = compute_call_cost(self._provider, model, prompt_tokens, completion_tokens)
 
         # Calculate latency
         latency_seconds = 0.0

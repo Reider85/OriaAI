@@ -290,17 +290,17 @@ class TestTokenUsageTracker:
 
 class TestCostEstimation:
     def test_known_model_cost(self):
-        from llm_client.agent.provider import _estimate_cost
+        from llm_client.agent.model_cost_table import compute_call_cost
 
-        cost = _estimate_cost("gpt-4o-mini", 1000, 500)
-        # gpt-4o-mini: input $0.15/1M, output $0.60/1M
+        cost = compute_call_cost("openai", "gpt-4o-mini", 1000, 500)
+        # gpt-4o-mini: prompt $0.15/1M, completion $0.60/1M
         expected = (1000 * 0.15 + 500 * 0.60) / 1_000_000
         assert abs(cost - expected) < 1e-10
 
     def test_unknown_model_cost_zero(self):
-        from llm_client.agent.provider import _estimate_cost
+        from llm_client.agent.model_cost_table import compute_call_cost
 
-        cost = _estimate_cost("unknown-model", 1000, 500)
+        cost = compute_call_cost("unknown", "mystery-model", 1000, 500)
         assert cost == 0.0
 
 

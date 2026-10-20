@@ -1,0 +1,20 @@
+# Model costs (USD per 1M tokens) — production override
+# Update monthly based on provider pricing pages.
+openai:
+  gpt-4o-mini:
+    prompt: 0.15
+    completion: 0.60
+  gpt-4o:
+    prompt: 2.50
+    completion: 10.00
+anthropic:
+  claude-3-5-sonnet:
+    prompt: 3.00
+    completion: 15.00
+  claude-3-haiku:
+    prompt: 0.25
+    completion: 1.25
+ollama:
+  llama3.1-8b:
+    prompt: 0.0
+    completion: 0.0
