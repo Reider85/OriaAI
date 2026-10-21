@@ -1,5 +1,7 @@
 """Integration tests for RedisPostgresCheckpointer (B-3)."""
 
+import pytest
+
 pytestmark = [pytest.mark.integration]
 
 import uuid

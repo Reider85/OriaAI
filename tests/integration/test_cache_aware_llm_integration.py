@@ -1,6 +1,6 @@
 """Integration tests for CacheAwareLLMClient with real Redis."""
 
-from typing import Any
+from typing import Any, AsyncIterator
 from unittest.mock import patch
 
 import pytest

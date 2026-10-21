@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from llm_client.config import get_settings
+from llm_client.config import settings
 from llm_client.rag.indexing.facts_extractor import FactsExtractor
 from llm_client.rag.indexing.models import Document, DocumentFact
 

@@ -1,5 +1,7 @@
 """Integration test for HybridRetriever with real components."""
 
+import pytest
+
 pytestmark = [pytest.mark.integration]
 
 import asyncio

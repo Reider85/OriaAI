@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     orya_proxy_url: str = ""
     orya_proxy_key: str = ""
 
+    # Phase 3 — ADR-015 cost-aware router
+    llm_monthly_budget_usd: float = 100.0
+    llm_router_default_policy: str = "cost_priority"
+    llm_router_cost_guard_threshold: float = 0.8
+    llm_router_traffic_split: dict = {"openai:gpt-4o-mini": 0.7, "openai:gpt-4o": 0.3}
+
     # RAG Pipeline (ADR-017/020, Phase 2)
     reranker_enabled: bool = True  # Enable/disable reranking in RAG pipeline
     # Vector write-path (ADR-003 / ADR-020)
@@ -252,8 +258,24 @@ class Settings(BaseSettings):
                     f"FACTS_EMBEDDING_DIMENSION must be 1536|3072, got {self.facts_embedding_dimension!r}"
                 )
 
-        # Note: For fallback logic, API keys are not required for cloud providers
-        # when local fallback is available. Validation moved to create_embedding_function.
+# Note: For fallback logic, API keys are not required for cloud providers
+    # when local fallback is available. Validation moved to create_embedding_function.
+
+        # Validate LLM router settings
+        if self.llm_router_default_policy not in {
+            "cost_priority", "latency_priority", "quality_priority", "privacy_priority"
+        }:
+            raise ValueError(
+                f"LLM_ROUTER_DEFAULT_POLICY must be cost_priority|latency_priority|quality_priority|privacy_priority, got {self.llm_router_default_policy!r}"
+            )
+        if not 0 < self.llm_router_cost_guard_threshold <= 1:
+            raise ValueError(
+                f"LLM_ROUTER_COST_GUARD_THRESHOLD must be 0 < x <= 1, got {self.llm_router_cost_guard_threshold!r}"
+            )
+        if self.llm_monthly_budget_usd <= 0:
+            raise ValueError(
+                f"LLM_MONTHLY_BUDGET_USD must be > 0, got {self.llm_monthly_budget_usd!r}"
+            )
 
         return self
 
