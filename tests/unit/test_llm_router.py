@@ -108,13 +108,15 @@ class TestLLMRouter:
         assert "budget" in decision.reason.lower()
         assert "switched" in decision.reason.lower()
     
-    @patch('llm_client.agent.router.LLM_ERROR_RATE')
-    def test_circuit_breaker_active_falls_back_to_alternative(self, mock_error_rate):
+    def test_circuit_breaker_active_falls_back_to_alternative(self):
         """Test circuit breaker active falls back to alternative provider."""
-        # Mock the gauge to show 60% error rate
-        mock_gauge = MagicMock()
-        mock_gauge._value.get.return_value = 0.6
-        mock_error_rate.labels.return_value = mock_gauge
+        # Reset breaker singleton to ensure clean state
+        import llm_client.agent.circuit_breaker as cb_module
+        cb_module._breaker = None
+        
+        # Set real gauge to show 60% error rate
+        from llm_client.observability.llm_metrics import LLM_ERROR_RATE
+        LLM_ERROR_RATE.labels(provider="openai").set(0.6)
         
         decision = asyncio.run(self.router.route())
         assert decision.provider == "anthropic"

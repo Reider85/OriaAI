@@ -22,7 +22,6 @@ from typing import ClassVar
 from langchain_core.language_models import BaseChatModel
 
 from ..config import settings
-from ..observability.llm_metrics import LLM_ERROR_RATE
 from .model_cost_table import ModelCostTable, get_model_cost_table
 from .provider import LLMProviderFactory
 
@@ -191,15 +190,10 @@ class LLMRouter:
 
     async def _check_circuit_breaker(self, provider: str) -> bool:
         """Check Prometheus llm_error_rate_5m gauge for provider.
-        If >0.5 (50% error rate) → circuit breaker active."""
-        # Phase 3: read from in-process gauge (direct access)
-        try:
-            # Use direct gauge access for simplicity and performance
-            gauge_value = LLM_ERROR_RATE.labels(provider=provider)._value.get()
-            return gauge_value > 0.5
-        except Exception:
-            logger.warning("Circuit breaker check failed")
-            return False
+        If error rate exceeds threshold → circuit breaker active."""
+        from .circuit_breaker import get_circuit_breaker, CircuitState
+        status = await get_circuit_breaker().check(provider)
+        return status.state == CircuitState.OPEN
 
     def _fallback_provider(self, primary: str) -> tuple[str, str] | None:
         """Returns fallback (provider, model) if primary is down."""

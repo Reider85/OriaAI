@@ -1184,6 +1184,14 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         except Exception as exc:  # noqa: BLE001 — degrade gracefully
             logger.warning("Shared RAG pipeline unavailable at startup: %s", exc)
 
+        # Start circuit breaker metrics collector (Phase 3 ADR-015)
+        try:
+            from ..observability.error_rate_collector import run_collector_loop
+            app.state.cb_collector_task = asyncio.create_task(run_collector_loop())
+            logger.info("Circuit breaker metrics collector started")
+        except Exception as exc:
+            logger.warning("Failed to start circuit breaker metrics collector: %s", exc)
+
         # Start flusher for PostgreSQL checkpointer (B-4)
         if (
             hasattr(checkpointer_bundle, "postgres_checkpointer")
@@ -1213,6 +1221,16 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         if forensic_writer is not None:
             await forensic_writer.close()
         await redis_client.aclose()
+
+        # Stop circuit breaker metrics collector (Phase 3 ADR-015)
+        if hasattr(app.state, "cb_collector_task"):
+            try:
+                app.state.cb_collector_task.cancel()
+                await app.state.cb_collector_task
+            except asyncio.CancelledError:
+                pass  # Expected
+            except Exception as exc:
+                logger.warning("Error stopping circuit breaker collector: %s", exc)
 
         # Close checkpointer-owned resources (not the shared pool)
         bundle_redis = getattr(checkpointer_bundle, "redis_client", None)

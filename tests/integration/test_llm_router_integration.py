@@ -17,6 +17,10 @@ class TestLLMRouterIntegration:
         import llm_client.agent.router as router_module
         router_module._router = None
         
+        # Reset circuit breaker singleton
+        import llm_client.agent.circuit_breaker as cb_module
+        cb_module._breaker = None
+        
         # Clear Prometheus metrics
         from llm_client.observability.llm_metrics import LLM_ERROR_RATE, LLM_MONTHLY_BUDGET_USAGE
         LLM_ERROR_RATE.clear()
@@ -237,11 +241,10 @@ class TestLLMRouterIntegration:
             )
             
             # Mock gauge to raise an exception
-            with patch('llm_client.agent.router.LLM_ERROR_RATE') as mock_error_rate:
-                mock_gauge = MagicMock()
-                mock_gauge._value.get.side_effect = Exception("Gauge read failed")
-                mock_error_rate.labels.return_value = mock_gauge
+            # Test error handling in circuit breaker check (simulates gauge read failure)
+            with patch('llm_client.observability.llm_metrics.LLM_ERROR_RATE') as mock_error_rate:
+                mock_error_rate.labels.side_effect = AttributeError("Gauge read failed")
                 
-                # Should not raise exception, should return False
+                # Should not raise exception, should return False (graceful fallback)
                 result = asyncio.run(router._check_circuit_breaker("openai"))
                 assert result is False

@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     llm_router_default_policy: str = "cost_priority"
     llm_router_cost_guard_threshold: float = 0.8
     llm_router_traffic_split: dict = {"openai:gpt-4o-mini": 0.7, "openai:gpt-4o": 0.3}
+    llm_circuit_breaker_error_threshold: float = 0.5
     admin_token: str = ""
 
     # RAG Pipeline (ADR-017/020, Phase 2)
@@ -276,6 +277,10 @@ class Settings(BaseSettings):
         if not 0 < self.llm_router_cost_guard_threshold <= 1:
             raise ValueError(
                 f"LLM_ROUTER_COST_GUARD_THRESHOLD must be 0 < x <= 1, got {self.llm_router_cost_guard_threshold!r}"
+            )
+        if not 0 < self.llm_circuit_breaker_error_threshold <= 1:
+            raise ValueError(
+                f"LLM_CIRCUIT_BREAKER_ERROR_THRESHOLD must be 0 < x <= 1, got {self.llm_circuit_breaker_error_threshold!r}"
             )
         if self.llm_monthly_budget_usd <= 0:
             raise ValueError(

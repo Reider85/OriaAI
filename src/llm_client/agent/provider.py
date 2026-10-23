@@ -125,6 +125,13 @@ class TokenUsageTracker(BaseCallbackHandler):
         except Exception:
             logger.debug("CostGuard.record_spend failed", exc_info=True)
 
+        # Record success to circuit breaker (Phase 3 ADR-015)
+        try:
+            from .circuit_breaker import get_circuit_breaker
+            await get_circuit_breaker().record_success(self._provider)
+        except Exception:
+            logger.debug("Circuit breaker record_success failed", exc_info=True)
+
     # LLM start callback — record start time for latency tracking
     def on_llm_start(self, serialized: dict[Any, Any], **kwargs: Any) -> None:
         """Record LLM start time for latency calculation."""
@@ -158,6 +165,13 @@ class TokenUsageTracker(BaseCallbackHandler):
             )
         except Exception:
             logger.debug("Failed to record llm_usage error metrics", exc_info=True)
+
+        # Record failure to circuit breaker (Phase 3 ADR-015)
+        try:
+            from .circuit_breaker import get_circuit_breaker
+            await get_circuit_breaker().record_failure(self._provider)
+        except Exception:
+            logger.debug("Circuit breaker record_failure failed", exc_info=True)
 
 
 # ── Retry decorator (exponential backoff for transient LLM errors) ─────────────
