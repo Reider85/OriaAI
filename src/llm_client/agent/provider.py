@@ -117,6 +117,14 @@ class TokenUsageTracker(BaseCallbackHandler):
         except Exception:
             logger.debug("Failed to write llm_usage event", exc_info=True)
 
+        # Record to CostGuard (Phase 3 ADR-015)
+        try:
+            from .cost_guard import get_cost_guard
+            if await get_cost_guard().record_spend(cost):
+                logger.warning("Cost guard triggered — router will switch to cheapest")
+        except Exception:
+            logger.debug("CostGuard.record_spend failed", exc_info=True)
+
     # LLM start callback — record start time for latency tracking
     def on_llm_start(self, serialized: dict[Any, Any], **kwargs: Any) -> None:
         """Record LLM start time for latency calculation."""

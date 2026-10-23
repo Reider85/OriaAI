@@ -21,9 +21,9 @@ import json
 import logging
 import uuid
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -483,6 +483,32 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             media_type=CONTENT_TYPE_LATEST,
         )
 
+    # ── Admin endpoints (ADR-015 CostGuard) ────────────────────────────────────
+    @app.post("/admin/cost-guard/reset")
+    async def reset_cost_guard(admin_token: str = Header(default="")):
+        """Admin-only: reset monthly budget."""
+        if not settings.admin_token or admin_token != settings.admin_token:
+            raise HTTPException(status_code=403, detail="invalid admin token")
+        from .cost_guard import get_cost_guard
+        await get_cost_guard().reset_monthly()
+        return {"status": "ok", "spent_usd": 0.0}
+
+    @app.get("/admin/cost-guard/status")
+    async def cost_guard_status(admin_token: str = Header(default="")):
+        """Admin-only: get cost guard status."""
+        if not settings.admin_token or admin_token != settings.admin_token:
+            raise HTTPException(status_code=403, detail="invalid admin token")
+        from .cost_guard import get_cost_guard
+        g = get_cost_guard()
+        return {
+            "spent_usd": g._router._spent_usd,
+            "budget_usd": g._router._budget,
+            "ratio": g._router._spent_usd / g._router._budget if g._router._budget else 0,
+            "over_budget": g.is_over_budget(),
+            "remaining_usd": g.remaining_budget(),
+            "month_start": g.month_start().isoformat(),
+        }
+
     @app.post(
         "/sessions/{session_id}/chat",
         response_model=ChatResponse,
@@ -938,7 +964,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 status_code=503,
             )
 
-        from ..rag.indexing import Document, FactsExtractor, get_facts_extractor, index_document_with_hybrid
+        from ..rag.indexing import Document, get_facts_extractor, index_document_with_hybrid
 
         async with pool.acquire() as conn:
             await conn.execute(
@@ -1026,6 +1052,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             )
 
         vector_writer = getattr(app.state, "vector_writer", None)
+        from ..rag.indexing import get_facts_extractor
         facts_extractor = get_facts_extractor()
 
         pool = indexer.pg_pool
@@ -1062,7 +1089,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 document_id,
             )
 
-        # Re-index vector store (best-effort cleanup + add)
+# Re-index vector store (best-effort cleanup + add)
         if vector_writer is not None:
             try:
                 # Best-effort cleanup: delete old chunks by document_id
@@ -1071,8 +1098,8 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     try:
                         await store.adelete(where={"document_id": document_id})
                         logger.debug("Cleaned up vector chunks for %s", document_id)
-                    except Exception as e:
-                        logger.warning("Failed to cleanup vector chunks for %s: %s", document_id, e)
+                    except Exception:
+                        logger.warning("Failed to cleanup vector chunks for %s", document_id)
                 
                 # Re-index with new content
                 from ..rag.indexing.models import Document
@@ -1087,8 +1114,8 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 )
                 await vector_writer(updated_doc)
                 logger.info("Re-indexed vector chunks for %s", document_id)
-            except Exception as e:
-                logger.warning("Vector re-index failed for %s: %s", document_id, e)
+            except Exception:
+                logger.warning("Vector re-index failed for %s", document_id)
 
         # Re-extract facts (after content update)
         if facts_extractor is not None:
@@ -1105,8 +1132,8 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 )
                 await facts_extractor.extract_from_document(updated_doc, pool)
                 logger.info("Re-extracted facts for %s", document_id)
-            except Exception as e:
-                logger.warning("Facts re-extraction failed for %s: %s", document_id, e)
+            except Exception:
+                logger.warning("Facts re-extraction failed for %s", document_id)
 
         # Check if vector re-index succeeded (if vector_writer exists)
         vector_indexed = True

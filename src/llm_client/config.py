@@ -96,6 +96,7 @@ class Settings(BaseSettings):
     llm_router_default_policy: str = "cost_priority"
     llm_router_cost_guard_threshold: float = 0.8
     llm_router_traffic_split: dict = {"openai:gpt-4o-mini": 0.7, "openai:gpt-4o": 0.3}
+    admin_token: str = ""
 
     # RAG Pipeline (ADR-017/020, Phase 2)
     reranker_enabled: bool = True  # Enable/disable reranking in RAG pipeline
@@ -151,6 +152,10 @@ class Settings(BaseSettings):
 
         # Normalize provider field to uppercase for consistency
         self.llm_provider = normalized_provider
+
+        # Validate admin token in production
+        if self.environment == "prod" and not self.admin_token:
+            raise ValueError("ADMIN_TOKEN required in production for admin endpoints")
 
         # Validate OpenAI provider
         if self.llm_provider == "OPENAI" and not self.openai_api_key:

@@ -57,7 +57,7 @@ class LLMRouter:
         ("openai", "gpt-4o"): 0.3,
     }
 
-    BUDGET_THRESHOLD_CHEAPEST = 0.8  # 80% of monthly budget
+    # Budget threshold now from settings: settings.llm_router_cost_guard_threshold
 
     def __init__(
         self,
@@ -84,8 +84,8 @@ class LLMRouter:
             from ..observability.llm_metrics import update_budget_usage
             update_budget_usage(self._spent_usd, self._budget)
 
-            # 1. Cost guard: at 80% budget → switch to cheapest
-            if budget_ratio >= self.BUDGET_THRESHOLD_CHEAPEST:
+            # 1. Cost guard: at threshold budget → switch to cheapest
+            if budget_ratio >= settings.llm_router_cost_guard_threshold:
                 cheapest = self._cost_table.cheapest_model()
                 if cheapest:
                     provider, model = cheapest
@@ -197,8 +197,8 @@ class LLMRouter:
             # Use direct gauge access for simplicity and performance
             gauge_value = LLM_ERROR_RATE.labels(provider=provider)._value.get()
             return gauge_value > 0.5
-        except Exception as e:
-            logger.warning("Circuit breaker check failed: %s", e)
+        except Exception:
+            logger.warning("Circuit breaker check failed")
             return False
 
     def _fallback_provider(self, primary: str) -> tuple[str, str] | None:
