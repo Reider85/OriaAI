@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     llm_router_traffic_split: dict = {"openai:gpt-4o-mini": 0.7, "openai:gpt-4o": 0.3}
     llm_circuit_breaker_error_threshold: float = 0.5
     admin_token: str = ""
+    # Phase 3 — ADR-015 migration plan: feature flags
+    llm_router_enabled: bool = False       # LLM_ROUTER_ENABLED
+    llm_router_traffic_percent: int = 0    # LLM_ROUTER_TRAFFIC_PERCENT, 0-100
+    llm_router_shadow_mode: bool = True    # LLM_ROUTER_SHADOW_MODE
 
     # RAG Pipeline (ADR-017/020, Phase 2)
     reranker_enabled: bool = True  # Enable/disable reranking in RAG pipeline
@@ -289,6 +293,10 @@ class Settings(BaseSettings):
         if self.llm_monthly_budget_usd <= 0:
             raise ValueError(
                 f"LLM_MONTHLY_BUDGET_USD must be > 0, got {self.llm_monthly_budget_usd!r}"
+            )
+        if not 0 <= self.llm_router_traffic_percent <= 100:
+            raise ValueError(
+                f"LLM_ROUTER_TRAFFIC_PERCENT must be 0-100, got {self.llm_router_traffic_percent!r}"
             )
 
         return self

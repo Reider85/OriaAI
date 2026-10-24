@@ -17,6 +17,20 @@ from ..security.pii_detector import PIIDetector
 
 logger = logging.getLogger(__name__)
 
+# Module-level singleton for operational writer access
+_operational_writer: "OperationalStreamWriter | None" = None
+
+
+def get_operational_writer() -> "OperationalStreamWriter | None":
+    """Get the global operational writer instance (set by build_operational_writer)."""
+    return _operational_writer
+
+
+def set_operational_writer(writer: "OperationalStreamWriter | None") -> None:
+    """Set the global operational writer instance (used by service.py/api.py after build)."""
+    global _operational_writer
+    _operational_writer = writer
+
 
 class LogSink(ABC):
     """Output target for masked operational events."""
@@ -193,7 +207,16 @@ def build_operational_writer(
             spacy_model=getattr(settings, "pii_detector_spacy_model", "en_core_web_md"),
             enabled=bool(getattr(settings, "pii_detector_enabled", True)),
         )
-    return OperationalStreamWriter(pii_detector, sink=sink)
+    
+    writer = OperationalStreamWriter(
+        sink=sink,
+        pii_detector=pii_detector,
+        max_batch_size=getattr(settings, "operational_log_batch_size", 100),
+        flush_interval_ms=int(getattr(settings, "operational_log_flush_interval", 5.0) * 1000),
+    )
+    # Register the singleton instance for module access
+    set_operational_writer(writer)
+    return writer
 
 
 __all__ = [
@@ -203,4 +226,6 @@ __all__ = [
     "OperationalStreamWriter",
     "StdoutSink",
     "build_operational_writer",
+    "get_operational_writer",
+    "set_operational_writer",
 ]

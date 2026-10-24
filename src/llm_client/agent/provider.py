@@ -232,6 +232,10 @@ class LLMProviderFactory:
     ) -> BaseChatModel:
         """Instantiate a chat model for *provider*.
 
+        Deprecated (ADR-015, cutover in progress): direct factory calls superseded by
+        ``LLMRouter.create_llm()`` — see ``docs/migration_adr_005_to_015.md``.
+        Fallback-chain pattern (ADR-005) is deprecated.
+
         Parameters
         ----------
         provider:
@@ -297,8 +301,9 @@ class LLMProviderFactory:
                     )
             case "anthropic":
                 # Phase 3 (ADR-015) — implemented (cost-aware router fallback)
-                from ..config import settings
                 from langchain_anthropic import ChatAnthropic
+
+                from ..config import settings
 
                 return ChatAnthropic(
                     model_name=model,

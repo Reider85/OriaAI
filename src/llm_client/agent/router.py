@@ -13,9 +13,12 @@ TRIZ: Standard 2.2.4 (transition to measuring vepol —
 LLMCallMetrics feedback); principle #13 (inverse — load
 balancing by default, fallback at edges).
 """
+
 import asyncio
 import logging
-from dataclasses import dataclass
+import random
+import time
+from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import ClassVar
 
@@ -48,6 +51,7 @@ class RoutingDecision:
 class LLMRouter:
     """Central routing class. Wraps LLMProviderFactory."""
 
+    SHADOW_MODE: ClassVar[bool] = False  # Set True during Phase 3 Step 1
     DEFAULT_TRAFFIC_SPLIT: ClassVar[dict[tuple[str, str], float]] = {
         # 70% to primary (cost_priority: gpt-4o-mini),
         # 30% to secondary (latency_priority: gpt-4o for quality)
@@ -81,6 +85,7 @@ class LLMRouter:
             budget_ratio = self._spent_usd / self._budget if self._budget > 0 else 0.0
             # Update Prometheus gauge
             from ..observability.llm_metrics import update_budget_usage
+
             update_budget_usage(self._spent_usd, self._budget)
 
             # 1. Cost guard: at threshold budget → switch to cheapest
@@ -153,7 +158,7 @@ class LLMRouter:
         # Normalize provider case for LLMProviderFactory.create()
         provider = decision.provider
         model = decision.model
-        
+
         # Custom-openai requires base_url from settings
         if provider == "custom-openai":
             base_url = settings.custom_openai_base_url
@@ -181,17 +186,21 @@ class LLMRouter:
             self._spent_usd += cost_usd
             logger.info(
                 "LLM cost recorded: $%.4f (total $%.2f / $%.2f = %.1f%%)",
-                cost_usd, self._spent_usd, self._budget,
+                cost_usd,
+                self._spent_usd,
+                self._budget,
                 (self._spent_usd / self._budget * 100) if self._budget else 0,
             )
             # Update Prometheus budget usage gauge
             from llm_client.observability.llm_metrics import update_budget_usage
+
             update_budget_usage(self._spent_usd, self._budget)
 
     async def _check_circuit_breaker(self, provider: str) -> bool:
         """Check Prometheus llm_error_rate_5m gauge for provider.
         If error rate exceeds threshold → circuit breaker active."""
-        from .circuit_breaker import get_circuit_breaker, CircuitState
+        from .circuit_breaker import CircuitState, get_circuit_breaker
+
         status = await get_circuit_breaker().check(provider)
         return status.state == CircuitState.OPEN
 
@@ -215,6 +224,42 @@ class LLMRouter:
         elif provider == "ollama":
             return None  # Ollama is local, no API key
         return None
+
+    async def route_shadow(
+        self,
+        query: str | None = None,
+        policy: RoutingPolicy = RoutingPolicy.COST,
+    ) -> RoutingDecision:
+        """Compute routing decision in shadow mode (logged, not used).
+        Called in parallel with existing LLMProviderFactory.create() during Step 1."""
+        decision = await self.route(query, policy)
+        # Log decision for observability (shadow mode comparison)
+        from ..observability.operational_writer import get_operational_writer
+
+        writer = get_operational_writer()
+        if writer is not None:
+            await writer.write({
+                "event_type": "router_shadow_decision",
+                "decision": asdict(decision),
+                "timestamp": time.time(),
+            })
+        else:
+            logger.info(
+                "SHADOW_MODE: %s (policy: %s, reason: %s)",
+                decision.provider,
+                decision.policy,
+                decision.reason,
+            )
+        return decision
+
+
+def should_route_via_router(settings) -> bool:
+    """Determine if current request should use LLMRouter based on feature flags."""
+    if not settings.llm_router_enabled:
+        return False
+    if settings.llm_router_traffic_percent >= 100:
+        return True
+    return random.random() * 100 < settings.llm_router_traffic_percent
 
 
 _router: LLMRouter | None = None
