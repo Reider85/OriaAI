@@ -17,8 +17,7 @@ balancing by default, fallback at edges).
 import asyncio
 import logging
 import random
-import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
@@ -79,6 +78,8 @@ class LLMRouter:
         query: str | None = None,
         policy: RoutingPolicy = RoutingPolicy.COST,
         privacy_required: bool = False,
+        request_id: str | None = None,
+        log: bool = True,
     ) -> RoutingDecision:
         """Decide (provider, model) for next LLM call."""
         async with self._lock:
@@ -93,7 +94,7 @@ class LLMRouter:
                 cheapest = self._cost_table.cheapest_model()
                 if cheapest:
                     provider, model = cheapest
-                    return RoutingDecision(
+                    decision = RoutingDecision(
                         provider=provider,
                         model=model,
                         policy=RoutingPolicy.COST,
@@ -101,12 +102,20 @@ class LLMRouter:
                         budget_ratio_at_decision=budget_ratio,
                         circuit_breaker_active=False,
                     )
-
-            # 2. Privacy: if required → use Ollama or zero-retention
-            if privacy_required:
-                # Phase 4: full Ollama support; Phase 3 stub returns
-                # custom-openai with zero-retention policy
-                return RoutingDecision(
+                else:
+                    # Fallback to default if no cheapest model
+                    provider, model = "openai", "gpt-4o-mini"
+                    decision = RoutingDecision(
+                        provider=provider,
+                        model=model,
+                        policy=policy,
+                        reason=f"Budget at {budget_ratio:.0%} — fallback to default",
+                        budget_ratio_at_decision=budget_ratio,
+                        circuit_breaker_active=False,
+                    )
+            # 2. Privacy: if required → use zero-retention provider
+            elif privacy_required:
+                decision = RoutingDecision(
                     provider="custom-openai",
                     model="default",
                     policy=RoutingPolicy.PRIVACY,
@@ -114,44 +123,51 @@ class LLMRouter:
                     budget_ratio_at_decision=budget_ratio,
                     circuit_breaker_active=False,
                 )
-
             # 3. Policy-based routing
-            if policy == RoutingPolicy.COST:
-                cheapest = self._cost_table.cheapest_model() or ("openai", "gpt-4o-mini")
-                provider, model = cheapest
-                reason = "Cost priority — cheapest available"
-            elif policy == RoutingPolicy.LATENCY:
-                # Pick model with lowest p50 latency (Phase 4 reads
-                # ModelCapabilityMatrix; Phase 3 stub: gpt-4o-mini)
-                provider, model = "openai", "gpt-4o-mini"
-                reason = "Latency priority — gpt-4o-mini"
-            elif policy == RoutingPolicy.QUALITY:
-                provider, model = "openai", "gpt-4o"
-                reason = "Quality priority — gpt-4o"
-            elif policy == RoutingPolicy.PRIVACY:
-                provider, model = "custom-openai", "default"
-                reason = "Privacy priority — zero-retention"
             else:
-                provider, model = "openai", "gpt-4o-mini"
-                reason = f"Unknown policy {policy} — default"
+                if policy == RoutingPolicy.COST:
+                    cheapest = self._cost_table.cheapest_model() or ("openai", "gpt-4o-mini")
+                    provider, model = cheapest
+                    reason = "Cost priority — cheapest available"
+                elif policy == RoutingPolicy.LATENCY:
+                    # Pick model with lowest p50 latency (Phase 4 reads
+                    # ModelCapabilityMatrix; Phase 3 stub: gpt-4o-mini)
+                    provider, model = "openai", "gpt-4o-mini"
+                    reason = "Latency priority — gpt-4o-mini"
+                elif policy == RoutingPolicy.QUALITY:
+                    provider, model = "openai", "gpt-4o"
+                    reason = "Quality priority — gpt-4o"
+                elif policy == RoutingPolicy.PRIVACY:
+                    provider, model = "custom-openai", "default"
+                    reason = "Privacy priority — zero-retention"
+                else:
+                    provider, model = "openai", "gpt-4o-mini"
+                    reason = f"Unknown policy {policy} — default"
 
-            # 4. Circuit breaker check via Prometheus
-            cb_active = await self._check_circuit_breaker(provider)
-            if cb_active:
-                # Fallback to alternative provider
-                alt = self._fallback_provider(provider)
-                if alt:
-                    provider, model = alt
-                    reason += f"; circuit breaker active on primary — fallback to {alt}"
+                # 4. Circuit breaker check via Prometheus
+                cb_active = await self._check_circuit_breaker(provider)
+                if cb_active:
+                    # Fallback to alternative provider
+                    alt = self._fallback_provider(provider)
+                    if alt:
+                        provider, model = alt
+                        reason += f"; circuit breaker active on primary — fallback to {alt}"
 
-            return RoutingDecision(
-                provider=provider,
-                model=model,
-                policy=policy,
-                reason=reason,
-                budget_ratio_at_decision=budget_ratio,
-                circuit_breaker_active=cb_active,
-            )
+                decision = RoutingDecision(
+                    provider=provider,
+                    model=model,
+                    policy=policy,
+                    reason=reason,
+                    budget_ratio_at_decision=budget_ratio,
+                    circuit_breaker_active=cb_active,
+                )
+
+        # Log decision outside lock (async write)
+        if log:
+            from ..observability.router_metrics_logger import get_router_metrics_logger
+            await get_router_metrics_logger().log_decision(decision, request_id)
+
+        return decision
 
     async def create_llm(self, decision: RoutingDecision) -> BaseChatModel:
         """Create BaseChatModel based on routing decision."""
@@ -229,27 +245,18 @@ class LLMRouter:
         self,
         query: str | None = None,
         policy: RoutingPolicy = RoutingPolicy.COST,
+        actual_provider: str | None = None,
+        actual_model: str | None = None,
+        request_id: str | None = None,
     ) -> RoutingDecision:
         """Compute routing decision in shadow mode (logged, not used).
         Called in parallel with existing LLMProviderFactory.create() during Step 1."""
-        decision = await self.route(query, policy)
-        # Log decision for observability (shadow mode comparison)
-        from ..observability.operational_writer import get_operational_writer
-
-        writer = get_operational_writer()
-        if writer is not None:
-            await writer.write({
-                "event_type": "router_shadow_decision",
-                "decision": asdict(decision),
-                "timestamp": time.time(),
-            })
-        else:
-            logger.info(
-                "SHADOW_MODE: %s (policy: %s, reason: %s)",
-                decision.provider,
-                decision.policy,
-                decision.reason,
-            )
+        decision = await self.route(query, policy, log=False)
+        # Log shadow decision via RouterMetricsLogger (C-7)
+        from ..observability.router_metrics_logger import get_router_metrics_logger
+        await get_router_metrics_logger().log_shadow_decision(
+            decision, actual_provider, actual_model, request_id
+        )
         return decision
 
 

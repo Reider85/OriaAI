@@ -1110,7 +1110,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     try:
                         await store.adelete(where={"document_id": document_id})
                         logger.debug("Cleaned up vector chunks for %s", document_id)
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         logger.warning("Failed to cleanup vector chunks for %s", document_id)
 
                 # Re-index with new content
@@ -1127,7 +1127,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 )
                 await vector_writer(updated_doc)
                 logger.info("Re-indexed vector chunks for %s", document_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.warning("Vector re-index failed for %s", document_id)
 
         # Re-extract facts (after content update)
@@ -1146,7 +1146,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 )
                 await facts_extractor.extract_from_document(updated_doc, pool)
                 logger.info("Re-extracted facts for %s", document_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.warning("Facts re-extraction failed for %s", document_id)
 
         # Check if vector re-index succeeded (if vector_writer exists)
@@ -1204,7 +1204,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
             app.state.cb_collector_task = asyncio.create_task(run_collector_loop())
             logger.info("Circuit breaker metrics collector started")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to start circuit breaker metrics collector: %s", exc)
 
         # Start flusher for PostgreSQL checkpointer (B-4)
@@ -1244,7 +1244,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 await app.state.cb_collector_task
             except asyncio.CancelledError:
                 pass  # Expected
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("Error stopping circuit breaker collector: %s", exc)
 
         # Close checkpointer-owned resources (not the shared pool)

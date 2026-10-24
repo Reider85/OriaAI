@@ -9,6 +9,7 @@ Architecture: ARCHITECT.md v1.3.0 §5.2.3, §5.2.7 (Observability
 Layer). TRIZ Standard 5.1.1 — Prometheus as external substance
 for circuit breaker.
 """
+
 import logging
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
@@ -72,6 +73,13 @@ SEMANTIC_CACHE_HITS = Counter(
     registry=REGISTRY,
 )
 
+ROUTER_DECISIONS_TOTAL = Counter(
+    "router_decisions_total",
+    "Total LLMRouter routing decisions",
+    labelnames=("provider", "model", "policy", "reason", "circuit_breaker_active"),
+    registry=REGISTRY,
+)
+
 
 def record_llm_call(
     provider: str,
@@ -87,17 +95,15 @@ def record_llm_call(
     (Phase 1, AG-2) — see src/llm_client/agent/provider.py
     TokenUsageTracker.on_llm_end.
     """
-    LLM_CALLS_TOTAL.labels(
-        provider=provider, model=model, status=status, mode=mode
-    ).inc()
+    LLM_CALLS_TOTAL.labels(provider=provider, model=model, status=status, mode=mode).inc()
     if prompt_tokens:
-        LLM_TOKENS_TOTAL.labels(
-            provider=provider, model=model, token_type="prompt"
-        ).inc(prompt_tokens)
+        LLM_TOKENS_TOTAL.labels(provider=provider, model=model, token_type="prompt").inc(
+            prompt_tokens
+        )
     if completion_tokens:
-        LLM_TOKENS_TOTAL.labels(
-            provider=provider, model=model, token_type="completion"
-        ).inc(completion_tokens)
+        LLM_TOKENS_TOTAL.labels(provider=provider, model=model, token_type="completion").inc(
+            completion_tokens
+        )
     if cost_usd > 0:
         LLM_COST_TOTAL.labels(provider=provider, model=model).inc(cost_usd)
     LLM_LATENCY.labels(provider=provider, model=model).observe(latency_seconds)
@@ -120,9 +126,26 @@ def record_cache_hit(status: str) -> None:
     SEMANTIC_CACHE_HITS.labels(status=status).inc()
 
 
+def record_router_decision(
+    provider: str,
+    model: str,
+    policy: str,
+    reason: str,
+    circuit_breaker_active: bool,
+) -> None:
+    """Record one LLMRouter routing decision (C-7)."""
+    ROUTER_DECISIONS_TOTAL.labels(
+        provider=provider,
+        model=model,
+        policy=policy,
+        reason=reason,
+        circuit_breaker_active=str(circuit_breaker_active).lower(),
+    ).inc()
+
+
 def get_cache_hit_counts() -> dict[str, int]:
     """Get current counts of semantic cache hits/misses/stale.
-    
+
     Returns:
         Dict with "hit", "miss", "stale" counts (all values ≥ 0).
         Used by A/B test framework (B-6) to distinguish stale vs miss.
