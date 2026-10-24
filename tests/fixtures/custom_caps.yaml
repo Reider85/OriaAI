@@ -1,0 +1,23 @@
+# Custom model capabilities for testing
+openai:
+  gpt-4o-mini:
+    supports_native_tools: true
+    supports_streaming: true
+    supports_vision: false
+    context_window: 128000
+    cost_per_1m_tokens: {prompt: 0.99, completion: 1.99}
+    latency_p50_ms: 300
+    latency_p99_ms: 800
+    supports_react_emulation: true
+    notes: "Test override"
+anthropic:
+  claude-test:
+    supports_native_tools: true
+    supports_streaming: true
+    supports_vision: true
+    context_window: 500000
+    cost_per_1m_tokens: {prompt: 1.00, completion: 2.00}
+    latency_p50_ms: 200
+    latency_p99_ms: 600
+    supports_react_emulation: true
+    notes: "Test vision model"
