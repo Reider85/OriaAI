@@ -116,9 +116,12 @@ def _resolve_model(settings: Settings, provider: str) -> str:
     """Return the configured model name for *provider*.
 
     Phase 2: supports OpenAI, CUSTOM-OPENAI, ZAI, with provider-specific model fields.
+    Phase 3: normalize provider case (Settings stores uppercase).
     """
-    match provider:
-        case "anthropic":
+    # Normalize provider case (Settings stores uppercase, tests may use lowercase)
+    provider_key = provider.upper()
+    match provider_key:
+        case "ANTHROPIC":
             return settings.anthropic_model
         case "CUSTOM-OPENAI":
             return settings.custom_openai_model
@@ -418,7 +421,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         logger.warning("Vector writer unavailable: %s", exc)
 
     app = FastAPI(title="LLM Client — agent-service", version="0.1.0")
-    
+
     # CORS middleware for cross-origin requests from Streamlit UI
     app.add_middleware(
         CORSMiddleware,
@@ -427,7 +430,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         allow_headers=["Content-Type"],
         allow_credentials=False,
     )
-    
+
     app.state.redis = redis_client
     app.state.registry = registry
     app.state.subscriber = subscriber
@@ -490,6 +493,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         if not settings.admin_token or admin_token != settings.admin_token:
             raise HTTPException(status_code=403, detail="invalid admin token")
         from .cost_guard import get_cost_guard
+
         await get_cost_guard().reset_monthly()
         return {"status": "ok", "spent_usd": 0.0}
 
@@ -499,6 +503,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         if not settings.admin_token or admin_token != settings.admin_token:
             raise HTTPException(status_code=403, detail="invalid admin token")
         from .cost_guard import get_cost_guard
+
         g = get_cost_guard()
         return {
             "spent_usd": g._router._spent_usd,
@@ -536,8 +541,9 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         }
 
         # Select API key and base URL by provider
-        match settings.llm_provider:
-            case "openai":
+        provider_key = settings.llm_provider.upper()
+        match provider_key:
+            case "OPENAI":
                 api_key = settings.openai_api_key
                 base_url = None
             case "CUSTOM-OPENAI":
@@ -546,8 +552,11 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             case "ZAI":
                 api_key = settings.zai_api_key
                 base_url = settings.zai_base_url
+            case "ANTHROPIC":
+                api_key = settings.anthropic_api_key
+                base_url = None
             case _:
-                # Fallback for non-implemented providers (anthropic/ollama in Phase 1)
+                # Fallback for non-implemented providers (ollama in Phase 4)
                 api_key = settings.openai_api_key
                 base_url = None
 
@@ -893,10 +902,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         if checkpointer is not None:
             thread_id = generate_thread_id(session_id)
             await checkpointer.adelete_thread(thread_id)
-        
+
         # Clear in-memory session state
         _sessions.pop(session_id, None)
-        
+
         return ContextClearedResponse(status="context_cleared", session_id=session_id)
 
     # ── Artifact download (AG-4) ──────────────────────────────────────────────
@@ -1031,6 +1040,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         # Phase 3: invalidate semantic cache BEFORE delete
         from ..rag.cache_invalidator import get_cache_invalidator
+
         await get_cache_invalidator().invalidate_doc(UUID(document_id))
 
         await indexer.delete_document(document_id)
@@ -1053,6 +1063,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         vector_writer = getattr(app.state, "vector_writer", None)
         from ..rag.indexing import get_facts_extractor
+
         facts_extractor = get_facts_extractor()
 
         pool = indexer.pg_pool
@@ -1067,6 +1078,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
             # Phase 3: invalidate semantic cache BEFORE mutation
             from ..rag.cache_invalidator import get_cache_invalidator
+
             await get_cache_invalidator().invalidate_doc(UUID(document_id))
 
             # Delete old facts (FactsExtractor skips if facts exist)
@@ -1089,7 +1101,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 document_id,
             )
 
-# Re-index vector store (best-effort cleanup + add)
+        # Re-index vector store (best-effort cleanup + add)
         if vector_writer is not None:
             try:
                 # Best-effort cleanup: delete old chunks by document_id
@@ -1100,9 +1112,10 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                         logger.debug("Cleaned up vector chunks for %s", document_id)
                     except Exception:
                         logger.warning("Failed to cleanup vector chunks for %s", document_id)
-                
+
                 # Re-index with new content
                 from ..rag.indexing.models import Document
+
                 updated_doc = Document(
                     id=document_id,
                     user_id=existing["user_id"],
@@ -1121,6 +1134,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         if facts_extractor is not None:
             try:
                 from ..rag.indexing.models import Document
+
                 updated_doc = Document(
                     id=document_id,
                     user_id=existing["user_id"],
@@ -1187,6 +1201,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         # Start circuit breaker metrics collector (Phase 3 ADR-015)
         try:
             from ..observability.error_rate_collector import run_collector_loop
+
             app.state.cb_collector_task = asyncio.create_task(run_collector_loop())
             logger.info("Circuit breaker metrics collector started")
         except Exception as exc:

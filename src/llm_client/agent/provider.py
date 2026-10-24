@@ -89,6 +89,7 @@ class TokenUsageTracker(BaseCallbackHandler):
         # Record to Prometheus metrics (Phase 3 ADR-015)
         try:
             from ..observability.llm_metrics import record_llm_call
+
             record_llm_call(
                 provider=self._provider,
                 model=model,
@@ -120,6 +121,7 @@ class TokenUsageTracker(BaseCallbackHandler):
         # Record to CostGuard (Phase 3 ADR-015)
         try:
             from .cost_guard import get_cost_guard
+
             if await get_cost_guard().record_spend(cost):
                 logger.warning("Cost guard triggered — router will switch to cheapest")
         except Exception:
@@ -128,6 +130,7 @@ class TokenUsageTracker(BaseCallbackHandler):
         # Record success to circuit breaker (Phase 3 ADR-015)
         try:
             from .circuit_breaker import get_circuit_breaker
+
             await get_circuit_breaker().record_success(self._provider)
         except Exception:
             logger.debug("Circuit breaker record_success failed", exc_info=True)
@@ -138,7 +141,9 @@ class TokenUsageTracker(BaseCallbackHandler):
         self._llm_start_time = time.monotonic()
 
     # Chat model start callback — record start time for latency tracking
-    def on_chat_model_start(self, serialized: dict[Any, Any], messages: list[Any], **kwargs: Any) -> None:
+    def on_chat_model_start(
+        self, serialized: dict[Any, Any], messages: list[Any], **kwargs: Any
+    ) -> None:
         """Record chat model start time for latency calculation."""
         self._llm_start_time = time.monotonic()
 
@@ -147,15 +152,16 @@ class TokenUsageTracker(BaseCallbackHandler):
         """Record LLM error status for circuit breaker metrics."""
         # Extract model from kwargs if available
         model = kwargs.get("invocation_params", {}).get("model_name", "unknown")
-        
+
         # Calculate latency (if start time was recorded)
         latency_seconds = 0.0
         if self._llm_start_time is not None:
             latency_seconds = time.monotonic() - self._llm_start_time
-        
+
         # Record error status
         try:
             from ..observability.llm_metrics import record_llm_call
+
             record_llm_call(
                 provider=self._provider,
                 model=model,
@@ -169,6 +175,7 @@ class TokenUsageTracker(BaseCallbackHandler):
         # Record failure to circuit breaker (Phase 3 ADR-015)
         try:
             from .circuit_breaker import get_circuit_breaker
+
             await get_circuit_breaker().record_failure(self._provider)
         except Exception:
             logger.debug("Circuit breaker record_failure failed", exc_info=True)
@@ -238,6 +245,10 @@ class LLMProviderFactory:
         **kwargs:
             Forwarded to the provider-specific chat model constructor.
         """
+        # Settings stores llm_provider uppercase (config.py); normalize to factory cases
+        provider = {"OPENAI": "openai", "ANTHROPIC": "anthropic", "OLLAMA": "ollama"}.get(
+            provider, provider
+        )
         match provider:
             case "openai":
                 return ChatOpenAI(
@@ -285,8 +296,16 @@ class LLMProviderFactory:
                         **kwargs,
                     )
             case "anthropic":
-                raise NotImplementedError(
-                    "Anthropic provider is Phase 3 (ADR-015 cost-aware router)"
+                # Phase 3 (ADR-015) — implemented (cost-aware router fallback)
+                from ..config import settings
+                from langchain_anthropic import ChatAnthropic
+
+                return ChatAnthropic(
+                    model_name=model,
+                    streaming=streaming,
+                    api_key=SecretStr(api_key) if api_key else SecretStr(""),
+                    max_tokens=kwargs.pop("max_tokens", settings.anthropic_max_tokens),
+                    **kwargs,
                 )
             case "ollama":
                 raise NotImplementedError(

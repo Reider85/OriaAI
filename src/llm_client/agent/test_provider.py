@@ -32,13 +32,23 @@ class TestLLMProviderFactory:
         llm = LLMProviderFactory.create("openai", "gpt-4o-mini", api_key="sk-test", streaming=False)
         assert llm.streaming is False
 
-    def test_create_anthropic_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError, match="Phase 3.*ADR-015"):
-            LLMProviderFactory.create("anthropic", "claude-3-5-sonnet-20241022")
+    def test_create_anthropic_returns_chat_anthropic(self):
+        from langchain_anthropic import ChatAnthropic
+
+        llm = LLMProviderFactory.create("anthropic", "claude-3-haiku", api_key="sk-ant-test")
+        assert isinstance(llm, ChatAnthropic)
+        assert llm.model == "claude-3-haiku"
 
     def test_create_ollama_raises_not_implemented(self):
         with pytest.raises(NotImplementedError, match="Phase 4.*ADR-016"):
             LLMProviderFactory.create("ollama", "llama3.1")
+
+    def test_create_uppercase_openai_normalized(self):
+        from langchain_openai import ChatOpenAI
+
+        llm = LLMProviderFactory.create("OPENAI", "gpt-4o-mini", api_key="sk-test")
+        assert isinstance(llm, ChatOpenAI)
+        assert llm.model == "gpt-4o-mini"
 
     def test_create_unknown_provider_raises_value_error(self):
         with pytest.raises(ValueError, match="Unknown provider"):

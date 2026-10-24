@@ -78,7 +78,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     anthropic_api_key: str = ""  # Phase 3, placeholder
-    anthropic_model: str = "claude-3-5-sonnet-20241022"  # Phase 3
+    anthropic_model: str = "claude-3-haiku"  # Phase 3, cost-aware fallback
+    anthropic_max_tokens: int = 4096
     # Custom OpenAI-compatible provider (any OpenAI-compatible endpoint)
     custom_openai_api_key: str = ""
     custom_openai_base_url: str = ""
@@ -264,12 +265,15 @@ class Settings(BaseSettings):
                     f"FACTS_EMBEDDING_DIMENSION must be 1536|3072, got {self.facts_embedding_dimension!r}"
                 )
 
-# Note: For fallback logic, API keys are not required for cloud providers
-    # when local fallback is available. Validation moved to create_embedding_function.
+        # Note: For fallback logic, API keys are not required for cloud providers
+        # when local fallback is available. Validation moved to create_embedding_function.
 
         # Validate LLM router settings
         if self.llm_router_default_policy not in {
-            "cost_priority", "latency_priority", "quality_priority", "privacy_priority"
+            "cost_priority",
+            "latency_priority",
+            "quality_priority",
+            "privacy_priority",
         }:
             raise ValueError(
                 f"LLM_ROUTER_DEFAULT_POLICY must be cost_priority|latency_priority|quality_priority|privacy_priority, got {self.llm_router_default_policy!r}"
