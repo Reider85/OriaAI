@@ -23,29 +23,6 @@ from llm_client.agent.tool_calling_mode import ToolCallingMode
 
 logger = logging.getLogger(__name__)
 
-REACT_SYSTEM_PROMPT = """
-You are a helpful AI assistant with access to the following tools:
-
-{tool_descriptions}
-
-When you need to use a tool, respond with a JSON object containing:
-- tool: the name of the tool to use
-- arguments: a dictionary of the arguments to pass to the tool
-
-Example:
-```json
-{{
-  "tool": "web_search",
-  "arguments": {{
-    "query": "current weather in London"
-  }}
-}}
-```
-
-If you don't need to use any tools, respond normally with text.
-"""
-
-# Regex to extract tool calls from ReAct responses (with or without ```json fences)
 # Regex to extract tool calls from ReAct responses (with or without ```json fences)
 TOOL_CALL_REGEX = re.compile(
     r"```(?:json)?\s*(\{[\s\S]*?\"tool\"[\s\S]*?\})\s*```|(\{[\s\S]*?\"tool\"[\s\S]*?\})",
@@ -167,42 +144,15 @@ class ToolCallingAdapter:
         else:
             raise ValueError(f"Unknown ToolCallingMode: {mode}")
 
-    def _format_tool_descriptions(self, tools: list[BaseTool]) -> str:
-        """Format tool descriptions for system prompt."""
-        descriptions = []
-        for tool in tools:
-            desc = f"- {tool.name}: {tool.description}"
-            if hasattr(tool, "args_schema") and tool.args_schema:
-                # Try to serialize args_schema, fallback to basic representation
-                try:
-                    desc += f" (args: {json.dumps(tool.args_schema, indent=2)})"
-                except (TypeError, ValueError):
-                    desc += f" (args: {tool.args_schema})"
-            descriptions.append(desc)
-        return "\n".join(descriptions)
-
-    def _format_tool_schemas(self, tools: list[BaseTool]) -> str:
-        """Format tool schemas for system prompt."""
-        schemas = []
-        for tool in tools:
-            if hasattr(tool, "args_schema") and tool.args_schema:
-                # Try to serialize args_schema, fallback to basic representation
-                try:
-                    schemas.append(json.dumps(tool.args_schema, indent=2))
-                except (TypeError, ValueError):
-                    # If serialization fails, use string representation
-                    schemas.append(str(tool.args_schema))
-        return "\n\n".join(schemas)
-
     def build_react_system_prompt(self, tools: list[BaseTool]) -> str:
-        """Build ReAct system prompt with tool descriptions and schemas."""
-        descriptions = self._format_tool_descriptions(tools)
-        schemas = self._format_tool_schemas(tools)
-        
-        return REACT_SYSTEM_PROMPT.format(
-            tool_descriptions=descriptions,
-            tool_schemas=schemas,
-        )
+        """Build ReAct system prompt with tool descriptions and schemas.
+
+        Delegates to ReactToolCallPromptBuilder (D-4) — prompt variants are
+        selectable via env REACT_PROMPT_VARIANT (default v1_strict).
+        """
+        from llm_client.agent.react_prompt_builder import get_react_prompt_builder
+
+        return get_react_prompt_builder().build_prompt(tools)
 
     def parse_react_response(self, response_text: str) -> dict[str, Any] | None:
         """Parse tool calls from ReAct response text.
