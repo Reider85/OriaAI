@@ -44,6 +44,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ollama = ["langchain-ollama>=0.2.0"]
 rerank = ["cohere>=5.0.0"]
 vector = [
     "chromadb>=0.5.0",
