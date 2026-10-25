@@ -63,6 +63,7 @@ from .message_store import (
     insert_message,
 )
 from .provider import LLMProviderFactory
+from .router import RoutingPolicy, get_llm_router, should_route_via_router
 from .tools import file_export, rag_query, web_search
 
 # Prometheus default registry used by /metrics (F-2).
@@ -560,32 +561,62 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 api_key = settings.openai_api_key
                 base_url = None
 
-        # Create LLM via provider factory (AG-2)
-        try:
-            # Add OryaSecurity proxy settings for ZAI provider
-            if settings.llm_provider == "ZAI" and settings.orya_proxy_url:
-                llm = LLMProviderFactory.create(
-                    provider=settings.llm_provider,
-                    model=model_name,
-                    api_key=api_key,
-                    base_url=base_url,
-                    orya_proxy_url=settings.orya_proxy_url,
-                    orya_proxy_key=settings.orya_proxy_key if settings.orya_proxy_key else None,
-                )
-            else:
-                llm = LLMProviderFactory.create(
-                    provider=settings.llm_provider,
-                    model=model_name,
-                    api_key=api_key,
-                    base_url=base_url,
-                )
-        except NotImplementedError:
-            # Fallback for non-implemented providers (anthropic/ollama in Phase 1)
-            from langchain_core.language_models import FakeListChatModel
-
-            llm = FakeListChatModel(
-                responses=["Provider not yet implemented. Using placeholder response."]
+        # Create LLM via LLMRouter if enabled, otherwise use provider factory (C-6)
+        if should_route_via_router(settings):
+            # Use LLMRouter for intelligent routing
+            router = get_llm_router()
+            
+            # Compute routing decision
+            decision = await router.route(
+                policy=RoutingPolicy(settings.llm_router_default_policy),
+                request_id=session_id,
             )
+            
+            # Create LLM via router
+            llm = await router.create_llm(decision)
+            
+            # Shadow mode: log routing decision for observability
+            if settings.llm_router_shadow_mode:
+                await router.route_shadow(
+                    actual_provider=settings.llm_provider,
+                    actual_model=model_name,
+                    request_id=session_id,
+                )
+            
+            logger.info(
+                "LLMRouter decision: provider=%s model=%s policy=%s reason=%s",
+                decision.provider,
+                decision.model,
+                decision.policy,
+                decision.reason,
+            )
+        else:
+            # Phase 1/2 behavior: direct LLMProviderFactory.create()
+            try:
+                # Add OryaSecurity proxy settings for ZAI provider
+                if settings.llm_provider == "ZAI" and settings.orya_proxy_url:
+                    llm = LLMProviderFactory.create(
+                        provider=settings.llm_provider,
+                        model=model_name,
+                        api_key=api_key,
+                        base_url=base_url,
+                        orya_proxy_url=settings.orya_proxy_url,
+                        orya_proxy_key=settings.orya_proxy_key if settings.orya_proxy_key else None,
+                    )
+                else:
+                    llm = LLMProviderFactory.create(
+                        provider=settings.llm_provider,
+                        model=model_name,
+                        api_key=api_key,
+                        base_url=base_url,
+                    )
+            except NotImplementedError:
+                # Fallback for non-implemented providers (anthropic/ollama in Phase 1)
+                from langchain_core.language_models import FakeListChatModel
+
+                llm = FakeListChatModel(
+                    responses=["Provider not yet implemented. Using placeholder response."]
+                )
 
         # Build iteration monitor for cycle detection
         monitor = IterationMonitor()
@@ -619,6 +650,9 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             rag_pipeline=rag_pipeline,
             settings=request_settings,
             llm_invoke_timeout_s=settings.llm_invoke_timeout_seconds,
+            provider=settings.llm_provider,
+            model=model_name,
+            tool_calling_mode=request_settings.get("tool_calling_mode"),
         )
 
         # Queue for streaming chunks from background task to SSE generator

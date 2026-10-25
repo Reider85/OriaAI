@@ -133,7 +133,7 @@ class ToolCallingAdapter:
                     react_bound=ReActBoundModel(underlying=llm, tools=tools, adapter=self),
                     adapter=self,
 )
-            except Exception as e:
+            except (NotImplementedError, AttributeError, TypeError) as e:
                 logger.warning(
                     "Native bind_tools failed (%s), falling back to ReAct for %s/%s",
                     e,
@@ -346,7 +346,7 @@ class HybridBoundModel:
             # No tool calls found, return native response
             return response
             
-        except Exception as e:
+        except (NotImplementedError, AttributeError, TypeError) as e:
             logger.warning(
                 "Native invocation failed (%s), falling back to ReAct",
                 e,
@@ -390,7 +390,7 @@ class HybridBoundModel:
                 async for react_chunk in self._react_bound.astream(messages, **kwargs):
                     yield react_chunk
             
-        except Exception as e:
+        except (NotImplementedError, AttributeError, TypeError) as e:
             logger.warning(
                 "Native streaming failed (%s), falling back to ReAct",
                 e,

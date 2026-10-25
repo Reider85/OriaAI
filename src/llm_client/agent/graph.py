@@ -21,6 +21,7 @@ from langgraph.graph.message import add_messages
 
 from ..transport.cancel import CancellationToken
 from .cycle_detection import IterationMonitor
+from .tool_calling_adapter import ToolCallingMode, get_tool_calling_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -234,8 +235,8 @@ async def _tool_executor_node(
                 # Bind loop variables to avoid late capture
                 matched_tool, matched_args = matched, args
 
-                async def call_tool():
-                    return await matched_tool.ainvoke(matched_args)
+                async def call_tool(tool=matched_tool, args=matched_args):
+                    return await tool.ainvoke(args)
 
                 result = await invoke_with_cancel(
                     call_tool,
@@ -423,6 +424,9 @@ def build_agent_graph(
     settings: dict[str, Any] | None = None,
     llm_invoke_timeout_s: float | None = None,
     use_semantic_cache: bool | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    tool_calling_mode: ToolCallingMode | None = None,
 ) -> Any:
     """Construct and compile the agent graph (Phase 1 + Phase 2).
 
@@ -452,6 +456,10 @@ def build_agent_graph(
             threaded through graph state.
         use_semantic_cache: Optional bool — whether to wrap LLM in CacheAwareLLMClient.
             If None, uses settings.semantic_cache_enabled and cache availability.
+        provider: Optional provider name (e.g. "openai", "anthropic") for tool calling mode selection.
+        model: Optional model name (e.g. "gpt-4o", "claude-3-haiku") for tool calling mode selection.
+        tool_calling_mode: Optional ToolCallingMode override (NATIVE, REACT, HYBRID). If None,
+            uses HYBRID by default, or chooses mode based on provider/model capabilities.
 
     Returns:
         Compiled LangGraph graph ready for ``graph.astream(state)``.
@@ -459,25 +467,51 @@ def build_agent_graph(
     # ── Phase 3: Optionally wrap LLM in CacheAwareLLMClient (B-5) ─────────────
     if use_semantic_cache is None:
         # Lazy import to avoid cycle and defer cost until needed
-        from ..config import settings
+        from ..config import Settings
         from ..rag.cache_aware_llm import CacheAwareLLMClient
         from ..rag.semantic_cache import get_semantic_cache
-        use_semantic_cache = (
-            settings.semantic_cache_enabled
-            and get_semantic_cache() is not None
-        )
+
+        settings_obj = Settings()
+        use_semantic_cache = settings_obj.semantic_cache_enabled and get_semantic_cache() is not None
     if use_semantic_cache:
         from ..rag.cache_aware_llm import CacheAwareLLMClient
+
         llm = CacheAwareLLMClient(underlying=llm)
         logger.info("Semantic cache enabled — wrapping LLM in CacheAwareLLMClient")
 
-    # ── Bind tools to LLM (AG-4) ─────────────────────────────────────────────
+    # ── Bind tools to LLM with ToolCallingAdapter (D-5) ────────────────────────
     bound_llm = llm
     if tools:
         try:
-            bound_llm = cast("BaseChatModel", llm.bind_tools(tools))
+            # Use ToolCallingAdapter to choose appropriate tool calling mode
+            adapter = get_tool_calling_adapter()
+            
+            # Determine tool calling mode
+            if provider and model:
+                # Choose mode based on provider/model capabilities
+                mode = adapter.choose_mode(provider, model, tool_calling_mode)
+            else:
+                # Use explicit mode or default to HYBRID
+                mode = tool_calling_mode or ToolCallingMode.HYBRID
+            
+            # Bind tools using the adapter
+            bound_llm = adapter.bind_tools(llm, tools, mode)
+            
+            # Log the chosen mode for observability
+            logger.info(
+                "ToolCallingAdapter mode=%s provider=%s model=%s",
+                mode,
+                provider or "unknown",
+                model or "unknown"
+            )
+            
         except (NotImplementedError, AttributeError) as exc:
-            logger.warning("LLM does not support bind_tools (%s); tool calls disabled", exc)
+            logger.warning(
+                "ToolCallingAdapter failed (%s); tool calls disabled. Falling back to raw LLM.",
+                exc
+            )
+            # Fallback to Phase 1/2 behavior: disable tool calls entirely
+            bound_llm = llm
 
     triggers = rag_triggers or _RAG_TRIGGERS
     top_k_override = _resolve_top_k_override(settings)
