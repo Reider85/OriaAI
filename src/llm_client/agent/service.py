@@ -449,11 +449,11 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
     # ── MCP Server preview (ADR-004 acceleration Phase 3) ───────────────────
     if settings.mcp_server_enabled:
-        from ..mcp.exposed_tools import register_exposed_tools
         from ..mcp.server import McpServer
+        from ..mcp.tool_registry import get_exposed_tool_registry, register_default_tools
 
-        mcp_server = McpServer(app)
-        register_exposed_tools(mcp_server)
+        register_default_tools()
+        mcp_server = McpServer(app, get_exposed_tool_registry())
         mcp_server.mount()
         logger.info("MCP Server preview enabled at /mcp/*")
 

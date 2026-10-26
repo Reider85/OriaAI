@@ -2,10 +2,21 @@
 import json
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.llm_client.mcp.server import McpServer
+from src.llm_client.mcp.tool_registry import reset_exposed_tool_registry
+
+
+@pytest.fixture(autouse=True)
+def _reset_singleton_registry():
+    """McpServer falls back to the global ExposedToolRegistry singleton
+    (H-2) — isolate tests from tools leaked by previous tests."""
+    reset_exposed_tool_registry()
+    yield
+    reset_exposed_tool_registry()
 
 
 def test_list_tools_returns_registered_tools():
