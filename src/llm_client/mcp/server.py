@@ -98,23 +98,20 @@ class McpServer:
             except json.JSONDecodeError as e:
                 raise HTTPException(400, f"Invalid args JSON: {e}")
 
-            async def event_stream():
-                try:
-                    # If handler is async generator, stream results
-                    if inspect.isasyncgenfunction(entry.handler):
-                        async for chunk in entry.handler(**args):
-                            yield f"data: {json.dumps(chunk)}\n\n"
-                    else:
-                        # Single result, emit as one SSE event
-                        result = await entry.handler(**args)
-                        yield f"data: {json.dumps(result)}\n\n"
-                except Exception as e:
-                    logger.exception("MCP streaming tool %s failed", name)
-                    error_event = {"error": str(e)}
-                    yield f"data: {json.dumps(error_event)}\n\n"
+            async def streaming_handler():
+                # If handler is async generator, stream results
+                if inspect.isasyncgenfunction(entry.handler):
+                    async for chunk in entry.handler(**args):
+                        yield chunk
+                else:
+                    # Single result, emit as one chunk
+                    result = await entry.handler(**args)
+                    yield result
+
+            from .sse_transport import stream_tool_result
 
             return StreamingResponse(
-                event_stream(),
+                stream_tool_result(streaming_handler()),
                 media_type="text/event-stream",
             )
 

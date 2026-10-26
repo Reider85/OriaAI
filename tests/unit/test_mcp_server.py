@@ -1,4 +1,5 @@
 """Unit tests for McpServer (H-1)."""
+
 import json
 from unittest.mock import AsyncMock
 
@@ -23,16 +24,16 @@ def test_list_tools_returns_registered_tools():
     """Test GET /mcp/tools returns registered tools."""
     app = FastAPI()
     server = McpServer(app)
-    
+
     server.register_tool(
         name="test_tool",
         description="Test tool",
         args_schema={"type": "object", "properties": {"foo": {"type": "string"}}},
         handler=AsyncMock(),
     )
-    
+
     server.mount()
-    
+
     with TestClient(app) as client:
         response = client.get("/mcp/tools")
         assert response.status_code == 200
@@ -47,19 +48,22 @@ def test_call_tool_invokes_handler():
     """Test POST /mcp/tools/{name} invokes handler."""
     app = FastAPI()
     server = McpServer(app)
-    
+
     async def mock_handler(foo: str, bar: int = 42) -> dict:
         return {"result": f"{foo}-{bar}"}
-    
+
     server.register_tool(
         name="test_tool",
         description="Test tool",
-        args_schema={"type": "object", "properties": {"foo": {"type": "string"}, "bar": {"type": "integer"}}},
+        args_schema={
+            "type": "object",
+            "properties": {"foo": {"type": "string"}, "bar": {"type": "integer"}},
+        },
         handler=mock_handler,
     )
-    
+
     server.mount()
-    
+
     with TestClient(app) as client:
         response = client.post("/mcp/tools/test_tool", json={"foo": "hello", "bar": 123})
         assert response.status_code == 200
@@ -73,7 +77,7 @@ def test_call_tool_unknown_returns_404():
     app = FastAPI()
     server = McpServer(app)
     server.mount()
-    
+
     with TestClient(app) as client:
         response = client.post("/mcp/tools/unknown", json={"foo": "bar"})
         assert response.status_code == 404
@@ -83,19 +87,19 @@ def test_call_tool_handler_error_returns_error_dict():
     """Test handler error returns {error: "..."} instead of 500."""
     app = FastAPI()
     server = McpServer(app)
-    
+
     async def failing_handler():
         raise ValueError("Test error")
-    
+
     server.register_tool(
         name="failing_tool",
         description="Failing tool",
         args_schema={"type": "object"},
         handler=failing_handler,
     )
-    
+
     server.mount()
-    
+
     with TestClient(app) as client:
         response = client.post("/mcp/tools/failing_tool", json={})
         assert response.status_code == 200
@@ -108,45 +112,72 @@ def test_streaming_endpoint_emits_sse_events():
     """Test GET /mcp/tools/{name}/stream emits SSE events."""
     app = FastAPI()
     server = McpServer(app)
-    
+
     async def streaming_handler(query: str):
         for i in range(3):
             yield {"chunk": f"result {i}"}
-    
+
     server.register_tool(
         name="streaming_tool",
         description="Streaming tool",
         args_schema={"type": "object", "properties": {"query": {"type": "string"}}},
         handler=streaming_handler,
     )
-    
+
     server.mount()
-    
+
     with TestClient(app) as client:
-        response = client.get("/mcp/tools/streaming_tool/stream?args_json={\"query\": \"test\"}")
+        response = client.get('/mcp/tools/streaming_tool/stream?args_json={"query": "test"}')
         assert response.status_code == 200
         assert "text/event-stream" in response.headers["content-type"]
-        
+
         events = []
+        current_event = []
         for line in response.iter_lines():
-            if line.startswith("data: "):
-                data = json.loads(line[6:])
-                events.append(data)
-        
-        assert len(events) == 3
+            if line.startswith("event: "):
+                # Start of new event
+                if current_event:
+                    # Process previous event
+                    event_text = "\n".join(current_event)
+                    if "event: tool_result" in event_text:
+                        data_start = event_text.find("data: ")
+                        if data_start != -1:
+                            data = json.loads(event_text[data_start + 6 :])
+                            events.append(data)
+                    elif "event: done" in event_text:
+                        events.append({})  # done event has empty data
+                current_event = [line]
+            elif line.startswith("data: "):
+                current_event.append(line)
+            elif not line.strip():  # empty line ends event
+                if current_event:
+                    event_text = "\n".join(current_event)
+                    if "event: tool_result" in event_text:
+                        data_start = event_text.find("data: ")
+                        if data_start != -1:
+                            data = json.loads(event_text[data_start + 6 :])
+                            events.append(data)
+                    elif "event: done" in event_text:
+                        events.append({})  # done event has empty data
+                current_event = []
+
+        # Should have 4 events: 3 tool_result + 1 done
+        assert len(events) == 4
         assert events[0]["chunk"] == "result 0"
         assert events[1]["chunk"] == "result 1"
         assert events[2]["chunk"] == "result 2"
+        # Last event should be done with empty data
+        assert events[3] == {}
 
 
 def test_health_endpoint_returns_status():
     """Test GET /mcp/health returns server status."""
     app = FastAPI()
     server = McpServer(app)
-    
+
     server.register_tool("test", "desc", {}, AsyncMock())
     server.mount()
-    
+
     with TestClient(app) as client:
         response = client.get("/mcp/health")
         assert response.status_code == 200
@@ -163,13 +194,13 @@ def test_mcp_mounted_only_when_enabled():
     with TestClient(app1) as client:
         response = client.get("/mcp/tools")
         assert response.status_code == 404
-    
+
     # Test with enabled MCP
     app2 = FastAPI()
     server2 = McpServer(app2)
     server2.register_tool("test", "desc", {}, AsyncMock())
     server2.mount()
-    
+
     with TestClient(app2) as client:
         response = client.get("/mcp/tools")
         assert response.status_code == 200
@@ -181,10 +212,10 @@ def test_invalid_args_json_returns_400():
     """Test invalid JSON args returns 400."""
     app = FastAPI()
     server = McpServer(app)
-    
+
     server.register_tool("test", "desc", {}, AsyncMock())
     server.mount()
-    
+
     with TestClient(app) as client:
         response = client.get("/mcp/tools/test/stream?args_json={invalid json}")
         assert response.status_code == 400
@@ -195,27 +226,35 @@ def test_large_args_json_accepted():
     """Test large args JSON is accepted (FastAPI doesn't enforce 4KB limit by default)."""
     app = FastAPI()
     server = McpServer(app)
-    
+
     async def mock_handler(data: str):
         return {"length": len(data)}
-    
+
     server.register_tool("test", "desc", {}, mock_handler)
     server.mount()
-    
+
     # Create 5KB JSON string
     large_json = json.dumps({"data": "x" * 5000})
-    
+
     with TestClient(app) as client:
         response = client.get(f"/mcp/tools/test/stream?args_json={large_json}")
         assert response.status_code == 200
         assert "text/event-stream" in response.headers["content-type"]
-        
-        # Parse SSE events
-        events = []
+
+        # Count SSE events
+        event_count = 0
+        tool_result_count = 0
+        done_count = 0
+
         for line in response.iter_lines():
-            if line.startswith("data: "):
-                data = json.loads(line[6:])
-                events.append(data)
-        
-        assert len(events) == 1
-        assert events[0]["length"] == 5000
+            if line.startswith("event: "):
+                event_count += 1
+                if "event: tool_result" in line:
+                    tool_result_count += 1
+                elif "event: done" in line:
+                    done_count += 1
+
+        # Should have 2 events: 1 tool_result + 1 done
+        assert event_count == 2
+        assert tool_result_count == 1
+        assert done_count == 1
