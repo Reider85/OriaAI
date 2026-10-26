@@ -591,6 +591,7 @@ __all__ = [
     "render_artifact_buttons",
     "render_error",
     "render_history",
+    "render_mcp_server_toggle",
     "render_message",
     "render_pii_badge",
     "render_rag_citations",
@@ -605,26 +606,30 @@ __all__ = [
 
 def render_router_policy(session_state: MutableMapping[str, Any]) -> str:
     """Renders a selectbox for LLMRouter policy. Returns selected policy string.
-    
+
     Args:
         session_state: current st.session_state (or any MutableMapping).
                       Reads previous values and stores selection.
-    
+
     Returns:
-        Selected policy string ("cost_priority", "latency_priority", 
+        Selected policy string ("cost_priority", "latency_priority",
                                "quality_priority", "privacy_priority").
     """
     import streamlit as st
-    
+
     # Lazy import to avoid heavy dependencies at UI module level
     from llm_client.agent.router import RoutingPolicy
-    
+
     options = [p.value for p in RoutingPolicy]
     # Default from Settings (lazy import inside function)
     from llm_client.config import settings as config_settings
-    default_idx = options.index(config_settings.llm_router_default_policy) \
-        if config_settings.llm_router_default_policy in options else 0
-    
+
+    default_idx = (
+        options.index(config_settings.llm_router_default_policy)
+        if config_settings.llm_router_default_policy in options
+        else 0
+    )
+
     selected = st.selectbox(
         "LLM Router Policy",
         options=options,
@@ -632,9 +637,9 @@ def render_router_policy(session_state: MutableMapping[str, Any]) -> str:
         format_func=lambda x: x.replace("_", " ").title(),
         key="settings_router_policy",
         help="Cost: cheapest model. Latency: fastest p50. "
-             "Quality: best model. Privacy: zero-retention.",
+        "Quality: best model. Privacy: zero-retention.",
     )
-    
+
     # Persist in session_state for next re-run
     if "settings" not in session_state:
         session_state["settings"] = {}
@@ -670,8 +675,8 @@ def render_tool_calling_mode(session_state: MutableMapping[str, Any]) -> str:
         format_func=lambda x: x.title(),
         key="settings_tool_calling_mode",
         help="Auto: choose via capability matrix. Native: OpenAI-style "
-             "function calling. ReAct: system prompt emulation. Hybrid: "
-             "native with ReAct fallback.",
+        "function calling. ReAct: system prompt emulation. Hybrid: "
+        "native with ReAct fallback.",
     )
 
     # Persist in session_state for next re-run
@@ -679,6 +684,64 @@ def render_tool_calling_mode(session_state: MutableMapping[str, Any]) -> str:
         session_state["settings"] = {}
     session_state["settings"]["tool_calling_mode"] = selected
     return selected
+
+
+def render_mcp_server_toggle(session_state: MutableMapping[str, Any]) -> bool:
+    """Renders a checkbox for MCP Server mode on/off + endpoint URL (Phase 3 G-3).
+
+    MCP Server mode is a deployment-level admin setting (env var
+    ``MCP_SERVER_ENABLED``; H-1 mounts ``/mcp/*`` routes at startup). The
+    checkbox reflects ``Settings.mcp_server_enabled`` and lets the user
+    preview the endpoint info — it does not restart or reconfigure the
+    agent-service; the actual toggle remains the env var.
+
+    Args:
+        session_state: current st.session_state (or any MutableMapping).
+                      Stores the display state under settings dict.
+
+    Returns:
+        True if the checkbox is checked (MCP Server enabled).
+    """
+    import streamlit as st
+
+    # Lazy imports to avoid heavy dependencies at UI module level
+    from llm_client.config import settings as config_settings
+    from llm_client.ui.chat import agent_service_url
+
+    enabled = st.checkbox(
+        "Enable MCP Server (preview)",
+        value=bool(config_settings.mcp_server_enabled),
+        key="settings_mcp_server_enabled",
+        help="Exposes LLM Client tools (rag_query, file_export, "
+        "web_search) as MCP tools for external clients. "
+        "Deployment-level setting: actual toggle is the "
+        "MCP_SERVER_ENABLED env var (ADR-004 preview).",
+    )
+
+    if enabled:
+        base_url = agent_service_url()
+        st.info(
+            f"MCP Server endpoint: `{base_url}/mcp/tools`\n\n"
+            f"Transport: {config_settings.mcp_server_transport.upper()}\n\n"
+            f"Tools: rag_query, file_export, web_search"
+        )
+        if st.button("Check MCP Server Health", key="settings_mcp_health"):
+            import httpx
+
+            try:
+                resp = httpx.get(f"{base_url}/mcp/health", timeout=5.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.success(f"OK — {data['tools_count']} tools registered")
+                else:
+                    st.error(f"Health check failed: {resp.status_code}")
+            except (httpx.HTTPError, ValueError) as e:
+                st.error(f"Cannot reach MCP Server: {e}")
+
+    if "settings" not in session_state:
+        session_state["settings"] = {}
+    session_state["settings"]["mcp_server_enabled"] = enabled
+    return enabled
 
 
 def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
@@ -702,11 +765,15 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
                 range 1-20).
             - top_k: int (rag_query top_k, default 5, range 1-20).
             - router_policy: str — LLM router policy (Phase 3 G-1)
-                "cost_priority" | "latency_priority" | "quality_priority" | 
+                "cost_priority" | "latency_priority" | "quality_priority" |
                 "privacy_priority" (default: "cost_priority").
             - tool_calling_mode: str | None — tool calling mode
                 (Phase 3 G-2, ADR-016): "native" | "react" | "hybrid";
                 None = "auto" (adapter chooses via capability matrix).
+            - mcp_server_enabled: bool — MCP Server preview display
+                state (Phase 3 G-3, ADR-004). Display-only: actual
+                toggle is the MCP_SERVER_ENABLED env var (H-1 mounts
+                /mcp/* at startup).
     """
     import streamlit as st
 
@@ -781,6 +848,10 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
         st.markdown("**Tool Calling**")
         render_tool_calling_mode(session_state)
 
+        # Sub-section: MCP Server (Phase 3 G-3)
+        st.markdown("**MCP Server**")
+        render_mcp_server_toggle(session_state)
+
     # Persist in session_state для следующего re-run:
     _mode_raw = session_state.get("settings", {}).get("tool_calling_mode", "auto")
     settings = {
@@ -792,6 +863,10 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
         "router_policy": session_state.get("settings", {}).get("router_policy", "cost_priority"),
         # "auto" → None (adapter chooses via capability matrix)
         "tool_calling_mode": None if _mode_raw == "auto" else _mode_raw,
+        # Display-only admin setting (Phase 3 G-3); backend ignores it
+        "mcp_server_enabled": bool(
+            session_state.get("settings", {}).get("mcp_server_enabled", False)
+        ),
     }
     session_state["settings"] = settings
     return settings

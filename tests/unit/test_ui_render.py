@@ -977,7 +977,7 @@ def test_render_settings_panel_disable_web_search():
 
     original_checkbox = st.checkbox
 
-    def mock_checkbox(label, value=True, key=None):
+    def mock_checkbox(label, value=True, key=None, **kwargs):
         if key == "settings_tool_web_search":
             return False  # Disable web_search
         return original_checkbox(label, value, key)
@@ -1004,7 +1004,7 @@ def test_render_settings_panel_disable_rag_query():
 
     original_checkbox = st.checkbox
 
-    def mock_checkbox(label, value=True, key=None):
+    def mock_checkbox(label, value=True, key=None, **kwargs):
         if key == "settings_tool_rag_query":
             return False  # Disable rag_query
         return original_checkbox(label, value, key)
