@@ -1,5 +1,6 @@
-# Grafana unified alerting rules for the architecture ideality metric (G-2)
-# and Phase 2 control point (ALPHA-PROMPTS F-2).
+# Grafana unified alerting rules for the architecture ideality metric (G-2),
+# Phase 2 control point (ALPHA-PROMPTS F-2), and Phase 3 ADR-011 semantic cache
+# (BETA-PROMPTS E-1).
 #
 # Phase 1 (G-2):
 #   - idealidad_ratio < 1.0 sustained over a 14-day window (trend down).
@@ -9,6 +10,8 @@
 #   - reranker fallback_count > 100/day.
 #   - checkpoint recovery loss proxy > 5s (recovery p99 duration).
 #   - hybrid exact_term recall@5 regression > 5% (delta of improvement < -5).
+# Phase 3 ADR-011 (E-1): semantic cache stale rate >1% or hit rate <10%
+#   (ROLLBACK criterion per ROADMAP §14.1).
 #
 # All rules carry the `team: architecture` label, which the notification policy
 # routes to the Slack contact point.
@@ -271,6 +274,113 @@ groups:
                       - A
                   reducer:
                     type: min
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+  - orgId: 1
+    name: semantic-cache
+    folder: Architecture
+    interval: 1m
+    rules:
+      - uid: semantic-cache-stale-rate-high
+        title: Semantic cache stale rate high
+        condition: C
+        noDataState: NoData
+        execErrState: OK
+        for: 5m
+        annotations:
+          summary: >-
+            Semantic cache stale rate {{ $values.A.Value }} > 1% over the last 5m
+            (ADR-011 pilot risk, rollback criterion).
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: sum(rate(semantic_cache_hits_total{status="stale"}[5m])) / sum(rate(semantic_cache_hits_total[5m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.01
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: max
+                  type: query
+              data:
+                source: A
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+      - uid: semantic-cache-hit-rate-low
+        title: Semantic cache hit rate low
+        condition: C
+        noDataState: NoData
+        execErrState: OK
+        for: 10m
+        annotations:
+          summary: >-
+            Semantic cache hit rate {{ $values.A.Value }} < 10% over the last 10m
+            (ADR-011 pilot rollback criterion).
+        labels:
+          team: architecture
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 36000
+              to: 0
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: sum(rate(semantic_cache_hits_total{status="hit"}[10m])) / sum(rate(semantic_cache_hits_total[10m]))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0.1
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - A
+                  reducer:
+                    type: max
                   type: query
               data:
                 source: A

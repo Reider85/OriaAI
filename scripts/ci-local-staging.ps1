@@ -590,6 +590,8 @@ function Run-Phase3Adr011Integration {
         $result = Run-Test -TestName "phase3-$($test.Name)" -TestCommand $test.Path -TimeoutSeconds 600 -Environment $envVars -Python $Python
         if ($result -ne 0) { return $result }
     }
+    $result = Run-Test -TestName "phase3-adr011-pilot" -TestCommand "scripts/ab_test_semantic_cache.py --queries-file datasets/rag_eval/phase3_semantic_cache_eval.jsonl --iterations 2" -TimeoutSeconds 600 -Environment $envVars -Python $Python
+    if ($result -ne 0) { return $result }
     return 0
 }
 

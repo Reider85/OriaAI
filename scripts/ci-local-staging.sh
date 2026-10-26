@@ -244,6 +244,8 @@ run_tests() {
             "${PYTHON_EXE}" -m pytest tests/integration/test_facts_extractor_integration.py -v --timeout=600
             "${PYTHON_EXE}" -m pytest tests/integration/test_cache_aware_llm_integration.py -v --timeout=600
             "${PYTHON_EXE}" -m pytest tests/integration/test_graph_cache_e2e.py -v --timeout=600
+            log_info "Running Phase 3 E-1: ADR-011 semantic cache pilot A/B test..."
+            "${PYTHON_EXE}" scripts/ab_test_semantic_cache.py --queries-file datasets/rag_eval/phase3_semantic_cache_eval.jsonl --iterations 2
             ;;
         all)
             log_info "Running all staging targets..."
