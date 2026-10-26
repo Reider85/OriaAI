@@ -246,6 +246,39 @@ def resolve_tools(settings: dict[str, Any] | None) -> list[Any]:
     return tools
 
 
+def _resolve_router_policy(request_settings: dict[str, Any]) -> RoutingPolicy:
+    """Extract and validate router policy from request settings.
+    
+    Args:
+        request_settings: settings payload from UI request body
+        
+    Returns:
+        RoutingPolicy enum value, validated against allowed values.
+        Falls back to global default if missing/invalid with warning.
+    """
+    from ..config import settings
+    
+    policy_value = request_settings.get("router_policy")
+    
+    if policy_value is None:
+        logger.warning(
+            "No router policy in request settings, using global default: %s",
+            settings.llm_router_default_policy
+        )
+        return RoutingPolicy(settings.llm_router_default_policy)
+    
+    try:
+        policy = RoutingPolicy(policy_value)
+        logger.debug("Using per-request router policy: %s", policy)
+        return policy
+    except ValueError:
+        logger.warning(
+            "Invalid router policy %r in request settings, using global default: %s",
+            policy_value, settings.llm_router_default_policy
+        )
+        return RoutingPolicy(settings.llm_router_default_policy)
+
+
 # ── Graph runtime context (C-6 forensic cancel fields) ───────────────────────
 
 
@@ -571,6 +604,12 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                 api_key = settings.openai_api_key
                 base_url = None
 
+        # Resolve tool set from the UI settings panel (G-4). Omitting
+        # ``tools_enabled`` keeps the full Phase 2 tool set; an explicit subset
+        # (including an empty one) disables the tools left out.
+        request_settings: dict[str, Any] = body.settings or {}
+        enabled_tools = resolve_tools(request_settings)
+
         # Create LLM via LLMRouter if enabled, otherwise use provider factory (C-6)
         if should_route_via_router(settings):
             # Use LLMRouter for intelligent routing
@@ -578,7 +617,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             
             # Compute routing decision
             decision = await router.route(
-                policy=RoutingPolicy(settings.llm_router_default_policy),
+                policy=_resolve_router_policy(request_settings),
                 request_id=session_id,
             )
             
@@ -630,12 +669,6 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
 
         # Build iteration monitor for cycle detection
         monitor = IterationMonitor()
-
-        # Resolve tool set from the UI settings panel (G-4). Omitting
-        # ``tools_enabled`` keeps the full Phase 2 tool set; an explicit subset
-        # (including an empty one) disables the tools left out.
-        request_settings: dict[str, Any] = body.settings or {}
-        enabled_tools = resolve_tools(request_settings)
 
         # Compile and build the graph (AG-4: file_export tool wired in)
         # Phase 2: rag_query tool added, rag_pipeline enables rag_retriever node

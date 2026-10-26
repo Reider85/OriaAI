@@ -594,11 +594,51 @@ __all__ = [
     "render_message",
     "render_pii_badge",
     "render_rag_citations",
+    "render_router_policy",
     "render_settings_panel",
     "render_status_badge",
     "render_tool_calls",
     "render_web_search_results",
 ]
+
+
+def render_router_policy(session_state: MutableMapping[str, Any]) -> str:
+    """Renders a selectbox for LLMRouter policy. Returns selected policy string.
+    
+    Args:
+        session_state: current st.session_state (or any MutableMapping).
+                      Reads previous values and stores selection.
+    
+    Returns:
+        Selected policy string ("cost_priority", "latency_priority", 
+                               "quality_priority", "privacy_priority").
+    """
+    import streamlit as st
+    
+    # Lazy import to avoid heavy dependencies at UI module level
+    from llm_client.agent.router import RoutingPolicy
+    
+    options = [p.value for p in RoutingPolicy]
+    # Default from Settings (lazy import inside function)
+    from llm_client.config import settings as config_settings
+    default_idx = options.index(config_settings.llm_router_default_policy) \
+        if config_settings.llm_router_default_policy in options else 0
+    
+    selected = st.selectbox(
+        "LLM Router Policy",
+        options=options,
+        index=default_idx,
+        format_func=lambda x: x.replace("_", " ").title(),
+        key="settings_router_policy",
+        help="Cost: cheapest model. Latency: fastest p50. "
+             "Quality: best model. Privacy: zero-retention.",
+    )
+    
+    # Persist in session_state for next re-run
+    if "settings" not in session_state:
+        session_state["settings"] = {}
+    session_state["settings"]["router_policy"] = selected
+    return selected
 
 
 def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
@@ -621,6 +661,9 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
             - max_results: int (web_search max_results, default 5,
                 range 1-20).
             - top_k: int (rag_query top_k, default 5, range 1-20).
+            - router_policy: str — LLM router policy (Phase 3 G-1)
+                "cost_priority" | "latency_priority" | "quality_priority" | 
+                "privacy_priority" (default: "cost_priority").
     """
     import streamlit as st
 
@@ -687,6 +730,10 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
         else:
             max_results = 5
 
+        # Sub-section: LLM Router (Phase 3 G-1)
+        st.markdown("**LLM Router**")
+        render_router_policy(session_state)
+
     # Persist in session_state для следующего re-run:
     settings = {
         "tools_enabled": tools_enabled,
@@ -694,6 +741,7 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
         "reranker": reranker,
         "max_results": max_results,
         "top_k": top_k,
+        "router_policy": session_state.get("settings", {}).get("router_policy", "cost_priority"),
     }
     session_state["settings"] = settings
     return settings

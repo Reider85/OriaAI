@@ -1035,10 +1035,17 @@ def test_render_settings_panel_choose_vector():
 
     original_selectbox = st.selectbox
 
-    def mock_selectbox(label, options=None, index=0, key=None, help=None):
+    def mock_selectbox(label, options=None, index=0, key=None, help=None, **kwargs):
         if key == "settings_retrieval_strategy":
             return "vector"  # Choose vector strategy
-        return original_selectbox(label, options, index, key, help)
+        return original_selectbox(
+            label,
+            options=options,
+            index=index,
+            key=key,
+            help=help,
+            **kwargs,
+        )
 
     st.selectbox = mock_selectbox
 
