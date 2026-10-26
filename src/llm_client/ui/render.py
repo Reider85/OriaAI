@@ -597,6 +597,7 @@ __all__ = [
     "render_router_policy",
     "render_settings_panel",
     "render_status_badge",
+    "render_tool_calling_mode",
     "render_tool_calls",
     "render_web_search_results",
 ]
@@ -641,6 +642,45 @@ def render_router_policy(session_state: MutableMapping[str, Any]) -> str:
     return selected
 
 
+def render_tool_calling_mode(session_state: MutableMapping[str, Any]) -> str:
+    """Renders a selectbox for ToolCallingMode (Phase 3 G-2, ADR-016).
+
+    Args:
+        session_state: current st.session_state (or any MutableMapping).
+                      Reads previous values and stores selection.
+
+    Returns:
+        Selected mode string ("auto" | "native" | "react" | "hybrid").
+        "auto" lets the ToolCallingAdapter choose via the capability matrix;
+        the settings panel converts it to None before sending to
+        agent-service.
+    """
+    import streamlit as st
+
+    # Lazy import to avoid heavy dependencies at UI module level
+    from llm_client.agent.tool_calling_mode import ToolCallingMode
+
+    # "auto" = None (adapter chooses via capability matrix, D-2)
+    options = ["auto"] + [m.value for m in ToolCallingMode]
+
+    selected = st.selectbox(
+        "Tool Calling Mode",
+        options=options,
+        index=0,  # default: auto
+        format_func=lambda x: x.title(),
+        key="settings_tool_calling_mode",
+        help="Auto: choose via capability matrix. Native: OpenAI-style "
+             "function calling. ReAct: system prompt emulation. Hybrid: "
+             "native with ReAct fallback.",
+    )
+
+    # Persist in session_state for next re-run
+    if "settings" not in session_state:
+        session_state["settings"] = {}
+    session_state["settings"]["tool_calling_mode"] = selected
+    return selected
+
+
 def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
     """Рендерит settings panel в sidebar (collapsible). Возвращает
     обновлённый dict с настройками для передачи в agent-service.
@@ -664,6 +704,9 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
             - router_policy: str — LLM router policy (Phase 3 G-1)
                 "cost_priority" | "latency_priority" | "quality_priority" | 
                 "privacy_priority" (default: "cost_priority").
+            - tool_calling_mode: str | None — tool calling mode
+                (Phase 3 G-2, ADR-016): "native" | "react" | "hybrid";
+                None = "auto" (adapter chooses via capability matrix).
     """
     import streamlit as st
 
@@ -734,7 +777,12 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
         st.markdown("**LLM Router**")
         render_router_policy(session_state)
 
+        # Sub-section: Tool Calling (Phase 3 G-2)
+        st.markdown("**Tool Calling**")
+        render_tool_calling_mode(session_state)
+
     # Persist in session_state для следующего re-run:
+    _mode_raw = session_state.get("settings", {}).get("tool_calling_mode", "auto")
     settings = {
         "tools_enabled": tools_enabled,
         "retrieval_strategy": retrieval_strategy,
@@ -742,6 +790,8 @@ def render_settings_panel(session_state: MutableMapping[str, Any]) -> dict:
         "max_results": max_results,
         "top_k": top_k,
         "router_policy": session_state.get("settings", {}).get("router_policy", "cost_priority"),
+        # "auto" → None (adapter chooses via capability matrix)
+        "tool_calling_mode": None if _mode_raw == "auto" else _mode_raw,
     }
     session_state["settings"] = settings
     return settings
