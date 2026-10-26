@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     # LLM Invoke Timeout (ADR-013 in-flight cancellation)
     llm_invoke_timeout_seconds: float = 120.0
 
+    # MCP Server Preview (ADR-004 acceleration Phase 3)
+    mcp_server_enabled: bool = False  # default OFF (preview, not for production)
+    mcp_server_transport: str = "sse"  # sse (Phase 3); websocket (Phase 6)
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")
@@ -297,6 +301,12 @@ class Settings(BaseSettings):
         if not 0 <= self.llm_router_traffic_percent <= 100:
             raise ValueError(
                 f"LLM_ROUTER_TRAFFIC_PERCENT must be 0-100, got {self.llm_router_traffic_percent!r}"
+            )
+
+        # Validate MCP server transport
+        if self.mcp_server_transport not in {"sse", "websocket"}:
+            raise ValueError(
+                f"MCP_SERVER_TRANSPORT must be sse|websocket, got {self.mcp_server_transport!r}"
             )
 
         return self

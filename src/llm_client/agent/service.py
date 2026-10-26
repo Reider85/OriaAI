@@ -447,6 +447,16 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     # ── Cancel endpoint (ADR-013) ────────────────────────────────────────────
     app.include_router(build_cancel_router(publisher, state))
 
+    # ── MCP Server preview (ADR-004 acceleration Phase 3) ───────────────────
+    if settings.mcp_server_enabled:
+        from ..mcp.exposed_tools import register_exposed_tools
+        from ..mcp.server import McpServer
+
+        mcp_server = McpServer(app)
+        register_exposed_tools(mcp_server)
+        mcp_server.mount()
+        logger.info("MCP Server preview enabled at /mcp/*")
+
     # ── Routes ───────────────────────────────────────────────────────────────
 
     @app.get("/health")
