@@ -246,6 +246,9 @@ run_tests() {
             "${PYTHON_EXE}" -m pytest tests/integration/test_graph_cache_e2e.py -v --timeout=600
             log_info "Running Phase 3 E-1: ADR-011 semantic cache pilot A/B test..."
             "${PYTHON_EXE}" scripts/ab_test_semantic_cache.py --queries-file datasets/rag_eval/phase3_semantic_cache_eval.jsonl --iterations 2
+            # Phase 3 E-2: ADR-015 shadow mode pilot (1 month run; scheduled
+            # via external cron, not in regular CI — see docs/adr_015_pilot.md)
+            # Run: python scripts/ab_test_router_shadow_mode.py --duration-minutes 43200
             ;;
         all)
             log_info "Running all staging targets..."

@@ -592,6 +592,9 @@ function Run-Phase3Adr011Integration {
     }
     $result = Run-Test -TestName "phase3-adr011-pilot" -TestCommand "scripts/ab_test_semantic_cache.py --queries-file datasets/rag_eval/phase3_semantic_cache_eval.jsonl --iterations 2" -TimeoutSeconds 600 -Environment $envVars -Python $Python
     if ($result -ne 0) { return $result }
+    # Phase 3 E-2: ADR-015 shadow mode pilot (1 month run; scheduled
+    # via external cron, not in regular CI — see docs/adr_015_pilot.md)
+    # Run: python scripts/ab_test_router_shadow_mode.py --duration-minutes 43200
     return 0
 }
 
