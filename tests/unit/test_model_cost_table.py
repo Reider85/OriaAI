@@ -40,6 +40,11 @@ anthropic:
 @pytest.fixture(autouse=True)
 def reset_model_cost_table_singleton():
     """Reset the singleton between tests."""
+    import llm_client.agent.model_cost_table as mct
+
+    # Clear cached table so each test loads fresh (custom YAML tests
+    # would otherwise leak their table into subsequent tests)
+    mct._table = None
     # Clear env var if set by test
     if "MODEL_COSTS_CONFIG_PATH" in os.environ:
         del os.environ["MODEL_COSTS_CONFIG_PATH"]
@@ -47,6 +52,7 @@ def reset_model_cost_table_singleton():
     # Also clear env var after test
     if "MODEL_COSTS_CONFIG_PATH" in os.environ:
         del os.environ["MODEL_COSTS_CONFIG_PATH"]
+    mct._table = None
 
 
 # ── ModelCost tests ──────────────────────────────────────────────────────────
@@ -98,8 +104,8 @@ def test_list_models_all_pairs():
     """list_models should return all (provider, model) pairs."""
     table = get_model_cost_table()
     models = table.list_models()
-    # Default has openai (3), anthropic (2), custom-openai (1), ollama (1), zai (2)
-    assert len(models) == 9
+    # Default has openai (3), anthropic (2), custom-openai (1), ollama (1), zai (3)
+    assert len(models) == 10
     assert ("openai", "gpt-4o-mini") in models
     assert ("anthropic", "claude-3-5-sonnet") in models
     assert ("zai", "glm-4.5") in models
@@ -177,12 +183,13 @@ def test_load_from_yaml_config_path(custom_costs_path: str):
     # Ensure no env var is set
     if "MODEL_COSTS_CONFIG_PATH" in os.environ:
         del os.environ["MODEL_COSTS_CONFIG_PATH"]
-    
+
     # Set env var and load
     os.environ["MODEL_COSTS_CONFIG_PATH"] = custom_costs_path
     try:
         # Force reload by resetting (global variable)
         import llm_client.agent.model_cost_table as mct
+
         mct._table = None
         table = get_model_cost_table()
         # Should have loaded custom values, not defaults
@@ -227,5 +234,3 @@ def test_singleton_behavior():
     table1 = get_model_cost_table()
     table2 = get_model_cost_table()
     assert table1 is table2
-
-

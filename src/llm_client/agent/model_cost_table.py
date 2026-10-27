@@ -128,6 +128,9 @@ zai:
   glm-4-flash:
     prompt: 0.10
     completion: 0.40
+  glm-4.5-flash:
+    prompt: 0.10
+    completion: 0.40
 """
 
 
