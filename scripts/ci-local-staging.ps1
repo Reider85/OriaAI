@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("checkpoint-latency", "checkpoint-recovery", "reranker-ab-test", "hybrid-rag-ab-test", "web-search-integration", "rag-query-integration", "sse-tool-events", "idealidad", "phase3-adr011-integration", "forensic", "all")]
+    [ValidateSet("checkpoint-latency", "checkpoint-recovery", "reranker-ab-test", "hybrid-rag-ab-test", "web-search-integration", "rag-query-integration", "sse-tool-events", "idealidad", "phase3-adr011-integration", "phase3-mcp-server-probe", "forensic", "all")]
     [string[]]$Target = @("all"),
     [ValidateRange(1, 65535)]
     [int]$Port = 8501,
@@ -595,7 +595,46 @@ function Run-Phase3Adr011Integration {
     # Phase 3 E-2: ADR-015 shadow mode pilot (1 month run; scheduled
     # via external cron, not in regular CI — see docs/adr_015_pilot.md)
     # Run: python scripts/ab_test_router_shadow_mode.py --duration-minutes 43200
+    # Phase 3 E-3: ADR-016 ReAct pilot on Ollama is manual (see
+    # docs/adr_016_pilot.md) — requires local Ollama + llama3.1:8b
     return 0
+}
+
+function Run-Phase3McpServerProbe {
+    param([string]$DockerPath, [pscustomobject]$Python)
+    Write-Host "Running Phase 3 E-4: ADR-004 MCP Server preview probe..." -ForegroundColor Cyan
+    $agentPort = Get-AgentServicePort
+    $env:MCP_SERVER_ENABLED = "true"
+    $env:MCP_SERVER_TRANSPORT = "sse"
+    try {
+        Invoke-Compose -DockerPath $DockerPath -Arguments @("up", "-d", "--force-recreate", "agent-service")
+        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        $ready = $false
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if (Test-HttpEndpoint -Uri "http://127.0.0.1:$agentPort/health") {
+                $ready = $true
+                break
+            }
+            Start-Sleep -Seconds 2
+        }
+        if (-not $ready) {
+            Write-Host "Agent service (MCP preview) did not become ready within $TimeoutSeconds seconds." -ForegroundColor Red
+            return 1
+        }
+        $arguments = @($Python.Prefix) + @("scripts/probe_mcp_server.py", "--url", "http://127.0.0.1:$agentPort")
+        $result = Invoke-Python -Python $Python -Arguments $arguments
+        if ($result -eq 0) {
+            Write-Host "ADR-004 preview PILOT PASS - MCP Server probe succeeded" -ForegroundColor Green
+        }
+        else {
+            Write-Host "ADR-004 preview ROLLBACK REQUIRED - MCP Server probe failed (exit code $result)" -ForegroundColor Red
+        }
+        return $result
+    }
+    finally {
+        Remove-Item Env:MCP_SERVER_ENABLED -ErrorAction SilentlyContinue
+        Remove-Item Env:MCP_SERVER_TRANSPORT -ErrorAction SilentlyContinue
+    }
 }
 
 function Run-IdealidadMetric {
@@ -771,6 +810,10 @@ foreach ($target in $Target) {
             $exitCode = Run-Phase3Adr011Integration -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
+        "phase3-mcp-server-probe" {
+            $exitCode = Run-Phase3McpServerProbe -DockerPath $docker -Python $python
+            $totalExitCode = $totalExitCode -bor $exitCode
+        }
         "forensic" {
             $exitCode = Run-ForensicStaging -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
@@ -801,6 +844,9 @@ foreach ($target in $Target) {
             $totalExitCode = $totalExitCode -bor $exitCode
             
             $exitCode = Run-Phase3Adr011Integration -Python $python
+            $totalExitCode = $totalExitCode -bor $exitCode
+            
+            $exitCode = Run-Phase3McpServerProbe -DockerPath $docker -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
             $exitCode = Run-ForensicStaging -Python $python

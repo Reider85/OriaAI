@@ -28,7 +28,7 @@ PORT=8501
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        checkpoint-latency|checkpoint-recovery|reranker-ab-test|hybrid-rag-ab-test|web-search-integration|rag-query-integration|sse-tool-events|idealidad|phase3-adr011-integration|all)
+        checkpoint-latency|checkpoint-recovery|reranker-ab-test|hybrid-rag-ab-test|web-search-integration|rag-query-integration|sse-tool-events|idealidad|phase3-adr011-integration|phase3-mcp-server-probe|all)
             TARGETS=("$1")
             shift
             ;;
@@ -46,7 +46,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --help)
             echo "Usage: $0 [TARGETS...] [OPTIONS]"
-            echo "  TARGETS: checkpoint-latency, checkpoint-recovery, reranker-ab-test, hybrid-rag-ab-test, web-search-integration, rag-query-integration, sse-tool-events, idealidad, phase3-adr011-integration, all"
+            echo "  TARGETS: checkpoint-latency, checkpoint-recovery, reranker-ab-test, hybrid-rag-ab-test, web-search-integration, rag-query-integration, sse-tool-events, idealidad, phase3-adr011-integration, phase3-mcp-server-probe, all"
             echo "  OPTIONS:"
             echo "    --port PORT        Streamlit UI port (default: 8501)"
             echo "    --timeout SEC     Timeout in seconds (default: 1800)"
@@ -249,6 +249,21 @@ run_tests() {
             # Phase 3 E-2: ADR-015 shadow mode pilot (1 month run; scheduled
             # via external cron, not in regular CI — see docs/adr_015_pilot.md)
             # Run: python scripts/ab_test_router_shadow_mode.py --duration-minutes 43200
+            # Phase 3 E-3: ADR-016 ReAct pilot on Ollama is manual (see
+            # docs/adr_016_pilot.md) — requires local Ollama + llama3.1:8b
+            ;;
+        phase3-mcp-server-probe)
+            log_info "Running Phase 3 E-4: ADR-004 MCP Server preview probe..."
+            local agent_port="${AGENT_SERVICE_HOST_PORT:-8000}"
+            MCP_SERVER_ENABLED=true MCP_SERVER_TRANSPORT=sse \
+                docker compose -f "${COMPOSE_FILE}" up -d --force-recreate agent-service
+            wait_for_service "Agent service (MCP preview)" "http://localhost:${agent_port}/health"
+            if "${PYTHON_EXE}" scripts/probe_mcp_server.py --url "http://localhost:${agent_port}"; then
+                log_info "ADR-004 preview PILOT PASS - MCP Server probe succeeded"
+            else
+                log_error "ADR-004 preview ROLLBACK REQUIRED - MCP Server probe failed"
+                exit 1
+            fi
             ;;
         all)
             log_info "Running all staging targets..."
@@ -261,6 +276,7 @@ run_tests() {
             run_tests sse-tool-events
             run_tests idealidad
             run_tests phase3-adr011-integration
+            run_tests phase3-mcp-server-probe
             ;;
         *)
             log_error "Unknown target: ${target}"

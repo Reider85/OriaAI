@@ -192,6 +192,8 @@ services:
       - S3_BUCKET=llm-client-files
       - ENVIRONMENT=dev
       - FORENSIC_STREAM_ENABLED=false
+      - MCP_SERVER_ENABLED=${MCP_SERVER_ENABLED:-false}
+      - MCP_SERVER_TRANSPORT=${MCP_SERVER_TRANSPORT:-sse}
       - OPERATIONAL_LOG_SINK=stdout
       - KMS_PROVIDER=local
       - PII_DETECTOR_ENABLED=false
