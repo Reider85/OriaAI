@@ -17,7 +17,7 @@ from llm_client.rag.rerankers.base import RerankResult
 from llm_client.rag.rerankers.chain import RerankerChain
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DASHBOARD_PATH = REPO_ROOT / "ops" / "grafana" / "dashboards" / "idealidad.json"
+DASHBOARD_PATH = REPO_ROOT / "ops" / "grafana" / "dashboards" / "Architecture" / "idealidad.json"
 RULES_PATH = REPO_ROOT / "ops" / "grafana" / "provisioning" / "alerting" / "rules.yml"
 EXPORTER_PATH = REPO_ROOT / "scripts" / "collect_idealidad_metrics.py"
 
