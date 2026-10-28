@@ -1,6 +1,6 @@
 """UI watcher for ADR-013 (C-5): auto-cancel LLM sessions on tab close / visibility loss.
 
-Injects a small JavaScript fragment (via ``st.components.v1.html``) into a Streamlit
+Injects a small JavaScript fragment (via ``st.iframe``) into a Streamlit
 app that:
 
   * listens to ``visibilitychange``, ``pagehide`` and ``beforeunload``;
@@ -96,14 +96,14 @@ def inject_auto_cancel(
     ``session_id`` is embedded in the JS for cancel requests.
     """
     try:
-        import streamlit.components.v1 as components  # type: ignore[import-untyped]
+        import streamlit as st  # type: ignore[import-untyped]
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("streamlit is required for inject_auto_cancel()") from exc
 
     origin = backend_origin or "window.location.origin"
     js = AUTO_CANCEL_JS.replace("{{BACKEND_ORIGIN}}", _quote(origin))
     js = js.replace("{{SESSION_ID}}", _quote(session_id or ""))
-    components.html(js, height=0, width=0)
+    st.iframe(js, height=0, width=0)
 
 
 def _quote(value: str) -> str:
@@ -117,7 +117,7 @@ def render_stop_button(session_id: str, backend_origin: str | None = None) -> No
     endpoint directly from JavaScript, working even during a blocking stream.
     """
     try:
-        import streamlit.components.v1 as components  # type: ignore[import-untyped]
+        import streamlit as st  # type: ignore[import-untyped]
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("streamlit is required for render_stop_button()") from exc
     
@@ -163,7 +163,7 @@ def render_stop_button(session_id: str, backend_origin: str | None = None) -> No
         }};
     </script>
     """
-    components.html(html, height=60, width=0)
+    st.iframe(html, height=60, width=0)
 
 
 __all__ = ["AUTO_CANCEL_JS", "inject_auto_cancel", "render_stop_button"]
