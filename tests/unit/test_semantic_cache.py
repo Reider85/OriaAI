@@ -86,7 +86,7 @@ class FakeRedis:
         else:
             # Match keys that contain the pattern
             matched_keys = [key for key in self.data if pattern in key]
-        
+
         return matched_keys
 
     async def aclose(self):
@@ -177,22 +177,28 @@ def short_ttl_cache(fake_redis, mock_embeddings):
 @pytest.mark.asyncio
 async def test_cache_miss_on_empty_cache(cache):
     """Test cache miss on empty cache."""
+    from llm_client.observability.llm_metrics import SEMANTIC_CACHE_HITS
+
+    before = SEMANTIC_CACHE_HITS.labels(status="miss")._value.get()
+
     result = await cache.get("hello")
     assert result is None
 
-    # Verify metrics were recorded
-    from llm_client.observability.llm_metrics import SEMANTIC_CACHE_HITS
-
+    # Verify metrics were recorded (delta — counter is global per process)
     hits = SEMANTIC_CACHE_HITS.labels(status="miss")._value.get()
-    assert hits == 1
+    assert hits == before + 1
 
 
 @pytest.mark.asyncio
 async def test_cache_put_then_get_hit(cache):
     """Test cache put followed by exact get hit."""
+    from llm_client.observability.llm_metrics import SEMANTIC_CACHE_HITS
+
     doc_id = "123e4567-e89b-12d3-a456-426614174000"
     await cache.put("hello", "Hello world!", [doc_id], "gpt-4o-mini", 100)
-    
+
+    before = SEMANTIC_CACHE_HITS.labels(status="hit")._value.get()
+
     result = await cache.get("hello")
     assert result is not None
     assert result.answer == "Hello world!"
@@ -201,11 +207,9 @@ async def test_cache_put_then_get_hit(cache):
     assert result.token_count == 100
     assert result.similarity_score >= 0.99  # exact match
 
-    # Verify metrics
-    from llm_client.observability.llm_metrics import SEMANTIC_CACHE_HITS
-
+    # Verify metrics (delta — counter is global per process)
     hits = SEMANTIC_CACHE_HITS.labels(status="hit")._value.get()
-    assert hits == 1
+    assert hits == before + 1
 
 
 @pytest.mark.asyncio
@@ -244,7 +248,13 @@ async def test_cache_get_semantically_similar_query_hits(cache):
 
     # Additional verification: test another query to ensure cache is working
     other_doc_id = UUID("111e4567-e89b-12d3-a456-426614174999")
-    await cache.put("what is python again", "Python is a programming language", [str(other_doc_id)], "gpt-4o-mini", 80)
+    await cache.put(
+        "what is python again",
+        "Python is a programming language",
+        [str(other_doc_id)],
+        "gpt-4o-mini",
+        80,
+    )
     result2 = await cache.get("what is python again")
     assert result2 is not None
     assert result2.answer == "Python is a programming language"
@@ -284,14 +294,14 @@ async def test_cache_mark_stale_on_doc_update(cache):
     # Mark doc_id as stale
     stale_count = await cache.mark_stale(doc_id)
     assert stale_count == 2  # query1 and query2 reference doc_id
-    
+
     # Query1 and query2 should now return stale (None)
     result1 = await cache.get("query1")
     assert result1 is None
-    
+
     result2 = await cache.get("query2")
     assert result2 is None
-    
+
     # Query3 should still work (doesn't reference doc_id)
     result3 = await cache.get("query3")
     assert result3 is not None
@@ -329,6 +339,7 @@ async def test_cache_skip_put_with_empty_referenced_doc_ids(cache):
     """Test that put() skips caching when referenced_doc_ids is empty."""
     # Get initial metrics
     from llm_client.observability.llm_metrics import SEMANTIC_CACHE_HITS
+
     initial_hit = SEMANTIC_CACHE_HITS.labels(status="hit")._value.get()
     initial_miss = SEMANTIC_CACHE_HITS.labels(status="miss")._value.get()
     initial_stale = SEMANTIC_CACHE_HITS.labels(status="stale")._value.get()
@@ -344,7 +355,7 @@ async def test_cache_skip_put_with_empty_referenced_doc_ids(cache):
     final_hit = SEMANTIC_CACHE_HITS.labels(status="hit")._value.get()
     final_miss = SEMANTIC_CACHE_HITS.labels(status="miss")._value.get()
     final_stale = SEMANTIC_CACHE_HITS.labels(status="stale")._value.get()
-    
+
     # Metrics should not have changed significantly (allow for minimal background noise)
     assert final_hit == initial_hit
     assert final_miss - initial_miss <= 1  # allow for at most 1 background miss

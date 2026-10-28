@@ -28,7 +28,7 @@ PORT=8501
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        checkpoint-latency|checkpoint-recovery|reranker-ab-test|hybrid-rag-ab-test|web-search-integration|rag-query-integration|sse-tool-events|idealidad|phase3-adr011-integration|phase3-mcp-server-probe|all)
+        checkpoint-latency|checkpoint-recovery|reranker-ab-test|hybrid-rag-ab-test|web-search-integration|rag-query-integration|sse-tool-events|idealidad|phase3-adr011-integration|phase3-adr015-router-smoke|phase3-adr016-adapter|phase3-mcp-server-probe|all)
             TARGETS=("$1")
             shift
             ;;
@@ -46,7 +46,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --help)
             echo "Usage: $0 [TARGETS...] [OPTIONS]"
-            echo "  TARGETS: checkpoint-latency, checkpoint-recovery, reranker-ab-test, hybrid-rag-ab-test, web-search-integration, rag-query-integration, sse-tool-events, idealidad, phase3-adr011-integration, phase3-mcp-server-probe, all"
+            echo "  TARGETS: checkpoint-latency, checkpoint-recovery, reranker-ab-test, hybrid-rag-ab-test, web-search-integration, rag-query-integration, sse-tool-events, idealidad, phase3-adr011-integration, phase3-adr015-router-smoke, phase3-adr016-adapter, phase3-mcp-server-probe, all"
             echo "  OPTIONS:"
             echo "    --port PORT        Streamlit UI port (default: 8501)"
             echo "    --timeout SEC     Timeout in seconds (default: 1800)"
@@ -252,6 +252,22 @@ run_tests() {
             # Phase 3 E-3: ADR-016 ReAct pilot on Ollama is manual (see
             # docs/adr_016_pilot.md) — requires local Ollama + llama3.1:8b
             ;;
+        phase3-adr015-router-smoke)
+            log_info "Running Phase 3 E-2: ADR-015 LLMRouter smoke (router, cost guard, circuit breaker)..."
+            # Full 1-month shadow mode is an external scheduled run
+            # (see docs/adr_015_pilot.md): python scripts/ab_test_router_shadow_mode.py --duration-minutes 43200
+            "${PYTHON_EXE}" -m pytest tests/unit/test_llm_router.py -v --timeout=300
+            "${PYTHON_EXE}" -m pytest tests/unit/test_cost_guard.py -v --timeout=300
+            "${PYTHON_EXE}" -m pytest tests/unit/test_circuit_breaker.py -v --timeout=300
+            ;;
+        phase3-adr016-adapter)
+            log_info "Running Phase 3 E-3: ADR-016 Tool Calling Adapter (capability matrix, modes, ReAct prompt builder)..."
+            "${PYTHON_EXE}" -m pytest tests/unit/test_capability_matrix.py -v --timeout=300
+            "${PYTHON_EXE}" -m pytest tests/unit/test_tool_calling_mode.py -v --timeout=300
+            "${PYTHON_EXE}" -m pytest tests/unit/test_tool_calling_adapter.py -v --timeout=300
+            "${PYTHON_EXE}" -m pytest tests/unit/test_react_prompt_builder.py -v --timeout=300
+            # Pilot on Ollama is manual (see docs/adr_016_pilot.md)
+            ;;
         phase3-mcp-server-probe)
             log_info "Running Phase 3 E-4: ADR-004 MCP Server preview probe..."
             local agent_port="${AGENT_SERVICE_HOST_PORT:-8000}"
@@ -276,6 +292,8 @@ run_tests() {
             run_tests sse-tool-events
             run_tests idealidad
             run_tests phase3-adr011-integration
+            run_tests phase3-adr015-router-smoke
+            run_tests phase3-adr016-adapter
             run_tests phase3-mcp-server-probe
             ;;
         *)

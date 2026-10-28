@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("lint", "typecheck", "unit", "integration", "checkpoint", "bm25", "reranker", "hybrid-rag", "web-search", "rag-query", "ui", "all")]
+    [ValidateSet("lint", "typecheck", "unit", "integration", "checkpoint", "bm25", "reranker", "hybrid-rag", "web-search", "rag-query", "ui", "phase3", "all")]
     [string[]]$Target = @("all"),
     [ValidateRange(1, 65535)]
     [int]$Port = 8501,
@@ -534,6 +534,23 @@ function Run-UnitTests {
     return $result
 }
 
+function Run-Phase3UnitTests {
+    param([pscustomobject]$Python)
+    Write-Host "Running Phase 3 unit tests (quick CI, no integration, no pilots)..." -ForegroundColor Cyan
+    $kexpr = "(not integration and not staging_load) and (router or cost_guard or circuit_breaker or capability or tool_calling or react_prompt or semantic_cache or facts or config_phase3 or llm_metrics or invalidator or cache_aware or graph_semantic or mcp)"
+    $arguments = @($Python.Prefix) + @(
+        "-m", "pytest", "tests/unit/", "-k", $kexpr, "-v", "--maxfail=3"
+    )
+    $result = Invoke-Python -Python $Python -Arguments $arguments
+    if ($result -eq 0) {
+        Write-Host "Phase 3 unit tests completed successfully." -ForegroundColor Green
+    }
+    else {
+        Write-Host "Phase 3 unit tests failed with exit code $result." -ForegroundColor Red
+    }
+    return $result
+}
+
 function Run-IntegrationTests {
     param([pscustomobject]$Python)
     Write-Host "Running integration tests..." -ForegroundColor Cyan
@@ -687,6 +704,10 @@ foreach ($target in $Target) {
         }
         "ui" {
             $exitCode = Run-UIQuick -Python $python
+            $totalExitCode = $totalExitCode -bor $exitCode
+        }
+        "phase3" {
+            $exitCode = Run-Phase3UnitTests -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
         "all" {

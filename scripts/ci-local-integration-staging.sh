@@ -190,6 +190,49 @@ stop_infrastructure() {
     docker compose -f "${COMPOSE_FILE}" down
 }
 
+# Verify docker compose services are running (E-5 precondition)
+verify_infrastructure() {
+    log_info "Verifying docker compose services are running (docker compose ps)..."
+    local ps_output
+    if ! ps_output="$(docker compose -f "${COMPOSE_FILE}" ps 2>/dev/null)"; then
+        log_error "docker compose ps failed — is Docker running?"
+        exit 1
+    fi
+    if ! echo "${ps_output}" | grep -qE "redis.*running|Running.*redis"; then
+        log_error "Redis is not running. Run 'docker compose up -d' before integration tests."
+        exit 1
+    fi
+    log_info "Infrastructure precondition OK."
+}
+
+# Phase 3 integration tests (E-5 — explicit 9-test block)
+run_phase3_integration_tests() {
+    export REDIS_SEMANTIC_CACHE_URL="${REDIS_SEMANTIC_CACHE_URL:-redis://localhost:6380/2}"
+    export SEMANTIC_CACHE_ENABLED="${SEMANTIC_CACHE_ENABLED:-true}"
+    export OPENAI_API_KEY="${OPENAI_API_KEY:-sk-test-placeholder}"
+
+    local phase3_tests=(
+        tests/integration/test_stale_answer_guard.py
+        tests/integration/test_semantic_cache_integration.py
+        tests/integration/test_facts_extractor_integration.py
+        tests/integration/test_cache_aware_llm_integration.py
+        tests/integration/test_graph_cache_e2e.py
+        tests/integration/test_llm_router_integration.py
+        tests/integration/test_react_e2e.py
+        tests/integration/test_mcp_server_e2e.py
+        tests/integration/test_mcp_server_with_registry.py
+    )
+
+    for test_file in "${phase3_tests[@]}"; do
+        log_info "Running Phase 3 integration test: ${test_file}"
+        if ! "${PYTHON_EXE}" -m pytest "${test_file}" -v --timeout=600; then
+            log_error "Phase 3 integration test failed: ${test_file}"
+            exit 1
+        fi
+    done
+    log_info "Phase 3 integration tests passed (9/9)."
+}
+
 # Run forensic tests
 run_forensic_tests() {
     # Set forensic environment
@@ -245,8 +288,14 @@ main() {
     
     start_infrastructure
     
+    # Verify docker compose ps precondition (E-5 anti-pattern guard)
+    verify_infrastructure
+    
     # Run forensic tests
     run_forensic_tests
+    
+    # Run Phase 3 integration tests (E-5 explicit 9-test block)
+    run_phase3_integration_tests
     
     log_info "ci-local-integration-staging completed successfully!"
 }

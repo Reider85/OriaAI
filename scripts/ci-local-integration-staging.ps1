@@ -463,8 +463,66 @@ function Invoke-Python {
     }
 }
 
+function Verify-Infrastructure {
+    param([string]$DockerPath)
+    
+    Write-Host "Verifying docker compose services are running (docker compose ps)..." -ForegroundColor Cyan
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $psOutput = & $DockerPath compose --project-directory $RepoRoot --env-file $EnvFile -f $ComposeFile ps 2>&1 | Out-String
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    
+    if ($exitCode -ne 0) {
+        Write-Host "docker compose ps failed - is Docker running?" -ForegroundColor Red
+        return 1
+    }
+    if ($psOutput -notmatch "redis") {
+        Write-Host "Redis is not running. Run 'docker compose up -d' before integration tests." -ForegroundColor Red
+        return 1
+    }
+    Write-Host "Infrastructure precondition OK." -ForegroundColor Green
+    return 0
+}
+
+function Run-Phase3IntegrationTests {
+    param([pscustomobject]$Python, [int]$TimeoutSeconds)
+    
+    $env:REDIS_SEMANTIC_CACHE_URL = if ($env:REDIS_SEMANTIC_CACHE_URL) { $env:REDIS_SEMANTIC_CACHE_URL } else { "redis://localhost:6380/2" }
+    $env:SEMANTIC_CACHE_ENABLED = if ($env:SEMANTIC_CACHE_ENABLED) { $env:SEMANTIC_CACHE_ENABLED } else { "true" }
+    if (-not $env:OPENAI_API_KEY) { $env:OPENAI_API_KEY = "sk-test-placeholder" }
+    
+    $phase3Tests = @(
+        "tests/integration/test_stale_answer_guard.py",
+        "tests/integration/test_semantic_cache_integration.py",
+        "tests/integration/test_facts_extractor_integration.py",
+        "tests/integration/test_cache_aware_llm_integration.py",
+        "tests/integration/test_graph_cache_e2e.py",
+        "tests/integration/test_llm_router_integration.py",
+        "tests/integration/test_react_e2e.py",
+        "tests/integration/test_mcp_server_e2e.py",
+        "tests/integration/test_mcp_server_with_registry.py"
+    )
+    
+    foreach ($testFile in $phase3Tests) {
+        Write-Host "Running Phase 3 integration test: $testFile" -ForegroundColor Cyan
+        $arguments = @($Python.Prefix) + @("-m", "pytest", $testFile, "-v", "--timeout=$TimeoutSeconds")
+        $result = Invoke-Python -Python $Python -Arguments $arguments
+        if ($result -ne 0) {
+            Write-Host "Phase 3 integration test failed: $testFile" -ForegroundColor Red
+            return $result
+        }
+    }
+    Write-Host "Phase 3 integration tests passed (9/9)." -ForegroundColor Green
+    return 0
+}
+
 # Main execution
-Write-Host "Phase 1 CI - Local Forensic Integration Pipeline" -ForegroundColor Magenta
+Write-Host "Phase 3 CI - Local Forensic Integration Pipeline" -ForegroundColor Magenta
 Write-Host "=================================================" -ForegroundColor Magenta
 
 # Check environment
@@ -487,10 +545,24 @@ trap { Stop-Infrastructure -DockerPath $docker }
 
 Start-Infrastructure -DockerPath $docker -TimeoutSeconds $TimeoutSeconds
 
+# Verify docker compose ps precondition (E-5 anti-pattern guard)
+$verifyResult = Verify-Infrastructure -DockerPath $docker
+if ($verifyResult -ne 0) {
+    Write-Host "Infrastructure precondition failed." -ForegroundColor Red
+    exit $verifyResult
+}
+
 # Run forensic tests
 $startTime = Get-Date
 Write-Host "Running forensic tests..." -ForegroundColor Cyan
 $testResult = Run-ForensicTests -Python $python -TimeoutSeconds $TimeoutSeconds
+
+# Run Phase 3 integration tests (E-5 explicit 9-test block)
+if ($testResult -eq 0) {
+    Write-Host "Running Phase 3 integration tests..." -ForegroundColor Cyan
+    $phase3Result = Run-Phase3IntegrationTests -Python $python -TimeoutSeconds $TimeoutSeconds
+    $testResult = $phase3Result
+}
 $endTime = Get-Date
 $duration = ($endTime - $startTime).TotalSeconds
 
@@ -499,16 +571,16 @@ Stop-Infrastructure -DockerPath $docker
 
 # Summary
 Write-Host ""
-Write-Host "Phase 1 CI - Local Forensic Integration Pipeline Summary" -ForegroundColor Magenta
+Write-Host "Phase 3 CI - Local Forensic Integration Pipeline Summary" -ForegroundColor Magenta
 Write-Host "=========================================================" -ForegroundColor Magenta
 Write-Host "Overall Exit Code: $testResult" -ForegroundColor $(if ($testResult -eq 0) { "Green" } else { "Red" })
 Write-Host "Duration: $duration seconds" -ForegroundColor Cyan
 
 if ($testResult -eq 0) {
-    Write-Host "✅ All forensic tests passed!" -ForegroundColor Green
+    Write-Host "✅ All forensic + Phase 3 integration tests passed!" -ForegroundColor Green
 }
 else {
-    Write-Host "❌ Some forensic tests failed." -ForegroundColor Red
+    Write-Host "❌ Some forensic or Phase 3 integration tests failed." -ForegroundColor Red
 }
 
 exit $testResult

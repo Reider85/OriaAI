@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("checkpoint-latency", "checkpoint-recovery", "reranker-ab-test", "hybrid-rag-ab-test", "web-search-integration", "rag-query-integration", "sse-tool-events", "idealidad", "phase3-adr011-integration", "phase3-mcp-server-probe", "forensic", "all")]
+    [ValidateSet("checkpoint-latency", "checkpoint-recovery", "reranker-ab-test", "hybrid-rag-ab-test", "web-search-integration", "rag-query-integration", "sse-tool-events", "idealidad", "phase3-adr011-integration", "phase3-adr015-router-smoke", "phase3-adr016-adapter", "phase3-mcp-server-probe", "forensic", "all")]
     [string[]]$Target = @("all"),
     [ValidateRange(1, 65535)]
     [int]$Port = 8501,
@@ -600,6 +600,40 @@ function Run-Phase3Adr011Integration {
     return 0
 }
 
+function Run-Phase3Adr015RouterSmoke {
+    param([pscustomobject]$Python)
+    Write-Host "Running Phase 3 E-2: ADR-015 LLMRouter smoke (router, cost guard, circuit breaker)..." -ForegroundColor Cyan
+    # Full 1-month shadow mode is an external scheduled run
+    # (see docs/adr_015_pilot.md): python scripts/ab_test_router_shadow_mode.py --duration-minutes 43200
+    $tests = @(
+        @{ Name = "llm-router"; Path = "tests/unit/test_llm_router.py" },
+        @{ Name = "cost-guard"; Path = "tests/unit/test_cost_guard.py" },
+        @{ Name = "circuit-breaker"; Path = "tests/unit/test_circuit_breaker.py" }
+    )
+    foreach ($test in $tests) {
+        $result = Run-Test -TestName "phase3-e2-$($test.Name)" -TestCommand $test.Path -TimeoutSeconds 300 -Python $Python
+        if ($result -ne 0) { return $result }
+    }
+    return 0
+}
+
+function Run-Phase3Adr016Adapter {
+    param([pscustomobject]$Python)
+    Write-Host "Running Phase 3 E-3: ADR-016 Tool Calling Adapter (capability matrix, modes, ReAct prompt builder)..." -ForegroundColor Cyan
+    # Pilot on Ollama is manual (see docs/adr_016_pilot.md)
+    $tests = @(
+        @{ Name = "capability-matrix"; Path = "tests/unit/test_capability_matrix.py" },
+        @{ Name = "tool-calling-mode"; Path = "tests/unit/test_tool_calling_mode.py" },
+        @{ Name = "tool-calling-adapter"; Path = "tests/unit/test_tool_calling_adapter.py" },
+        @{ Name = "react-prompt-builder"; Path = "tests/unit/test_react_prompt_builder.py" }
+    )
+    foreach ($test in $tests) {
+        $result = Run-Test -TestName "phase3-e3-$($test.Name)" -TestCommand $test.Path -TimeoutSeconds 300 -Python $Python
+        if ($result -ne 0) { return $result }
+    }
+    return 0
+}
+
 function Run-Phase3McpServerProbe {
     param([string]$DockerPath, [pscustomobject]$Python)
     Write-Host "Running Phase 3 E-4: ADR-004 MCP Server preview probe..." -ForegroundColor Cyan
@@ -810,6 +844,14 @@ foreach ($target in $Target) {
             $exitCode = Run-Phase3Adr011Integration -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
         }
+        "phase3-adr015-router-smoke" {
+            $exitCode = Run-Phase3Adr015RouterSmoke -Python $python
+            $totalExitCode = $totalExitCode -bor $exitCode
+        }
+        "phase3-adr016-adapter" {
+            $exitCode = Run-Phase3Adr016Adapter -Python $python
+            $totalExitCode = $totalExitCode -bor $exitCode
+        }
         "phase3-mcp-server-probe" {
             $exitCode = Run-Phase3McpServerProbe -DockerPath $docker -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
@@ -844,6 +886,12 @@ foreach ($target in $Target) {
             $totalExitCode = $totalExitCode -bor $exitCode
             
             $exitCode = Run-Phase3Adr011Integration -Python $python
+            $totalExitCode = $totalExitCode -bor $exitCode
+            
+            $exitCode = Run-Phase3Adr015RouterSmoke -Python $python
+            $totalExitCode = $totalExitCode -bor $exitCode
+            
+            $exitCode = Run-Phase3Adr016Adapter -Python $python
             $totalExitCode = $totalExitCode -bor $exitCode
             
             $exitCode = Run-Phase3McpServerProbe -DockerPath $docker -Python $python

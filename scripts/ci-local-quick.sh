@@ -28,7 +28,7 @@ PORT=8501
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        lint|typecheck|unit|integration|checkpoint|bm25|reranker|hybrid-rag|web-search|rag-query|ui|all)
+        lint|typecheck|unit|integration|checkpoint|bm25|reranker|hybrid-rag|web-search|rag-query|ui|phase3|all)
             TARGETS=("$1")
             shift
             ;;
@@ -46,7 +46,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --help)
             echo "Usage: $0 [TARGETS...] [OPTIONS]"
-            echo "  TARGETS: lint, typecheck, unit, integration, checkpoint, bm25, reranker, hybrid-rag, web-search, rag-query, ui, all"
+            echo "  TARGETS: lint, typecheck, unit, integration, checkpoint, bm25, reranker, hybrid-rag, web-search, rag-query, ui, phase3, all"
             echo "  OPTIONS:"
             echo "    --port PORT        Streamlit UI port (default: 8501)"
             echo "    --timeout SEC     Timeout in seconds (default: 300)"
@@ -217,6 +217,12 @@ run_tests() {
                 --cov-report=term-missing \
                 --cov-report=xml \
                 --cov-report=html
+            ;;
+        phase3)
+            log_info "Running Phase 3 unit tests (quick CI, no integration, no pilots)..."
+            "${PYTHON_EXE}" -m pytest tests/unit/ \
+                -k "(not integration and not staging_load) and (router or cost_guard or circuit_breaker or capability or tool_calling or react_prompt or semantic_cache or facts or config_phase3 or llm_metrics or invalidator or cache_aware or graph_semantic or mcp)" \
+                -v --maxfail=3
             ;;
         integration)
             log_info "Running integration tests..."
