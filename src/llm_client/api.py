@@ -58,13 +58,8 @@ def create_app(redis_url: str | None = None, _settings: Settings | None = None) 
             logger.info("KMS provider: Vault transit (%s)", settings.vault_transit_key)
         else:
             kms_provider = LocalDevKeyProvider()
-        from .storage.factory import create_file_storage
 
-        forensic_writer = build_forensic_writer(
-            settings,
-            kms_provider,
-            create_file_storage(),
-        )
+        forensic_writer = build_forensic_writer(settings, kms_provider)
     else:
         logger.warning("Forensic stream disabled — dev mode")
 

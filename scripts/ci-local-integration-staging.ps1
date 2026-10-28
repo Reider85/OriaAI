@@ -392,6 +392,8 @@ function Run-ForensicTests {
     $env:S3_ACCESS_KEY = "minioadmin"
     $env:S3_SECRET_KEY = "minioadmin"
     $env:S3_FORENSIC_BUCKET = "llm-client-forensic"
+    $env:S3_RESTRICTED_ACCESS_KEY = "files-ro"
+    $env:S3_RESTRICTED_SECRET_KEY = "files-ro-secret"
     $env:REDIS_URL = "redis://localhost:6380/0"
     $env:OPENAI_API_KEY = "sk-test-placeholder"
     
@@ -403,10 +405,13 @@ function Run-ForensicTests {
         hashicorp/vault:latest `
         sh -c 'vault secrets enable transit && vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96'
     
-    # Create MinIO forensic bucket
-    Write-Host "Creating MinIO forensic bucket..." -ForegroundColor Cyan
-    docker run --rm --network host quay.io/minio/mc:latest `
-        sh -c 'mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && mc mb -p local/llm-client-forensic'
+    # Create MinIO buckets + files-only restricted user (BUG-MVP-01 AccessDenied regression)
+    Write-Host "Creating MinIO buckets + files-only restricted user..." -ForegroundColor Cyan
+    docker run --rm --network host `
+        -e S3_RESTRICTED_ACCESS_KEY `
+        -e S3_RESTRICTED_SECRET_KEY `
+        quay.io/minio/mc:latest `
+        sh -c 'set -e; mc alias set local http://127.0.0.1:9000 minioadmin minioadmin; mc mb -p --ignore-existing local/llm-client-forensic; mc mb -p --ignore-existing local/llm-client-files; printf "%s" "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:ListBucket\"],\"Resource\":[\"arn:aws:s3:::llm-client-files\",\"arn:aws:s3:::llm-client-files/*\"]}]}" > /tmp/files-only-policy.json; mc admin policy create local files-only /tmp/files-only-policy.json || mc admin policy add local files-only /tmp/files-only-policy.json || true; mc admin user create local "$S3_RESTRICTED_ACCESS_KEY" "$S3_RESTRICTED_SECRET_KEY" || mc admin user add local "$S3_RESTRICTED_ACCESS_KEY" "$S3_RESTRICTED_SECRET_KEY" || true; mc admin policy attach local files-only --user "$S3_RESTRICTED_ACCESS_KEY" || mc admin policy set-policy local files-only "$S3_RESTRICTED_ACCESS_KEY" || true; mc ls local/'
     
     # Run forensic e2e test
     Write-Host "Running forensic e2e test..." -ForegroundColor Cyan

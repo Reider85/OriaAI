@@ -54,6 +54,8 @@ class ForensicStreamWriter:
 
         if not enabled:
             logger.warning("Forensic stream disabled — forensic writes are no-ops")
+        else:
+            logger.info("Forensic stream → bucket=%s", self._bucket)
 
     @property
     def enabled(self) -> bool:
@@ -120,7 +122,9 @@ class ForensicStreamWriter:
             try:
                 await self._s3.save(body, key)
             except Exception as exc:
-                raise ForensicWriteError(f"forensic S3 write failed for {key}") from exc
+                raise ForensicWriteError(
+                    f"forensic S3 write failed for {key} (bucket={self._bucket})"
+                ) from exc
 
     @staticmethod
     def _object_key(session_id: str) -> str:
@@ -134,9 +138,23 @@ class ForensicStreamWriter:
 def build_forensic_writer(
     settings: Any,
     kms_provider: KMSKeyProvider,
-    s3_client: FileStorage,
+    s3_client: FileStorage | None = None,
 ) -> ForensicStreamWriter:
-    """Build writer wired to app settings (S3_FORENSIC_BUCKET, FORENSIC_STREAM_ENABLED)."""
+    """Build writer wired to app settings (S3_FORENSIC_BUCKET, FORENSIC_STREAM_ENABLED).
+
+    When ``s3_client`` is omitted (production path), a dedicated bucket-scoped
+    ``S3CompatibleStorage`` is created targeting ``S3_FORENSIC_BUCKET`` — forensic
+    writes never go through the shared files-bucket storage (ADR-014 isolation).
+    """
+    if s3_client is None:
+        from ..storage.s3 import S3CompatibleStorage
+
+        s3_client = S3CompatibleStorage(
+            endpoint=getattr(settings, "s3_endpoint", None),
+            access_key=getattr(settings, "s3_access_key", None),
+            secret_key=getattr(settings, "s3_secret_key", None),
+            bucket=getattr(settings, "s3_forensic_bucket", "llm-client-forensic"),
+        )
     return ForensicStreamWriter(
         kms_provider=kms_provider,
         s3_client=s3_client,

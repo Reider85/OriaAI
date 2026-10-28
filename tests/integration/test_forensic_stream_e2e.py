@@ -12,7 +12,7 @@ import os
 import pytest
 
 from llm_client.config import Settings
-from llm_client.observability.forensic_writer import ForensicStreamWriter
+from llm_client.observability.forensic_writer import build_forensic_writer
 from llm_client.observability.kms_provider import VaultTransitKeyProvider
 from llm_client.storage.s3 import S3CompatibleStorage
 
@@ -79,9 +79,9 @@ async def s3_storage(settings_staging_forensic):
             bucket=settings_staging_forensic.s3_forensic_bucket,
         )
         # Test connectivity by listing bucket (may be empty)
-        await storage.list_objects(prefix="forensic/")
+        await storage.list("forensic/")
         return storage
-    except (ConnectionError, OSError) as exc:
+    except Exception as exc:  # noqa: BLE001 — probe anything that could mean MinIO/bucket is down
         pytest.skip(f"S3 forensic bucket not available: {exc}")
 
 
@@ -90,13 +90,9 @@ async def test_forensic_write_encrypt_upload_decrypt(
     vault_provider, s3_storage, settings_staging_forensic
 ):
     """Full forensic path: write → encrypt → upload → fetch → decrypt → validate."""
-    # Create forensic writer with real Vault and S3
-    writer = ForensicStreamWriter(
-        kms_provider=vault_provider,
-        s3_client=s3_storage,
-        bucket=settings_staging_forensic.s3_forensic_bucket,
-        enabled=True,
-    )
+    # Create forensic writer via the production build path (bucket-scoped storage,
+    # S3_FORENSIC_BUCKET from settings — no manual S3CompatibleStorage wiring)
+    writer = build_forensic_writer(settings_staging_forensic, vault_provider)
 
     # Test event data (typical cancel event)
     test_event = {
@@ -119,7 +115,7 @@ async def test_forensic_write_encrypt_upload_decrypt(
         await writer.flush()  # Ensure write completes
 
         # Verify object exists in forensic bucket
-        objects = await s3_storage.list_objects(prefix="forensic/")
+        objects = await s3_storage.list("forensic/")
         assert len(objects) >= 1
 
         # Get the forensic object (should be encrypted envelope)

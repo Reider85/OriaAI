@@ -87,14 +87,22 @@ services:
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
-    entrypoint: >
-      /bin/sh -c "
-        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
-        mc mb --ignore-existing local/llm-client-files &&
-        mc mb --ignore-existing local/llm-client-forensic &&
-        echo 'Buckets ready.' &&
+      - S3_RESTRICTED_ACCESS_KEY=${S3_RESTRICTED_ACCESS_KEY:-files-ro}
+      - S3_RESTRICTED_SECRET_KEY=${S3_RESTRICTED_SECRET_KEY:-files-ro-secret}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing local/llm-client-files
+        mc mb --ignore-existing local/llm-client-forensic
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:ListBucket"],"Resource":["arn:aws:s3:::llm-client-files","arn:aws:s3:::llm-client-files/*"]}]}' > /tmp/files-only-policy.json
+        mc admin policy create local files-only /tmp/files-only-policy.json || mc admin policy add local files-only /tmp/files-only-policy.json || true
+        mc admin user create local "$${S3_RESTRICTED_ACCESS_KEY}" "$${S3_RESTRICTED_SECRET_KEY}" || mc admin user add local "$${S3_RESTRICTED_ACCESS_KEY}" "$${S3_RESTRICTED_SECRET_KEY}" || true
+        mc admin policy attach local files-only --user "$${S3_RESTRICTED_ACCESS_KEY}" || mc admin policy set-policy local files-only "$${S3_RESTRICTED_ACCESS_KEY}" || true
+        echo 'Buckets ready.'
         mc ls local/
-      "
     networks:
       - llm-network
     restart: "no"

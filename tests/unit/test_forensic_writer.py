@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from llm_client.observability.forensic_writer import ForensicStreamWriter, ForensicWriteError
+from llm_client.observability.forensic_writer import (
+    ForensicStreamWriter,
+    ForensicWriteError,
+    build_forensic_writer,
+)
 from llm_client.observability.kms_provider import LocalDevKeyProvider
 from llm_client.storage.base import FileStorage
 
@@ -259,5 +263,90 @@ async def test_multiple_events_produce_separate_objects(kms, s3):
         # Each key is unique (different uuid)
         keys = list(s3.objects.keys())
         assert len(set(keys)) == 5
+    finally:
+        await w.close()
+
+
+# ---------------------------------------------------------------------------
+# BUG-MVP-01: forensic writes must target S3_FORENSIC_BUCKET (ADR-014)
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace
+
+from llm_client.storage.s3 import S3CompatibleStorage
+
+
+def _forensic_settings(**overrides) -> SimpleNamespace:
+    base = {
+        "s3_endpoint": "http://127.0.0.1:9000",
+        "s3_access_key": "minioadmin",
+        "s3_secret_key": "minioadmin",
+        "s3_bucket": "llm-client-files",
+        "s3_forensic_bucket": "llm-client-forensic",
+        "forensic_stream_enabled": True,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def test_builder_targets_forensic_bucket_not_env_default(monkeypatch):
+    """Production build path scopes storage to S3_FORENSIC_BUCKET, not S3_BUCKET."""
+    monkeypatch.setenv("S3_BUCKET", "llm-client-files")
+    w = build_forensic_writer(_forensic_settings(), LocalDevKeyProvider())
+    assert isinstance(w._s3, S3CompatibleStorage)
+    assert w._s3._bucket == "llm-client-forensic"
+    assert w._bucket == "llm-client-forensic"
+    assert w._s3._bucket != "llm-client-files"
+
+
+def test_builder_accepts_injected_storage(kms, s3):
+    """s3_client override (tests / special wiring) still works."""
+    w = build_forensic_writer(_forensic_settings(), kms, s3)
+    assert w._s3 is s3
+
+
+@pytest.mark.asyncio
+async def test_forensic_writer_writes_to_correct_bucket(kms, monkeypatch):
+    """After put(), the object targets llm-client-forensic, NOT llm-client-files."""
+    captured: dict[str, str] = {}
+    monkeypatch.setenv("S3_BUCKET", "llm-client-files")
+
+    async def fake_save(self, file, key, metadata=None):
+        captured["bucket"] = self._bucket
+        captured["key"] = key
+        return key
+
+    monkeypatch.setattr(S3CompatibleStorage, "save", fake_save)
+
+    w = build_forensic_writer(_forensic_settings(), kms)
+    await w.start()
+    try:
+        await w.write({"event_type": "session_cancelled", "session_id": "sess-b1"})
+        await w.flush()
+    finally:
+        await w.close()
+
+    assert captured, "no S3 save happened"
+    assert captured["bucket"] == "llm-client-forensic"
+    assert captured["bucket"] != "llm-client-files"
+    assert captured["key"].startswith("forensic/")
+    assert "sess-b1" in captured["key"]
+
+
+@pytest.mark.asyncio
+async def test_flush_error_reports_target_bucket(kms, monkeypatch):
+    """S3 failures name the forensic bucket (self._bucket is actually used)."""
+
+    async def failing_save(self, file, key, metadata=None):
+        raise RuntimeError("s3 down")
+
+    monkeypatch.setattr(S3CompatibleStorage, "save", failing_save)
+
+    w = build_forensic_writer(_forensic_settings(), kms)
+    await w.start()
+    try:
+        await w.write({"event_type": "e", "session_id": "s-err"})
+        with pytest.raises(ForensicWriteError, match=r"bucket=llm-client-forensic"):
+            await w.flush()
     finally:
         await w.close()

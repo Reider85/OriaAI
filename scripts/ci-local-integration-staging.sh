@@ -171,10 +171,21 @@ start_infrastructure() {
         hashicorp/vault:latest \
         sh -c 'vault secrets enable transit && vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96'
     
-    # Create MinIO forensic bucket
-    log_info "Creating MinIO forensic bucket..."
-    docker run --rm --network host quay.io/minio/mc:latest \
-        sh -c 'mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && mc mb -p local/llm-client-forensic'
+    # Create MinIO buckets + files-only restricted user (BUG-MVP-01 AccessDenied regression)
+    log_info "Creating MinIO buckets + files-only restricted user..."
+    docker run --rm --network host \
+        -e S3_RESTRICTED_ACCESS_KEY \
+        -e S3_RESTRICTED_SECRET_KEY \
+        quay.io/minio/mc:latest \
+        sh -c 'set -e
+            mc alias set local http://127.0.0.1:9000 minioadmin minioadmin
+            mc mb -p --ignore-existing local/llm-client-forensic
+            mc mb -p --ignore-existing local/llm-client-files
+            printf "%s" "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:ListBucket\"],\"Resource\":[\"arn:aws:s3:::llm-client-files\",\"arn:aws:s3:::llm-client-files/*\"]}]}" > /tmp/files-only-policy.json
+            mc admin policy create local files-only /tmp/files-only-policy.json || mc admin policy add local files-only /tmp/files-only-policy.json || true
+            mc admin user create local "${S3_RESTRICTED_ACCESS_KEY:-files-ro}" "${S3_RESTRICTED_SECRET_KEY:-files-ro-secret}" || mc admin user add local "${S3_RESTRICTED_ACCESS_KEY:-files-ro}" "${S3_RESTRICTED_SECRET_KEY:-files-ro-secret}" || true
+            mc admin policy attach local files-only --user "${S3_RESTRICTED_ACCESS_KEY:-files-ro}" || mc admin policy set-policy local files-only "${S3_RESTRICTED_ACCESS_KEY:-files-ro}" || true
+            mc ls local/'
     
     log_info "Forensic infrastructure is ready!"
 }
@@ -246,6 +257,8 @@ run_forensic_tests() {
     export S3_ACCESS_KEY=minioadmin
     export S3_SECRET_KEY=minioadmin
     export S3_FORENSIC_BUCKET=llm-client-forensic
+    export S3_RESTRICTED_ACCESS_KEY="${S3_RESTRICTED_ACCESS_KEY:-files-ro}"
+    export S3_RESTRICTED_SECRET_KEY="${S3_RESTRICTED_SECRET_KEY:-files-ro-secret}"
     export REDIS_URL=redis://localhost:6380/0
     export OPENAI_API_KEY=sk-test-placeholder
     
