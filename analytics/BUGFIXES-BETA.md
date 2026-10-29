@@ -173,9 +173,9 @@ mc ilm rule add local/llm-client-files \
 
 - [ ] `docker-compose exec minio mc ilm rule list local/llm-client-forensic`
       показывает правило с `expire-days=90`.
-- [ ] Интеграционный тест `tests/integration/test_minio_lifecycle.py` проверяет,
+- [x] Интеграционный тест `tests/integration/test_minio_lifecycle.py` проверяет,
       что правило применено.
-- [ ] README раздел «Vault — проверка шифрования» дополнен командой проверки ILM.
+- [x] README раздел «Vault — проверка шифрования» дополнен командой проверки ILM.
 
 ---
 

@@ -97,6 +97,10 @@ services:
         mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing local/llm-client-files
         mc mb --ignore-existing local/llm-client-forensic
+        mc ilm rule ls local/llm-client-forensic 2>/dev/null | grep -q "Days: 90" || \
+          mc ilm rule add local/llm-client-forensic --expire-days 90 --noncurrent-expire-days 90
+        mc ilm rule ls local/llm-client-files 2>/dev/null | grep -q "Days: 30" || \
+          mc ilm rule add local/llm-client-files --expire-days 30
         printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:ListBucket"],"Resource":["arn:aws:s3:::llm-client-files","arn:aws:s3:::llm-client-files/*"]}]}' > /tmp/files-only-policy.json
         mc admin policy create local files-only /tmp/files-only-policy.json || mc admin policy add local files-only /tmp/files-only-policy.json || true
         mc admin user create local "$${S3_RESTRICTED_ACCESS_KEY}" "$${S3_RESTRICTED_SECRET_KEY}" || mc admin user add local "$${S3_RESTRICTED_ACCESS_KEY}" "$${S3_RESTRICTED_SECRET_KEY}" || true

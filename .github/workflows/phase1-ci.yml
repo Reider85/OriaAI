@@ -107,6 +107,19 @@ jobs:
             -e VAULT_TOKEN=root \
             hashicorp/vault:latest \
             sh -c 'vault secrets enable transit && vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96'
+      - name: Create MinIO buckets + ILM retention rules
+        run: |
+          docker run --rm --network host \
+            quay.io/minio/mc:latest \
+            sh -c '
+              set -e
+              mc alias set local http://127.0.0.1:9000 minioadmin minioadmin
+              mc mb -p --ignore-existing local/llm-client-forensic
+              mc mb -p --ignore-existing local/llm-client-files
+              mc ilm rule add local/llm-client-forensic --expire-days 90 --noncurrent-expire-days 90
+              mc ilm rule add local/llm-client-files --expire-days 30
+              mc ls local/
+            '
       - name: Integration tests (F-3 parity on dev MinIO + B-1 infra)
         run: pytest tests/integration --maxfail=1
 
@@ -181,6 +194,8 @@ jobs:
               mc alias set local http://127.0.0.1:9000 minioadmin minioadmin
               mc mb -p --ignore-existing local/llm-client-forensic
               mc mb -p --ignore-existing local/llm-client-files
+              mc ilm rule add local/llm-client-forensic --expire-days 90 --noncurrent-expire-days 90
+              mc ilm rule add local/llm-client-files --expire-days 30
               printf "%s" "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:ListBucket\"],\"Resource\":[\"arn:aws:s3:::llm-client-files\",\"arn:aws:s3:::llm-client-files/*\"]}]}" > /tmp/files-only-policy.json
               mc admin policy create local files-only /tmp/files-only-policy.json || mc admin policy add local files-only /tmp/files-only-policy.json || true
               mc admin user create local "$S3_RESTRICTED_ACCESS_KEY" "$S3_RESTRICTED_SECRET_KEY" || mc admin user add local "$S3_RESTRICTED_ACCESS_KEY" "$S3_RESTRICTED_SECRET_KEY" || true

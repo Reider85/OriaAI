@@ -136,6 +136,19 @@ jobs:
             -e VAULT_TOKEN=root \
             hashicorp/vault:latest \
             sh -c 'vault secrets enable transit && vault write -f transit/keys/forensic-aes256-gcm type=aes256-gcm96'
+      - name: Create MinIO buckets + ILM retention rules
+        run: |
+          docker run --rm --network host \
+            quay.io/minio/mc:latest \
+            sh -c '
+              set -e
+              mc alias set local http://127.0.0.1:9000 minioadmin minioadmin
+              mc mb -p --ignore-existing local/llm-client-forensic
+              mc mb -p --ignore-existing local/llm-client-files
+              mc ilm rule add local/llm-client-forensic --expire-days 90 --noncurrent-expire-days 90
+              mc ilm rule add local/llm-client-files --expire-days 30
+              mc ls local/
+            '
       - name: Apply database migrations
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/llm_client

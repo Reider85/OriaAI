@@ -185,6 +185,20 @@ docker-compose exec minio mc ls local/
 # → local/llm-client-forensic/
 ```
 
+### S3 lifecycle (retention)
+
+`minio-init` настраивает ILM-правила (ADR-014): forensic bucket — экспирация
+объектов через 90 дней, operational files bucket — через 30 дней.
+
+```powershell
+# alias `local` настраивается один раз — см. Round-trip upload/download ниже
+docker-compose exec minio mc ilm rule ls local/llm-client-forensic
+# → Expiration: Days: 90
+
+docker-compose exec minio mc ilm rule ls local/llm-client-files
+# → Expiration: Days: 30
+```
+
 Console доступна: [http://localhost:9001](http://localhost:9001)
 Логин / пароль: из `.env` → `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`.
 
@@ -239,6 +253,16 @@ docker-compose exec vault vault write transit/encrypt/forensic-aes256-gcm plaint
 ```
 
 Policy `forensic-encryptor` содержит только `transit/encrypt/forensic-aes256-gcm` и `transit/decrypt/forensic-aes256-gcm` — без путей `auth/`, `sys/`, `secret/`. Ключ создаётся с типом `aes256-gcm96` (именование нового Vault для AES-256-GCM).
+
+### S3 lifecycle (retention forensic)
+
+Retention forensic-записей (90 дней, ADR-014) настраивается ILM-правилом на
+forensic bucket (подробности — в разделе «MinIO — проверка bucket'ов»):
+
+```powershell
+docker-compose exec minio mc ilm rule ls local/llm-client-forensic
+# → Expiration: Days: 90
+```
 
 ---
 
