@@ -35,3 +35,7 @@ chroma_db/
 reports/*.json
 reports/*.csv
 reports/*.html
+
+# Coverage data & local test artifacts
+.coverage
+test-results/
