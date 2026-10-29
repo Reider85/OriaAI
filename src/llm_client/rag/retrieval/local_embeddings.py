@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class LocalSentenceTransformerEmbeddings:
     """Local embeddings using SentenceTransformer as fallback for RAG pipeline.
-    
+
     Compatible with LangChain embedding interface for Chroma/PGVector.
     Uses BGE-m3 by default (1024-dim multilingual embeddings).
     """
@@ -23,7 +23,7 @@ class LocalSentenceTransformerEmbeddings:
         model_dir: str | None = None,
         device: str = "cpu",
         batch_size: int = 32,
-        **kwargs
+        **kwargs,
     ):
         self._model: SentenceTransformer | None = None
         self._model_name = model_name
@@ -53,9 +53,7 @@ class LocalSentenceTransformerEmbeddings:
                 )
                 self._model_path.mkdir(parents=True, exist_ok=True)
                 model = SentenceTransformer(
-                    self._model_name,
-                    device=self._device,
-                    cache_folder=str(self._model_path.parent)
+                    self._model_name, device=self._device, cache_folder=str(self._model_path.parent)
                 )
             return model
         except Exception as e:
@@ -64,22 +62,19 @@ class LocalSentenceTransformerEmbeddings:
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """Embed a list of documents (texts).
-        
+
         Args:
             texts: List of text strings to embed
-            
+
         Returns:
             List of embeddings (each embedding is a list of floats)
         """
         if not texts:
             return []
-        
+
         try:
             embeddings = self.model.encode(
-                texts,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-                convert_to_tensor=False
+                texts, show_progress_bar=False, convert_to_numpy=True, convert_to_tensor=False
             ).tolist()
             return embeddings
         except Exception as e:
@@ -88,19 +83,16 @@ class LocalSentenceTransformerEmbeddings:
 
     def embed_query(self, text: str) -> list[float]:
         """Embed a single query text.
-        
+
         Args:
             text: Single text string to embed
-            
+
         Returns:
             Embedding as a list of floats
         """
         try:
             embedding = self.model.encode(
-                text,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-                convert_to_tensor=False
+                text, show_progress_bar=False, convert_to_numpy=True, convert_to_tensor=False
             ).tolist()
             return embedding
         except Exception as e:

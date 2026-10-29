@@ -27,7 +27,9 @@ class FakeChatModel(BaseChatModel):
         super().__init__(**kwargs)
         self.response = response
         self.error = error
-        self.stream_responses = [] if error else [AIMessage(content="stream " + str(i)) for i in range(3)]
+        self.stream_responses = (
+            [] if error else [AIMessage(content="stream " + str(i)) for i in range(3)]
+        )
 
     @property
     def _llm_type(self) -> str:
@@ -81,11 +83,11 @@ class FakeChatModel(BaseChatModel):
 
 class MockEmbeddings:
     """Mock embeddings for testing."""
-    
+
     async def aembed_query(self, text: str):
         # Return mock embedding for any query
         return [0.1, 0.2, 0.3, 0.4, 0.5]  # Mock 5-dimensional embedding
-    
+
     async def aembed_documents(self, texts: list[str]):
         return [[0.1, 0.2, 0.3, 0.4, 0.5] for _ in texts]
 
@@ -102,6 +104,7 @@ class MockSemanticCache:
         self.get_calls.append(query)
         if query in self.data:
             from llm_client.rag.semantic_cache import CacheHitResult
+
             return CacheHitResult(
                 answer=self.data[query],
                 referenced_doc_ids=[UUID("123e4567-e89b-12d3-a456-426614174000")],
@@ -148,8 +151,11 @@ async def test_cache_miss_calls_underlying(cache_aware_llm, fake_llm, mock_cache
     """Cache miss should call underlying LLM once."""
     messages = [
         HumanMessage(content="test query"),
-        ToolMessage(content="tool result", tool_call_id="test-tool-call-id",
-                  artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]})
+        ToolMessage(
+            content="tool result",
+            tool_call_id="test-tool-call-id",
+            artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]},
+        ),
     ]
     result = await cache_aware_llm.ainvoke(messages)
     await asyncio.sleep(0.05)  # allow fire-and-forget put task to complete
@@ -169,14 +175,17 @@ async def test_cache_hit_skips_underlying(cache_aware_llm, fake_llm, mock_cache)
     """Cache hit should NOT call underlying LLM."""
     # Setup cache hit
     mock_cache.data["test query"] = "cached response"
-    
+
     messages = [
         HumanMessage(content="test query"),
-        ToolMessage(content="tool result", tool_call_id="test-tool-call-id",
-                  artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]})
+        ToolMessage(
+            content="tool result",
+            tool_call_id="test-tool-call-id",
+            artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]},
+        ),
     ]
     result = await cache_aware_llm.ainvoke(messages)
-    
+
     assert fake_llm.call_count == 0
     assert mock_cache.get_calls == ["test query"]
     assert mock_cache.put_calls == []
@@ -187,14 +196,17 @@ async def test_cache_hit_skips_underlying(cache_aware_llm, fake_llm, mock_cache)
 async def test_cache_hit_returns_synthesized_message(cache_aware_llm, fake_llm, mock_cache):
     """Cache hit should return synthesized ChatResult with cached answer."""
     mock_cache.data["test query"] = "cached response"
-    
+
     messages = [
         HumanMessage(content="test query"),
-        ToolMessage(content="tool result", tool_call_id="test-tool-call-id",
-                  artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]})
+        ToolMessage(
+            content="tool result",
+            tool_call_id="test-tool-call-id",
+            artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]},
+        ),
     ]
     result = await cache_aware_llm.ainvoke(messages)
-    
+
     assert result.content == "cached response"
     assert isinstance(result, AIMessage)
 
@@ -230,8 +242,11 @@ async def test_put_called_after_miss(cache_aware_llm, fake_llm, mock_cache):
     """Cache put should be called after miss with correct args."""
     messages = [
         HumanMessage(content="test query"),
-        ToolMessage(content="tool result", tool_call_id="test-tool-call-id",
-                  artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]})
+        ToolMessage(
+            content="tool result",
+            tool_call_id="test-tool-call-id",
+            artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]},
+        ),
     ]
     await cache_aware_llm.ainvoke(messages)
     await asyncio.sleep(0.05)  # allow fire-and-forget put task to complete
@@ -253,8 +268,11 @@ async def test_astream_cache_hit_chunks_answer(cache_aware_llm, fake_llm, mock_c
 
     messages = [
         HumanMessage(content="test query"),
-        ToolMessage(content="tool result", tool_call_id="test-tool-call-id",
-                  artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]})
+        ToolMessage(
+            content="tool result",
+            tool_call_id="test-tool-call-id",
+            artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]},
+        ),
     ]
     chunks = []
     async for chunk in cache_aware_llm.astream(messages):
@@ -271,8 +289,11 @@ async def test_astream_cache_miss_accumulates_and_puts(cache_aware_llm, fake_llm
     """Stream from underlying, accumulate chunks, verify cache.put called with full accumulated answer."""
     messages = [
         HumanMessage(content="test query"),
-        ToolMessage(content="tool result", tool_call_id="test-tool-call-id",
-                  artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]})
+        ToolMessage(
+            content="tool result",
+            tool_call_id="test-tool-call-id",
+            artifact={"chunks": [{"document_id": "123e4567-e89b-12d3-a456-426614174000"}]},
+        ),
     ]
     chunks = []
     async for chunk in cache_aware_llm.astream(messages):
@@ -333,11 +354,11 @@ async def test_extract_referenced_doc_ids(cache_aware_llm):
 
     messages = [
         HumanMessage(content="test query"),
-ToolMessage(
-                artifact={"chunks": [{"document_id": str(doc_id1)}, {"document_id": str(doc_id2)}]},
-                content="tool result",
-                tool_call_id="test-tool-call-id",
-            ),
+        ToolMessage(
+            artifact={"chunks": [{"document_id": str(doc_id1)}, {"document_id": str(doc_id2)}]},
+            content="tool result",
+            tool_call_id="test-tool-call-id",
+        ),
     ]
 
     doc_ids = cache_aware_llm._extract_referenced_doc_ids(messages)
@@ -364,7 +385,7 @@ async def test_extract_query_fallback(cache_aware_llm):
         ToolMessage(content="tool result", tool_call_id="test-tool-call-id"),
         AIMessage(content="ai response"),
     ]
-    
+
     query = cache_aware_llm._extract_query(messages)
     assert query == "tool result\nai response"
 

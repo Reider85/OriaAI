@@ -59,7 +59,7 @@ class RetrieverConfig:
 
         # Get the intended reranker name
         reranker_name = os.getenv("RERANKER_NAME", "bge")
-        
+
         # If Cohere is selected but no API key is available, fall back to BGE
         if reranker_name == "cohere" and not os.getenv("COHERE_API_KEY"):
             reranker_name = "bge"

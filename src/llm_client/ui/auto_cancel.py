@@ -85,10 +85,7 @@ AUTO_CANCEL_JS = """<script>
 """
 
 
-def inject_auto_cancel(
-    backend_origin: str | None = None, 
-    session_id: str | None = None
-) -> None:
+def inject_auto_cancel(backend_origin: str | None = None, session_id: str | None = None) -> None:
     """Render the auto-cancel JS fragment into the current Streamlit page.
 
     Call from the top of the Streamlit chat script. ``backend_origin`` overrides
@@ -112,7 +109,7 @@ def _quote(value: str) -> str:
 
 def render_stop_button(session_id: str, backend_origin: str | None = None) -> None:
     """Render a visible "Stop" button that cancels the current session.
-    
+
     The button is rendered as a small HTML component that calls the cancel
     endpoint directly from JavaScript, working even during a blocking stream.
     """
@@ -120,7 +117,7 @@ def render_stop_button(session_id: str, backend_origin: str | None = None) -> No
         import streamlit as st  # type: ignore[import-untyped]
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("streamlit is required for render_stop_button()") from exc
-    
+
     origin = backend_origin or "window.location.origin"
     html = f"""
     <div style="margin: 10px 0; text-align: right;">

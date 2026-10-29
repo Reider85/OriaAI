@@ -23,7 +23,9 @@ def test_facts_extraction_disabled_via_env():
 
 def test_validate_environment_fails_when_facts_model_invalid():
     """Test validation fails when FACTS_EXTRACTOR_MODEL is invalid."""
-    with pytest.raises(ValueError, match="FACTS_EXTRACTOR_MODEL must be gpt-4o-mini|gpt-4o|gpt-3.5-turbo"):
+    with pytest.raises(
+        ValueError, match="FACTS_EXTRACTOR_MODEL must be gpt-4o-mini|gpt-4o|gpt-3.5-turbo"
+    ):
         Settings(facts_extraction_enabled=True, facts_extractor_model="invalid-model")
 
 
@@ -35,7 +37,10 @@ def test_validate_environment_fails_when_facts_max_facts_invalid():
 
 def test_validate_environment_fails_when_facts_embedding_model_invalid():
     """Test validation fails when FACTS_EMBEDDING_MODEL is invalid."""
-    with pytest.raises(ValueError, match="FACTS_EMBEDDING_MODEL must be text-embedding-3-small|text-embedding-3-large"):
+    with pytest.raises(
+        ValueError,
+        match="FACTS_EMBEDDING_MODEL must be text-embedding-3-small|text-embedding-3-large",
+    ):
         Settings(facts_extraction_enabled=True, facts_embedding_model="invalid-model")
 
 

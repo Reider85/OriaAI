@@ -101,6 +101,7 @@ def _build_client(bm25_indexer=None, vector_writer=None, pg_pool=None):
         # Phase 3: invalidate semantic cache BEFORE delete
         from llm_client.rag.cache_invalidator import get_cache_invalidator
         from uuid import UUID
+
         await get_cache_invalidator().invalidate_doc(UUID(document_id))
 
         await indexer.delete_document(document_id)
@@ -130,6 +131,7 @@ def _build_client(bm25_indexer=None, vector_writer=None, pg_pool=None):
             # Phase 3: invalidate semantic cache BEFORE mutation
             from llm_client.rag.cache_invalidator import get_cache_invalidator
             from uuid import UUID
+
             await get_cache_invalidator().invalidate_doc(UUID(document_id))
 
             # Update document row
@@ -166,7 +168,15 @@ class _MockConn:
 
     async def fetchrow(self, sql, *args):
         self.executed.append((sql, args))
-        return {"id": "550e8400-e29b-41d4-a716-446655440003", "user_id": "test_user", "content_hash": "abc123"} if self._exists else None
+        return (
+            {
+                "id": "550e8400-e29b-41d4-a716-446655440003",
+                "user_id": "test_user",
+                "content_hash": "abc123",
+            }
+            if self._exists
+            else None
+        )
 
     async def __aenter__(self):
         return self
@@ -240,8 +250,10 @@ def test_delete_not_found():
 def test_delete_happy_path():
     mock_invalidator = AsyncMock()
     mock_invalidator.invalidate_doc = AsyncMock(return_value=1)
-    
-    with patch("llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator):
+
+    with patch(
+        "llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator
+    ):
         indexer = MagicMock()
         indexer.delete_document = AsyncMock(return_value=None)
         indexer.pg_pool = _MockPool(exists=True)
@@ -259,20 +271,23 @@ class TestCacheInvalidationIntegration:
         """Test that DELETE endpoint calls cache invalidator before delete."""
         mock_invalidator = AsyncMock()
         mock_invalidator.invalidate_doc = AsyncMock(return_value=1)
-        
+
         # Mock the cache invalidator module
-        with patch("llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator):
+        with patch(
+            "llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator
+        ):
             indexer = MagicMock()
             indexer.delete_document = AsyncMock(return_value=None)
             indexer.pg_pool = _MockPool()
             client = _build_client(bm25_indexer=indexer, pg_pool=_MockPool())
             response = client.delete("/documents/550e8400-e29b-41d4-a716-446655440000")
-            
+
             assert response.status_code == 200
             assert response.json()["status"] == "deleted"
             mock_invalidator.invalidate_doc.assert_called_once()
             # Verify UUID conversion: str -> UUID
             from uuid import UUID
+
             call_arg = mock_invalidator.invalidate_doc.call_args[0][0]
             assert isinstance(call_arg, UUID)
             assert str(call_arg) == "550e8400-e29b-41d4-a716-446655440000"
@@ -280,14 +295,16 @@ class TestCacheInvalidationIntegration:
     def test_delete_endpoint_404_skips_invalidator(self):
         """Test that DELETE endpoint returns 404 without calling invalidator."""
         mock_invalidator = AsyncMock()
-    
-        with patch("llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator):
+
+        with patch(
+            "llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator
+        ):
             indexer = MagicMock()
             indexer.delete_document = AsyncMock(return_value=None)
             indexer.pg_pool = _MockPool(exists=False)
             client = _build_client(bm25_indexer=indexer, pg_pool=_MockPool(exists=False))
             response = client.delete("/documents/550e8400-e29b-41d4-a716-446655440001")
-            
+
             assert response.status_code == 404
             mock_invalidator.invalidate_doc.assert_not_called()
 
@@ -295,25 +312,30 @@ class TestCacheInvalidationIntegration:
         """Test that PUT endpoint calls cache invalidator before update."""
         mock_invalidator = AsyncMock()
         mock_invalidator.invalidate_doc = AsyncMock(return_value=1)
-        
-        with patch("llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator):
-            
+
+        with patch(
+            "llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator
+        ):
             indexer = MagicMock()
             # Mock the update_document method
             indexer.update_document = AsyncMock(return_value=None)
             indexer.pg_pool = _MockPool()
             client = _build_client(bm25_indexer=indexer, pg_pool=_MockPool())
-            response = client.put("/documents/550e8400-e29b-41d4-a716-446655440002", json={
-                "content": "Updated content",
-                "source_type": "api",
-                "metadata": {"title": "Updated Document"}
-            })
-            
+            response = client.put(
+                "/documents/550e8400-e29b-41d4-a716-446655440002",
+                json={
+                    "content": "Updated content",
+                    "source_type": "api",
+                    "metadata": {"title": "Updated Document"},
+                },
+            )
+
             assert response.status_code == 200
             assert response.json()["status"] == "updated"
             mock_invalidator.invalidate_doc.assert_called_once()
             # Verify UUID conversion: str -> UUID
             from uuid import UUID
+
             call_arg = mock_invalidator.invalidate_doc.call_args[0][0]
             assert isinstance(call_arg, UUID)
             assert str(call_arg) == "550e8400-e29b-41d4-a716-446655440002"
@@ -321,30 +343,36 @@ class TestCacheInvalidationIntegration:
     def test_put_endpoint_404_skips_invalidator(self):
         """Test that PUT endpoint returns 404 without calling invalidator."""
         mock_invalidator = AsyncMock()
-        
-        with patch("llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator):
+
+        with patch(
+            "llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator
+        ):
             indexer = MagicMock()
             indexer.update_document = AsyncMock(return_value=None)
             indexer.pg_pool = _MockPool(exists=False)
             client = _build_client(bm25_indexer=indexer, pg_pool=_MockPool(exists=False))
-            response = client.put("/documents/550e8400-e29b-41d4-a716-446655440003", json={
-                "content": "Updated content"
-            })
-            
+            response = client.put(
+                "/documents/550e8400-e29b-41d4-a716-446655440003",
+                json={"content": "Updated content"},
+            )
+
             assert response.status_code == 404
             mock_invalidator.invalidate_doc.assert_not_called()
 
     def test_put_endpoint_503_when_indexer_unavailable(self):
         """Test that PUT endpoint returns 503 when indexer is not available."""
         mock_invalidator = AsyncMock()
-        
-        with patch("llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator):
+
+        with patch(
+            "llm_client.rag.cache_invalidator.get_cache_invalidator", return_value=mock_invalidator
+        ):
             # Build client without indexer
             client = _build_client(bm25_indexer=None, pg_pool=_MockPool())
-            
-            response = client.put("/documents/550e8400-e29b-41d4-a716-446655440004", json={
-                "content": "Updated content"
-            })
-            
+
+            response = client.put(
+                "/documents/550e8400-e29b-41d4-a716-446655440004",
+                json={"content": "Updated content"},
+            )
+
             assert response.status_code == 503
             mock_invalidator.invalidate_doc.assert_not_called()

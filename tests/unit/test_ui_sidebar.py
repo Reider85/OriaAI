@@ -111,9 +111,9 @@ def test_render_sidebar_clear_context_button(monkeypatch, fake_streamlit):
     monkeypatch.setattr(session, "current_session_id", lambda: "a")
     # Set button result to True to simulate a button click
     fake_streamlit.sidebar._button_results["Clear context"] = True
-    
+
     result = sidebar.render_sidebar()
-    
+
     # Should return the clear context action
     assert result == session.CLEAR_CONTEXT_ACTION
 

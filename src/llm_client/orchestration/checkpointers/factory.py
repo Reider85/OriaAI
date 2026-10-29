@@ -93,7 +93,9 @@ def build_checkpointer(
 
         if backend in {"redis_postgres", "postgres_only"}:
             if pg_pool is None:
-                logger.info("PostgreSQL pool not provided at factory time; will be created at startup")
+                logger.info(
+                    "PostgreSQL pool not provided at factory time; will be created at startup"
+                )
             else:
                 logger.info("Reusing injected pg_pool for checkpointing")
 

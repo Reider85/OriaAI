@@ -8,6 +8,7 @@ Architecture: ARCHITECT.md v1.3.0 §5.2.3.
 TRIZ: Standard 5.1.1 (Prometheus as external substance);
 principle #16 (partial/excessive — partial fallback 30%).
 """
+
 import asyncio
 import logging
 import time
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 class CircuitState(str, Enum):
     CLOSED = "closed"  # normal operation
-    OPEN = "open"      # circuit breaker tripped, fallback
+    OPEN = "open"  # circuit breaker tripped, fallback
     HALF_OPEN = "half_open"  # trial period after open
 
 
@@ -74,7 +75,8 @@ class CircuitBreaker:
                     status.last_state_change = now
                     logger.warning(
                         "Circuit OPEN for provider %s (error rate %.1f%%)",
-                        provider, current_error_rate * 100,
+                        provider,
+                        current_error_rate * 100,
                     )
             elif status.state == CircuitState.OPEN:
                 if now - status.last_state_change > self.COOLDOWN_SECONDS:
@@ -84,14 +86,17 @@ class CircuitBreaker:
                         "Circuit HALF_OPEN for provider %s (cooldown elapsed)",
                         provider,
                     )
-            elif status.state == CircuitState.HALF_OPEN and status.consecutive_trial_successes >= self.TRIAL_SUCCESS_THRESHOLD:
-                    status.state = CircuitState.CLOSED
-                    status.consecutive_trial_successes = 0
-                    status.last_state_change = now
-                    logger.info(
-                        "Circuit CLOSED for provider %s (trial succeeded)",
-                        provider,
-                    )
+            elif (
+                status.state == CircuitState.HALF_OPEN
+                and status.consecutive_trial_successes >= self.TRIAL_SUCCESS_THRESHOLD
+            ):
+                status.state = CircuitState.CLOSED
+                status.consecutive_trial_successes = 0
+                status.last_state_change = now
+                logger.info(
+                    "Circuit CLOSED for provider %s (trial succeeded)",
+                    provider,
+                )
 
             return status
 
@@ -120,6 +125,7 @@ class CircuitBreaker:
         """Read llm_error_rate_5m{provider} from in-process gauge."""
         try:
             from ..observability.llm_metrics import LLM_ERROR_RATE
+
             return float(LLM_ERROR_RATE.labels(provider=provider)._value.get())
         except (AttributeError, RuntimeError, KeyError, TypeError):
             logger.warning("Failed to read Prometheus gauge")

@@ -122,9 +122,7 @@ def test_build_agent_graph_default_uses_settings():
             wraps=CacheAwareLLMClient,
         ) as mock_wrapper,
         patch("llm_client.config.settings") as mock_settings,
-        patch(
-            "llm_client.rag.semantic_cache.get_semantic_cache"
-        ) as mock_get_cache,
+        patch("llm_client.rag.semantic_cache.get_semantic_cache") as mock_get_cache,
     ):
         mock_settings.semantic_cache_enabled = True
         mock_get_cache.return_value = MockSemanticCache()
@@ -141,9 +139,7 @@ def test_build_agent_graph_default_no_cache_skips_wrapping():
             wraps=CacheAwareLLMClient,
         ) as mock_wrapper,
         patch("llm_client.config.settings") as mock_settings,
-        patch(
-            "llm_client.rag.semantic_cache.get_semantic_cache"
-        ) as mock_get_cache,
+        patch("llm_client.rag.semantic_cache.get_semantic_cache") as mock_get_cache,
     ):
         mock_settings.semantic_cache_enabled = True
         mock_get_cache.return_value = None
@@ -180,9 +176,7 @@ async def test_cache_aware_llm_cache_miss_calls_llm_and_caches(fake_llm, mock_ca
             "llm_client.rag.cache_aware_llm.get_semantic_cache",
             return_value=mock_cache,
         ),
-        patch(
-            "llm_client.rag.cache_aware_llm._store_in_cache_fire_and_forget"
-        ) as mock_store,
+        patch("llm_client.rag.cache_aware_llm._store_in_cache_fire_and_forget") as mock_store,
     ):
         client = CacheAwareLLMClient(underlying=fake_llm)
         messages = [
@@ -206,9 +200,7 @@ async def test_cache_aware_llm_no_doc_ids_bypasses_cache(fake_llm, mock_cache):
             "llm_client.rag.cache_aware_llm.get_semantic_cache",
             return_value=mock_cache,
         ),
-        patch(
-            "llm_client.rag.cache_aware_llm._store_in_cache_fire_and_forget"
-        ) as mock_store,
+        patch("llm_client.rag.cache_aware_llm._store_in_cache_fire_and_forget") as mock_store,
     ):
         client = CacheAwareLLMClient(underlying=fake_llm)
         messages = [HumanMessage(content="What is the weather?")]
@@ -255,9 +247,7 @@ async def test_bound_model_cache_hit(fake_llm, mock_cache_hit):
         return_value=mock_cache_hit,
     ):
         mock_bound = MagicMock()
-        mock_bound.ainvoke = AsyncMock(
-            return_value=AIMessage(content="LLM response")
-        )
+        mock_bound.ainvoke = AsyncMock(return_value=AIMessage(content="LLM response"))
         bound = CacheAwareBoundModel(bound=mock_bound, cache_llm=client)
         messages = [
             HumanMessage(content="What is Python?"),
@@ -277,14 +267,10 @@ async def test_bound_model_cache_miss_calls_bound_and_caches(fake_llm, mock_cach
             "llm_client.rag.cache_aware_llm.get_semantic_cache",
             return_value=mock_cache,
         ),
-        patch(
-            "llm_client.rag.cache_aware_llm._store_in_cache_fire_and_forget"
-        ) as mock_store,
+        patch("llm_client.rag.cache_aware_llm._store_in_cache_fire_and_forget") as mock_store,
     ):
         mock_bound = MagicMock()
-        mock_bound.ainvoke = AsyncMock(
-            return_value=AIMessage(content="LLM response")
-        )
+        mock_bound.ainvoke = AsyncMock(return_value=AIMessage(content="LLM response"))
         bound = CacheAwareBoundModel(bound=mock_bound, cache_llm=client)
         messages = [
             HumanMessage(content="What is Python?"),
@@ -311,9 +297,7 @@ def test_bound_model_proxy_getattr(fake_llm):
 def test_extract_doc_ids_from_content_json(fake_llm):
     """_extract_referenced_doc_ids parses ToolMessage.content JSON."""
     client = CacheAwareLLMClient(underlying=fake_llm)
-    doc_ids = client._extract_referenced_doc_ids(
-        [HumanMessage(content="q"), DOC_TOOL_MSG]
-    )
+    doc_ids = client._extract_referenced_doc_ids([HumanMessage(content="q"), DOC_TOOL_MSG])
     assert len(doc_ids) == 1
     assert str(doc_ids[0]) == "123e4567-e89b-12d3-a456-426614174000"
 
@@ -334,9 +318,7 @@ def test_extract_doc_ids_from_metadata(fake_llm):
                 "chunks": [
                     {
                         "content": "text",
-                        "metadata": {
-                            "document_id": "123e4567-e89b-12d3-a456-426614174000"
-                        },
+                        "metadata": {"document_id": "123e4567-e89b-12d3-a456-426614174000"},
                     }
                 ]
             }

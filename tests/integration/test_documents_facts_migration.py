@@ -17,11 +17,13 @@ def alembic_config(database_url):
     """Alembic config for testing migrations."""
     # Path to alembic.ini
     alembic_ini_path = Path(__file__).parent.parent.parent / "alembic.ini"
-    
+
     # Create alembic config
     config = Config(alembic_ini_path)
-    config.set_main_option("sqlalchemy.url", database_url.replace("postgresql+asyncpg://", "postgresql://"))
-    
+    config.set_main_option(
+        "sqlalchemy.url", database_url.replace("postgresql+asyncpg://", "postgresql://")
+    )
+
     return config
 
 
@@ -45,9 +47,7 @@ class TestDocumentsFactsMigration:
 
         pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2)
         async with pool.acquire() as conn:
-            result = await conn.fetchrow(
-                "SELECT extname FROM pg_extension WHERE extname='vector'"
-            )
+            result = await conn.fetchrow("SELECT extname FROM pg_extension WHERE extname='vector'")
             assert result is not None, "pgvector extension not found"
         await pool.close()
 
@@ -80,8 +80,13 @@ class TestDocumentsFactsMigration:
             )
             column_names = [row["column_name"] for row in columns]
             expected_columns = [
-                "id", "document_id", "fact_text", "fact_embedding",
-                "fact_metadata", "extracted_at", "extractor_model"
+                "id",
+                "document_id",
+                "fact_text",
+                "fact_embedding",
+                "fact_metadata",
+                "extracted_at",
+                "extractor_model",
             ]
             for col in expected_columns:
                 assert col in column_names, f"Column {col} missing"
@@ -99,7 +104,7 @@ class TestDocumentsFactsMigration:
                 "ix_documents_facts_document_id",
                 "ix_documents_facts_extracted_at",
                 "ix_documents_facts_embedding_hnsw",
-                "ix_documents_facts_text_search"
+                "ix_documents_facts_text_search",
             ]
             for idx in expected_indexes:
                 assert idx in index_names, f"Index {idx} missing"
@@ -114,7 +119,9 @@ class TestDocumentsFactsMigration:
                 """
             )
             assert result is not None, "fact_embedding column not found"
-            assert result["vector_type"] == "vector", f"fact_embedding should be vector type, got {result['vector_type']}"
+            assert result["vector_type"] == "vector", (
+                f"fact_embedding should be vector type, got {result['vector_type']}"
+            )
 
         await pool.close()
 
@@ -135,28 +142,30 @@ class TestDocumentsFactsMigration:
             )
             assert result is not None, "HNSW index ix_documents_facts_embedding_hnsw not found"
             assert "hnsw" in result["indexdef"], "HNSW index not using hnsw method"
-            assert "vector_cosine_ops" in result["indexdef"], "HNSW index not using vector_cosine_ops"
+            assert "vector_cosine_ops" in result["indexdef"], (
+                "HNSW index not using vector_cosine_ops"
+            )
         await pool.close()
 
     def test_alembic_upgrade_downgrade(self, alembic_config, database_url):
         """Test alembic upgrade and downgrade operations."""
         # Test upgrade to head
         command.upgrade(alembic_config, "head")
-        
+
         # Test current revision
         current = command.current(alembic_config)
         assert current == "009", f"Current revision should be 009, got {current}"
-        
+
         # Test downgrade to 008
         command.downgrade(alembic_config, "008")
-        
+
         # Test current revision after downgrade
         current = command.current(alembic_config)
         assert current == "008", f"Current revision should be 008 after downgrade, got {current}"
-        
+
         # Test upgrade back to head
         command.upgrade(alembic_config, "head")
-        
+
         # Final check
         current = command.current(alembic_config)
         assert current == "009", f"Current revision should be 009 after re-upgrade, got {current}"
@@ -171,16 +180,14 @@ class TestDocumentsFactsMigration:
             # Create a document
             doc_id = str(uuid.uuid4())
             user_id = str(uuid.uuid4())
-            await conn.execute(
-                "INSERT INTO users (id) VALUES ($1)",
-                user_id
-            )
+            await conn.execute("INSERT INTO users (id) VALUES ($1)", user_id)
             await conn.execute(
                 """
                 INSERT INTO documents (id, user_id, source_type, content_hash, content)
                 VALUES ($1, $2, 'test', 'hash', 'content')
                 """,
-                doc_id, user_id
+                doc_id,
+                user_id,
             )
 
             # Create a fact for this document
@@ -190,13 +197,13 @@ class TestDocumentsFactsMigration:
                 INSERT INTO documents_facts (id, document_id, fact_text, fact_metadata)
                 VALUES ($1, $2, 'test fact', '{}')
                 """,
-                fact_id, doc_id
+                fact_id,
+                doc_id,
             )
 
             # Verify fact exists
             result = await conn.fetchrow(
-                "SELECT id FROM documents_facts WHERE document_id = $1",
-                doc_id
+                "SELECT id FROM documents_facts WHERE document_id = $1", doc_id
             )
             assert result is not None, "Fact not created"
 
@@ -205,8 +212,7 @@ class TestDocumentsFactsMigration:
 
             # Verify fact is deleted (CASCADE)
             result = await conn.fetchrow(
-                "SELECT id FROM documents_facts WHERE document_id = $1",
-                doc_id
+                "SELECT id FROM documents_facts WHERE document_id = $1", doc_id
             )
             assert result is None, "Fact not deleted by CASCADE"
 
@@ -219,62 +225,62 @@ class TestDocumentsFactsMigration:
         """Test ORM model roundtrip: insert via ORM, read via ORM."""
         # Create tables
         Base.metadata.create_all(sync_engine)
-        
+
         # Create session
         Session = sessionmaker(bind=sync_engine)
         session = Session()
-        
+
         try:
             # Create document first
             doc = Document(
                 user_id=str(uuid.uuid4()),
                 source_type="test",
                 content="Test document content",
-                meta={"title": "Test Document"}
+                meta={"title": "Test Document"},
             )
             session.add(doc)
             session.commit()
-            
+
             # Insert fact via ORM
             fact = DocumentFact(
                 document_id=doc.id,
                 fact_text="This is a test fact extracted from the document.",
                 fact_metadata={"source": "test", "confidence": 0.95},
-                extractor_model="gpt-4o-mini"
+                extractor_model="gpt-4o-mini",
             )
             session.add(fact)
             session.commit()
-            
+
             # Add embedding
             fact.fact_embedding = [0.1] * 1536  # 1536-dimensional vector
             session.commit()
-            
+
             # Read fact back via ORM
             retrieved_fact = session.query(DocumentFact).filter_by(id=fact.id).first()
-            
+
             assert retrieved_fact is not None
             assert retrieved_fact.fact_text == fact.fact_text
             assert retrieved_fact.fact_metadata == {"source": "test", "confidence": 0.95}
             assert retrieved_fact.extractor_model == "gpt-4o-mini"
             assert retrieved_fact.extracted_at is not None
-            
+
             # Verify embedding
             assert retrieved_fact.fact_embedding is not None
             assert len(retrieved_fact.fact_embedding) == 1536
             assert retrieved_fact.fact_embedding[0] == 0.1
-            
+
             # Verify relationship
             assert retrieved_fact.document.id == doc.id
             assert retrieved_fact.document.meta == {"title": "Test Document"}
-            
+
             # Test cascade delete
             session.delete(doc)
             session.commit()
-            
+
             # Verify fact is deleted
             deleted_fact = session.query(DocumentFact).filter_by(id=fact.id).first()
             assert deleted_fact is None, "Fact should be cascade-deleted"
-            
+
         finally:
             session.close()
             # Clean up tables
@@ -284,38 +290,34 @@ class TestDocumentsFactsMigration:
         """Test that fact_embedding is properly stored as vector type."""
         # Create tables
         Base.metadata.create_all(sync_engine)
-        
+
         # Create session
         Session = sessionmaker(bind=sync_engine)
         session = Session()
-        
+
         try:
             # Create document
-            doc = Document(
-                user_id=str(uuid.uuid4()),
-                source_type="test",
-                content="Test content"
-            )
+            doc = Document(user_id=str(uuid.uuid4()), source_type="test", content="Test content")
             session.add(doc)
             session.commit()
-            
+
             # Create fact with embedding
             fact = DocumentFact(
                 document_id=doc.id,
                 fact_text="Test fact",
                 fact_metadata={"test": True},
                 extractor_model="gpt-4o-mini",
-                fact_embedding=[0.5] * 1536
+                fact_embedding=[0.5] * 1536,
             )
             session.add(fact)
             session.commit()
-            
+
             # Verify embedding is stored as vector
             # Note: This tests ORM behavior, not actual vector storage format
             # The vector storage format is tested in test_hnsw_index_exists
             assert fact.fact_embedding is not None
             assert len(fact.fact_embedding) == 1536
-            
+
         finally:
             session.close()
             Base.metadata.drop_all(sync_engine)
@@ -330,16 +332,14 @@ class TestDocumentsFactsMigration:
             # Create a document and fact before downgrade
             doc_id = str(uuid.uuid4())
             user_id = str(uuid.uuid4())
-            await conn.execute(
-                "INSERT INTO users (id) VALUES ($1)",
-                user_id
-            )
+            await conn.execute("INSERT INTO users (id) VALUES ($1)", user_id)
             await conn.execute(
                 """
                 INSERT INTO documents (id, user_id, source_type, content_hash, content)
                 VALUES ($1, $2, 'test', 'hash', 'content')
                 """,
-                doc_id, user_id
+                doc_id,
+                user_id,
             )
 
             fact_id = str(uuid.uuid4())
@@ -348,7 +348,8 @@ class TestDocumentsFactsMigration:
                 INSERT INTO documents_facts (id, document_id, fact_text)
                 VALUES ($1, $2, 'test fact')
                 """,
-                fact_id, doc_id
+                fact_id,
+                doc_id,
             )
 
             # Use alembic to downgrade (not raw SQL)
@@ -380,7 +381,9 @@ class TestDocumentsFactsMigration:
             )
             assert hnsw_result is not None, "HNSW index not recreated"
             assert "hnsw" in hnsw_result["indexdef"], "HNSW index not using hnsw method"
-            assert "vector_cosine_ops" in hnsw_result["indexdef"], "HNSW index not using vector_cosine_ops"
+            assert "vector_cosine_ops" in hnsw_result["indexdef"], (
+                "HNSW index not using vector_cosine_ops"
+            )
 
             # Clean up
             await conn.execute("DELETE FROM documents WHERE id = $1", doc_id)

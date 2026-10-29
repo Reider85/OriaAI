@@ -106,7 +106,7 @@ class CacheAwareLLMClient(BaseChatModel):
                                 doc_ids.append(UUID(chunk["document_id"]))
                             except (ValueError, TypeError):
                                 continue
-                
+
                 # Fallback: parse content JSON (current graph flow)
                 if hasattr(msg, "content") and msg.content:
                     try:
@@ -180,9 +180,9 @@ class CacheAwareLLMClient(BaseChatModel):
 
         # Determine token_count for cache value (best-effort)
         token_count = 0
-        if hasattr(result, 'llm_output') and result.llm_output:
-            token_usage = result.llm_output.get('token_usage', {})
-            token_count = token_usage.get('total_tokens', 0)
+        if hasattr(result, "llm_output") and result.llm_output:
+            token_usage = result.llm_output.get("token_usage", {})
+            token_count = token_usage.get("total_tokens", 0)
 
         # Persist in cache (fire-and-forget)
         _store_in_cache_fire_and_forget(
@@ -210,14 +210,18 @@ class CacheAwareLLMClient(BaseChatModel):
         stream (we have the full answer); we chunk it into words."""
         cache = get_semantic_cache()
         if cache is None:
-            async for chunk in self.underlying.astream(messages, stop=stop, config=config, **kwargs):
+            async for chunk in self.underlying.astream(
+                messages, stop=stop, config=config, **kwargs
+            ):
                 yield chunk
             return
 
         query = self._extract_query(messages)
         referenced_doc_ids = self._extract_referenced_doc_ids(messages)
         if not referenced_doc_ids:
-            async for chunk in self.underlying.astream(messages, stop=stop, config=config, **kwargs):
+            async for chunk in self.underlying.astream(
+                messages, stop=stop, config=config, **kwargs
+            ):
                 yield chunk
             return
 
@@ -234,10 +238,10 @@ class CacheAwareLLMClient(BaseChatModel):
             chunks.append(str(chunk.content))
             yield chunk
         full_answer = "".join(chunks)
-        
+
         # Determine token_count (unknown during stream)
         token_count = 0
-        
+
         # Persist in cache (fire-and-forget)
         _store_in_cache_fire_and_forget(
             cache=cache,
@@ -303,9 +307,9 @@ class CacheAwareBoundModel:
 
         # Determine token_count for cache value (best-effort)
         token_count = 0
-        if hasattr(result, 'llm_output') and result.llm_output:
-            token_usage = result.llm_output.get('token_usage', {})
-            token_count = token_usage.get('total_tokens', 0)
+        if hasattr(result, "llm_output") and result.llm_output:
+            token_usage = result.llm_output.get("token_usage", {})
+            token_count = token_usage.get("total_tokens", 0)
 
         # Persist in cache (fire-and-forget)
         _store_in_cache_fire_and_forget(
@@ -356,10 +360,10 @@ class CacheAwareBoundModel:
             chunks.append(str(chunk.content))
             yield chunk
         full_answer = "".join(chunks)
-        
+
         # Determine token_count (unknown during stream)
         token_count = 0
-        
+
         # Persist in cache (fire-and-forget)
         _store_in_cache_fire_and_forget(
             cache=cache,

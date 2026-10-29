@@ -53,6 +53,7 @@ def test_inject_auto_cancel_accepts_parameters():
     # This test doesn't actually call inject_auto_cancel (requires streamlit)
     # but verifies the function signature exists
     import inspect
+
     sig = inspect.signature(inject_auto_cancel)
     assert "backend_origin" in sig.parameters
     assert "session_id" in sig.parameters
@@ -66,4 +67,7 @@ def test_render_stop_button_exists():
 def test_session_id_from_location_injects_session_id():
     # Test that sessionIdFromLocation() uses injected SESSION_ID first
     js_with_session = AUTO_CANCEL_JS.replace("{{SESSION_ID}}", '"test-session-id"')
-    assert 'return SESSION_ID || window.location.search.match(/session_id=([^&]+)/)?.[1] || localStorage.getItem("llm_session_id");' in js_with_session
+    assert (
+        'return SESSION_ID || window.location.search.match(/session_id=([^&]+)/)?.[1] || localStorage.getItem("llm_session_id");'
+        in js_with_session
+    )

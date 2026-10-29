@@ -223,7 +223,7 @@ def _set_url_session_id(session_id: str) -> None:
 
 def reset_streaming_state() -> None:
     """Reset streaming state keys from StreamlitClient (ADR-002).
-    
+
     Clears fragment state to enable new streaming after previous completion.
     Called on new prompts, session switches, and session clears.
     """
@@ -237,6 +237,7 @@ def reset_streaming_state() -> None:
         _TOKEN_BUFFER_KEY,
         PENDING_TOOL_CALLS_KEY,
     )
+
     state[_STREAMING_DONE_KEY] = False
     state[_ANSWER_KEY] = ""
     state[_STREAMING_PLACEHOLDER_KEY] = None

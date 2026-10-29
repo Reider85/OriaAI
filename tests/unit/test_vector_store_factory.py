@@ -55,6 +55,7 @@ def test_embedding_function_missing_key():
     assert result is not None
     # Should be a local embeddings instance
     from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+
     assert isinstance(result, LocalSentenceTransformerEmbeddings)
 
 
@@ -145,47 +146,49 @@ def test_get_vector_writer_builds_callable():
 
 
 def test_create_embedding_function_custom_openai():
-        settings = _settings(
-            embedding_provider="custom-openai",
-            custom_openai_api_key="sk-custom",
-            custom_openai_base_url="https://api.custom.com/v1",
-            custom_openai_model="custom-embedding-model",
+    settings = _settings(
+        embedding_provider="custom-openai",
+        custom_openai_api_key="sk-custom",
+        custom_openai_base_url="https://api.custom.com/v1",
+        custom_openai_model="custom-embedding-model",
+    )
+
+    with patch("langchain_openai.OpenAIEmbeddings") as mock_embeddings:
+        result = create_embedding_function(settings)
+        assert result is not None
+        mock_embeddings.assert_called_once_with(
+            model="custom-embedding-model",
+            api_key=SecretStr("sk-custom"),
+            base_url="https://api.custom.com/v1",
         )
-        
-        with patch("langchain_openai.OpenAIEmbeddings") as mock_embeddings:
-            result = create_embedding_function(settings)
-            assert result is not None
-            mock_embeddings.assert_called_once_with(
-                model="custom-embedding-model",
-                api_key=SecretStr("sk-custom"),
-                base_url="https://api.custom.com/v1",
-            )
 
 
 def test_create_embedding_function_custom_openai_missing_key():
-        settings = _settings(
-            embedding_provider="custom-openai",
-            custom_openai_api_key="",
-            custom_openai_base_url="https://api.custom.com/v1",
-        )
-        # Should fallback to local embeddings when custom-openai API key is missing
-        result = create_embedding_function(settings)
-        assert result is not None
-        from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
-        assert isinstance(result, LocalSentenceTransformerEmbeddings)
+    settings = _settings(
+        embedding_provider="custom-openai",
+        custom_openai_api_key="",
+        custom_openai_base_url="https://api.custom.com/v1",
+    )
+    # Should fallback to local embeddings when custom-openai API key is missing
+    result = create_embedding_function(settings)
+    assert result is not None
+    from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+
+    assert isinstance(result, LocalSentenceTransformerEmbeddings)
 
 
 def test_create_embedding_function_custom_openai_missing_base_url():
-        settings = _settings(
-            embedding_provider="custom-openai",
-            custom_openai_api_key="sk-custom",
-            custom_openai_base_url="",
-        )
-        # Should fallback to local embeddings when custom-openai base URL is missing
-        result = create_embedding_function(settings)
-        assert result is not None
-        from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
-        assert isinstance(result, LocalSentenceTransformerEmbeddings)
+    settings = _settings(
+        embedding_provider="custom-openai",
+        custom_openai_api_key="sk-custom",
+        custom_openai_base_url="",
+    )
+    # Should fallback to local embeddings when custom-openai base URL is missing
+    result = create_embedding_function(settings)
+    assert result is not None
+    from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+
+    assert isinstance(result, LocalSentenceTransformerEmbeddings)
 
 
 def test_create_embedding_function_zai():
@@ -199,20 +202,21 @@ def test_create_embedding_function_zai():
         result = create_embedding_function(settings)
         assert result is not None
         mock_embeddings.assert_called_once_with(
-                model="text-embedding-3-small",
-                api_key=SecretStr("sk-zai"),
-                base_url="https://api.z.ai/api/paas/v4",
-            )
+            model="text-embedding-3-small",
+            api_key=SecretStr("sk-zai"),
+            base_url="https://api.z.ai/api/paas/v4",
+        )
 
 
 def test_create_embedding_function_zai_missing_key():
-        settings = _settings(
-            embedding_provider="zai",
-            zai_api_key="",
-            zai_base_url="https://api.z.ai/api/paas/v4",
-        )
-        # Should fallback to local embeddings when ZAI API key is missing
-        result = create_embedding_function(settings)
-        assert result is not None
-        from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
-        assert isinstance(result, LocalSentenceTransformerEmbeddings)
+    settings = _settings(
+        embedding_provider="zai",
+        zai_api_key="",
+        zai_base_url="https://api.z.ai/api/paas/v4",
+    )
+    # Should fallback to local embeddings when ZAI API key is missing
+    result = create_embedding_function(settings)
+    assert result is not None
+    from llm_client.rag.retrieval.local_embeddings import LocalSentenceTransformerEmbeddings
+
+    assert isinstance(result, LocalSentenceTransformerEmbeddings)

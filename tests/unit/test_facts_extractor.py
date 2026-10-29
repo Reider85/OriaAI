@@ -80,15 +80,15 @@ async def test_extract_from_document_returns_facts(mock_llm, mock_embeddings, sa
 
     # Mock session
     session = AsyncMock()
-    
+
     # Create a proper mock that mimics SQLAlchemy result
     class MockScalarResult:
         def __init__(self, value):
             self.value = value
-        
+
         def first(self):
             return self.value
-    
+
     mock_scalars = MockScalarResult(None)
     mock_result = MagicMock()
     mock_result.scalars = MagicMock(return_value=mock_scalars)
@@ -134,15 +134,17 @@ async def test_extract_skips_if_already_extracted(mock_llm, mock_embeddings, sam
     session = AsyncMock()
     mock_result = AsyncMock()
     mock_scalars = MagicMock()
-    mock_first = AsyncMock(return_value=DocumentFact(
-        id="fact-1",
-        document_id=sample_document.id,
-        fact_text="existing fact",
-        fact_embedding=[0.1] * 1536,
-        fact_metadata={},
-        extracted_at="2026-01-01T00:00:00+00:00",
-        extractor_model="openai/gpt-4o-mini",
-    ))
+    mock_first = AsyncMock(
+        return_value=DocumentFact(
+            id="fact-1",
+            document_id=sample_document.id,
+            fact_text="existing fact",
+            fact_embedding=[0.1] * 1536,
+            fact_metadata={},
+            extracted_at="2026-01-01T00:00:00+00:00",
+            extractor_model="openai/gpt-4o-mini",
+        )
+    )
     mock_scalars.first = mock_first
     mock_result.scalars = mock_scalars
     session.execute = AsyncMock(return_value=mock_result)
@@ -157,10 +159,11 @@ async def test_extract_skips_if_already_extracted(mock_llm, mock_embeddings, sam
 @pytest.mark.asyncio
 async def test_extract_handles_invalid_llm_response(mock_llm, mock_embeddings, sample_document):
     """Test that invalid LLM JSON response is handled gracefully."""
+
     # Mock invalid JSON response
     async def mock_invoke(prompt):
         return MagicMock(content="This is not valid JSON")
-    
+
     mock_llm.ainvoke = mock_invoke
 
     extractor = FactsExtractor(
@@ -170,15 +173,15 @@ async def test_extract_handles_invalid_llm_response(mock_llm, mock_embeddings, s
     )
 
     session = AsyncMock()
-    
+
     # Create a proper mock that mimics SQLAlchemy result
     class MockScalarResult:
         def __init__(self, value):
             self.value = value
-        
+
         def first(self):
             return self.value
-    
+
     mock_scalars = MockScalarResult(None)
     mock_result = MagicMock()
     mock_result.scalars = MagicMock(return_value=mock_scalars)
@@ -195,13 +198,13 @@ async def test_extract_truncates_long_content(mock_llm, mock_embeddings):
     """Test that content is truncated to 5000 chars for LLM input."""
     long_content = "x" * 6000
     document = Document(
-            id="00000000-0000-0000-0000-000000000003",
-            user_id="user-1",
-            source_type="file",
-            content_hash="hash-3",
-            content=long_content,
-            meta={"title": "Long Document"},
-        )
+        id="00000000-0000-0000-0000-000000000003",
+        user_id="user-1",
+        source_type="file",
+        content_hash="hash-3",
+        content=long_content,
+        meta={"title": "Long Document"},
+    )
 
     mock_llm.ainvoke = AsyncMock()
     mock_llm.ainvoke.return_value.content = json.dumps(
@@ -215,15 +218,15 @@ async def test_extract_truncates_long_content(mock_llm, mock_embeddings):
     )
 
     session = AsyncMock()
-    
+
     # Create a proper mock that mimics SQLAlchemy result
     class MockScalarResult:
         def __init__(self, value):
             self.value = value
-        
+
         def first(self):
             return self.value
-    
+
     mock_scalars = MockScalarResult(None)
     mock_result = MagicMock()
     mock_result.scalars = MagicMock(return_value=mock_scalars)
@@ -235,7 +238,7 @@ async def test_extract_truncates_long_content(mock_llm, mock_embeddings):
     call_args = mock_llm.ainvoke.call_args[0][0]
     # The content should be truncated to 5000 chars
     # Look for the content between the --- markers
-    lines = call_args.split('\n')
+    lines = call_args.split("\n")
     in_content = False
     content_lines = []
     for line in lines:
@@ -246,8 +249,8 @@ async def test_extract_truncates_long_content(mock_llm, mock_embeddings):
                 break
         elif in_content:
             content_lines.append(line)
-    
-    content_part = '\n'.join(content_lines)
+
+    content_part = "\n".join(content_lines)
     print(f"Content length: {len(content_part)}")
     assert len(content_part) == 5000
     assert content_part == "x" * 5000
@@ -266,8 +269,8 @@ async def test_extract_batch_processes_in_batches(mock_llm, mock_embeddings):
             meta={},
         )
         for i in range(12)
-]
-    
+    ]
+
     mock_llm.ainvoke = AsyncMock()
     mock_llm.ainvoke.return_value.content = json.dumps(
         [{"fact": "Fact from test document", "confidence": 0.9}]
@@ -281,15 +284,15 @@ async def test_extract_batch_processes_in_batches(mock_llm, mock_embeddings):
     )
 
     session = AsyncMock()
-    
+
     # Create a proper mock that mimics SQLAlchemy result
     class MockScalarResult:
         def __init__(self, value):
             self.value = value
-        
+
         def first(self):
             return self.value
-    
+
     mock_scalars = MockScalarResult(None)
     mock_result = MagicMock()
     mock_result.scalars = MagicMock(return_value=mock_scalars)
@@ -335,15 +338,15 @@ async def test_extract_metadata_includes_section_and_page(
     )
 
     session = AsyncMock()
-    
+
     # Create a proper mock that mimics SQLAlchemy result
     class MockScalarResult:
         def __init__(self, value):
             self.value = value
-        
+
         def first(self):
             return self.value
-    
+
     mock_scalars = MockScalarResult(None)
     mock_result = MagicMock()
     mock_result.scalars = MagicMock(return_value=mock_scalars)
@@ -378,15 +381,15 @@ async def test_extract_truncates_fact_text_to_500(mock_llm, mock_embeddings):
     )
 
     session = AsyncMock()
-    
+
     # Create a proper mock that mimics SQLAlchemy result
     class MockScalarResult:
         def __init__(self, value):
             self.value = value
-        
+
         def first(self):
             return self.value
-    
+
     mock_scalars = MockScalarResult(None)
     mock_result = MagicMock()
     mock_result.scalars = MagicMock(return_value=mock_scalars)
@@ -394,7 +397,7 @@ async def test_extract_truncates_fact_text_to_500(mock_llm, mock_embeddings):
     session.commit = AsyncMock()
     session.add = Mock()
 
-# Execute extraction and check that facts are truncated
+    # Execute extraction and check that facts are truncated
     facts = await extractor.extract_from_document(
         Document(
             id="00000000-0000-0000-0000-000000000004",
@@ -406,7 +409,7 @@ async def test_extract_truncates_fact_text_to_500(mock_llm, mock_embeddings):
         ),
         session,
     )
-    
+
     # Verify that fact text was truncated to 500 chars
     assert len(facts) == 1
     assert len(facts[0].fact_text) == 500

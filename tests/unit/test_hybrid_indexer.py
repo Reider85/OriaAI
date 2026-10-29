@@ -98,9 +98,7 @@ async def test_facts_extractor_succeeds():
     facts_extractor.extract_from_document = AsyncMock(return_value=None)
 
     test_doc = _doc()
-    result = await index_document_with_hybrid(
-        test_doc, bm25, vector, facts_extractor
-    )
+    result = await index_document_with_hybrid(test_doc, bm25, vector, facts_extractor)
 
     assert result == {"bm25_indexed": True, "vector_indexed": True}
     bm25.index_document.assert_awaited_once()
@@ -121,9 +119,7 @@ async def test_facts_extractor_failure_is_tolerated():
     )
 
     test_doc = _doc()
-    result = await index_document_with_hybrid(
-        test_doc, bm25, vector, facts_extractor
-    )
+    result = await index_document_with_hybrid(test_doc, bm25, vector, facts_extractor)
 
     assert result == {"bm25_indexed": True, "vector_indexed": True}
     bm25.index_document.assert_awaited_once()

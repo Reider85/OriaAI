@@ -7,6 +7,7 @@ and circuit breaker check (per-request).
 Architecture: Phase 3 ADR-015. TRIZ: Standard 5.1.1
 (Prometheus as external substance) via in-process REGISTRY.
 """
+
 import asyncio
 import logging
 
@@ -19,10 +20,11 @@ async def collect_error_rates() -> None:
     """For each provider, count errors and total calls in last 5
     minutes from in-process REGISTRY, compute error rate, update
     gauge."""
-    from ..observability.llm_metrics import REGISTRY
     from prometheus_client import generate_latest
     from prometheus_client.parser import text_string_to_metric_families
-    
+
+    from ..observability.llm_metrics import REGISTRY
+
     latest = generate_latest(REGISTRY).decode()
 
     # Aggregate per-provider

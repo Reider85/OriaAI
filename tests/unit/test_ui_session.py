@@ -100,15 +100,15 @@ def test_clear_empties_history(monkeypatch, state):
 def test_clear_context_empties_history_and_store(monkeypatch, state):
     """Test that clear_context clears both session_state and _message_store."""
     monkeypatch.setattr(session, "_session_state", lambda: state)
-    
+
     # Add message to both session state and message store
     session.add_message("sid-1", "user", "hello")
     assert len(session._message_store["sid-1"]) == 1
     assert len(state["messages"]) == 1
-    
+
     # Clear context
     session.clear_context("sid-1")
-    
+
     # Verify both are cleared
     assert state["messages"] == []
     assert "sid-1" not in session._message_store
@@ -204,12 +204,12 @@ def test_new_session_clears_streaming_state(monkeypatch, state):
     state["streamlit_client_streaming_done"] = True
     state["streamlit_client_answer"] = "test"
     state["streamlit_client_pending_tool_calls"] = {"tc1": {"status": "done"}}
-    
+
     monkeypatch.setattr(session, "_session_state", lambda: state)
     monkeypatch.setattr(session, "_set_url_session_id", lambda s: None)
-    
+
     session.new_session()
-    
+
     # Streaming state should be reset
     assert state["streamlit_client_streaming_done"] is False
     assert state["streamlit_client_answer"] == ""
@@ -222,11 +222,11 @@ def test_clear_clears_streaming_state(monkeypatch, state):
     state["streamlit_client_streaming_done"] = True
     state["streamlit_client_answer"] = "test"
     state["streamlit_client_pending_tool_calls"] = {"tc1": {"status": "done"}}
-    
+
     monkeypatch.setattr(session, "_session_state", lambda: state)
-    
+
     session.clear()
-    
+
     # Streaming state should be reset
     assert state["streamlit_client_streaming_done"] is False
     assert state["streamlit_client_answer"] == ""
@@ -239,12 +239,12 @@ def test_switch_session_clears_streaming_state(monkeypatch, state):
     state["streamlit_client_streaming_done"] = True
     state["streamlit_client_answer"] = "test"
     state["streamlit_client_pending_tool_calls"] = {"tc1": {"status": "done"}}
-    
+
     monkeypatch.setattr(session, "_session_state", lambda: state)
     monkeypatch.setattr(session, "_set_url_session_id", lambda s: None)
-    
+
     session.switch_session("new-session")
-    
+
     # Streaming state should be reset
     assert state["streamlit_client_streaming_done"] is False
     assert state["streamlit_client_answer"] == ""

@@ -27,8 +27,9 @@ print("Attempting to load .env...")
 try:
     print("Importing dotenv...")
     from dotenv import find_dotenv, load_dotenv
+
     print("SUCCESS: dotenv imported successfully")
-    
+
     # Try to find .env file
     print("Finding .env file...")
     env_file = find_dotenv(usecwd=True, raise_error_if_not_found=False)
@@ -36,27 +37,27 @@ try:
         print(f"Found .env at: {env_file}")
         load_dotenv(env_file, override=False)
         print("SUCCESS: Loaded .env")
-        
+
         # Verify the load worked
         loaded_url = os.getenv("AGENT_SERVICE_URL", "NOT SET")
         print(f"After load, AGENT_SERVICE_URL: {loaded_url}")
     else:
         print("WARNING: .env file not found")
-        
+
 except ImportError as e:
     # dotenv not available, fallback (pydantic-settings Settings will still work if env vars are set)
     print(f"WARNING: python-dotenv not available: {e}")
-    
+
     # Manual fallback: try to read .env directly
     try:
         env_file_path = Path(__file__).resolve().parents[3] / ".env"
         if env_file_path.exists():
             print(f"Manually reading .env from: {env_file_path}")
-            with open(env_file, 'r') as f:
+            with open(env_file, "r") as f:
                 for line in f:
-                    if line.startswith('AGENT_SERVICE_URL='):
-                        value = line.split('=', 1)[1].strip()
-                        os.environ['AGENT_SERVICE_URL'] = value
+                    if line.startswith("AGENT_SERVICE_URL="):
+                        value = line.split("=", 1)[1].strip()
+                        os.environ["AGENT_SERVICE_URL"] = value
                         print(f"SUCCESS: Manually set AGENT_SERVICE_URL: {value}")
                         break
     except OSError as e:
@@ -104,10 +105,7 @@ client = get_ui_client()
 
 session_id = session.init_state()
 
-inject_auto_cancel(
-    backend_origin=chat.agent_service_url(),
-    session_id=session_id
-)
+inject_auto_cancel(backend_origin=chat.agent_service_url(), session_id=session_id)
 
 # Streamlit-specific, not in UIClient interface.
 selected = sidebar.render_sidebar()

@@ -35,9 +35,7 @@ class Document(Base):
 
     __tablename__ = "documents"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        postgresql.UUID(as_uuid=True), primary_key=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), primary_key=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False)
     source_type: Mapped[str] = mapped_column(String, nullable=False)
     source_uri: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -103,7 +101,9 @@ class DocumentFact(Base):
     )
     fact_text: Mapped[str] = mapped_column(Text, nullable=False)
     fact_embedding: Mapped[list[float] | None] = mapped_column(
-        "fact_embedding", Vector(1536), nullable=True  # pgvector type, dimension 1536
+        "fact_embedding",
+        Vector(1536),
+        nullable=True,  # pgvector type, dimension 1536
     )
     fact_metadata: Mapped[dict] = mapped_column(
         "fact_metadata", JSONB, server_default="{}", nullable=False

@@ -316,6 +316,7 @@ def get_vector_deleter(settings: Settings | None = None) -> Any | None:
     """
     if settings is None:
         from llm_client.config import settings as default_settings
+
         settings = default_settings
 
     store = create_vector_store(settings=settings)
@@ -332,6 +333,8 @@ def get_vector_deleter(settings: Settings | None = None) -> Any | None:
                 logger.warning("Failed to delete vector chunks for %s: %s", document_id, e)
         else:
             # Fallback: if store doesn't support adelete, log warning
-            logger.warning("Vector store %s does not support adelete — skipping cleanup", type(store).__name__)
+            logger.warning(
+                "Vector store %s does not support adelete — skipping cleanup", type(store).__name__
+            )
 
     return _delete_document_chunks

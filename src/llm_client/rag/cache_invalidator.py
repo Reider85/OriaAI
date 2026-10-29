@@ -8,6 +8,7 @@ Architecture: ARCHITECT.md v1.3.0 §5.2.5.
 TRIZ: principle #9 (preliminary action — preemptive invalidation
 before stale answer is served).
 """
+
 import logging
 from uuid import UUID
 
@@ -30,7 +31,8 @@ class CacheInvalidator:
         if count > 0:
             logger.info(
                 "Invalidated %d cached answers for doc_id=%s",
-                count, doc_id,
+                count,
+                doc_id,
             )
         return count
 
