@@ -2,10 +2,11 @@
 
 | Атрибут | Значение |
 |---|---|
-| Версия документа | 1.3.0 |
-| Дата | 2026-09-30 |
-| Changelog | 1.3.0 (2026-09-30): Phase 2 завершена — добавлены ADR-010, ADR-017, ADR-020; C-2 помечено [RESOLVED]; C-6 помечено [PARTIALLY RESOLVED, ADR-011 pending Phase 3]; Q-5 частично закрыт; компонентная диаграмма обновлён с Redis DB 1, RerankerRegistry, HybridRetriever, BM25IndexBuilder, RagPipeline, rag_retriever нодой, web_search и rag_query tools; §5.2.2 Checkpointer обновлён на RedisPostgresCheckpointer + rag_retriever нода; §5.2.4 Tool Layer обновлён с AG-5 web_search и AG-6 rag_query; §5.2.5 RAG pipeline обновлён на hybrid + reranker + RagPipeline class; §5.1 Presentation Layer обновлён с tool-call previews, settings_panel, RAG citations, web search results panels; AG-5 и AG-6 помечены Approved в §7. \| 1.2.0 (2026-09-26): §5.1 (строка 357) уточнена — in-process опция (Streamlit native callbacks) помечена как «не используется; AG-0 (из `BACKLOG.md` v1.1.0) фиксирует FastAPI + SSE как единственную MVP-реализацию». §5.2.2 (Orchestration), §5.2.3 (LLM Provider), §5.2.4 (Tool Layer) дополнены ссылками на AG-1..AG-4 (формализация agent-service в Phase 1, см. `AG-PROMPTS.md` v1.0.0). § 8 Trade-offs обновлён (C-2, C-5 — частично resolved через AG-1/AG-3). \| 1.1.0 (2026-09-21): Phase 1 завершена — добавлены ADR-013 и ADR-014; расширен ADR-008 (LocalFileStorage упразднён); C-4/C-11/C-15 помечены [RESOLVED]; Q-2 закрыт, Q-4 закрыт частично \|
+| Версия документа | 1.4.0 |
+| Дата | 2026-10-28 |
+| Changelog | 1.4.0 (2026-10-28): Phase 3 завершена — добавлены ADR-011, ADR-015, ADR-016, ADR-004 ускорение; C-6 помечено [RESOLVED fully]; C-7, C-9 помечено [RESOLVED]; Q-5 [CLOSED]; Q-1 [PARTIALLY CLOSED preview]; компонентная диаграмма обновлена с LLMRouter, ModelCapabilityMatrix, ToolCallingAdapter, SemanticAnswerCache, FactsExtractor, documents_facts table, Redis DB 2, MCP Server preview endpoint; §5.2.3 LLM Provider Layer обновлён с LLMRouter (Supersedes ADR-005 fallback_chain); §5.2.4 Tool Layer обновлён с ToolCallingAdapter (native/react/hybrid); §5.2.5 RAG Layer обновлён с three-tier cache; §5.2.6 MCP Layer обновлён с MCP Server preview; ADR-011/015/016 помечены Approved в §7. \| 1.3.0 (2026-09-30): Phase 2 завершена — добавлены ADR-010, ADR-017, ADR-020; C-2 помечено [RESOLVED]; C-6 помечено [PARTIALLY RESOLVED, ADR-011 pending Phase 3]; Q-5 частично закрыт; компонентная диаграмма обновлён с Redis DB 1, RerankerRegistry, HybridRetriever, BM25IndexBuilder, RagPipeline, rag_retriever нодой, web_search и rag_query tools; §5.2.2 Checkpointer обновлён на RedisPostgresCheckpointer + rag_retriever нода; §5.2.4 Tool Layer обновлён с AG-5 web_search и AG-6 rag_query; §5.2.5 RAG pipeline обновлён на hybrid + reranker + RagPipeline class; §5.1 Presentation Layer обновлён с tool-call previews, settings_panel, RAG citations, web search results panels; AG-5 и AG-6 помечены Approved в §7. \| 1.2.0 (2026-09-26): §5.1 (строка 357) уточнена — in-process опция (Streamlit native callbacks) помечена как «не используется; AG-0 (из `BACKLOG.md` v1.1.0) фиксирует FastAPI + SSE как единственную MVP-реализацию». §5.2.2 (Orchestration), §5.2.3 (LLM Provider), §5.2.4 (Tool Layer) дополнены ссылками на AG-1..AG-4 (формализация agent-service в Phase 1, см. `AG-PROMPTS.md` v1.0.0). § 8 Trade-offs обновлён (C-2, C-5 — частично resolved через AG-1/AG-3). \| 1.1.0 (2026-09-21): Phase 1 завершена — добавлены ADR-013 и ADR-014; расширен ADR-008 (LocalFileStorage упразднён); C-4/C-11/C-15 помечены [RESOLVED]; Q-2 закрыт, Q-4 закрыт частично \|
 | Статус | Draft → Review → Approved |
+| Источники | `BETA-PROMPTS.md` v1.0.0 (Блок F-1 — обновление v1.4.0), `ROADMAP.md` v1.2.0 §7 (Phase 3), `TRIZ-ANALYSIS.md` v1.0.0 §10 (матрица C-6/C-7/C-9 + ИКР-0), §11 (draft ADR-011/015/016), `ALPHA-PROMPTS.md` v1.1.0 (Phase 2 baseline v1.3.0) |
 | Аудитория | Solution-архитектор / Tech-лид |
 | Технологический стек | Python 3.11, LangGraph 0.2+, LangChain 0.3+, Streamlit 1.40+ |
 | Лицензия кодовой базы | MIT |
@@ -124,11 +125,19 @@ flowchart LR
         AGENT["Agent Service<br/>LangGraph + LangChain<br/>Python 3.11"]
         WORKER["Background Worker<br/>file rendering, long tasks"]
         TOOLS["Tool Layer<br/>web_search, rag, mcp, file_export"]
+        ROUTER["LLMRouter<br/>ADR-015: cost/latency/quality/privacy"]
+        MATRIX["ModelCapabilityMatrix<br/>ADR-016: YAML-driven registry"]
+        ADAPTER["ToolCallingAdapter<br/>ADR-016: native/react/hybrid"]
+        CACHE["SemanticAnswerCache<br/>ADR-011: Tier-3, Redis DB 2"]
+        FACTS["FactsExtractor<br/>ADR-011: Tier-1, indexing-time"]
+        COSTGUARD["CostGuard<br/>monthly budget, 80% threshold"]
+        BREAKER["CircuitBreaker<br/>per-provider, Prometheus gauge"]
+        MCPSRV["MCP Server preview<br/>ADR-004 ускорение: /mcp/*, SSE"]
     end
 
     subgraph Storage["Storage Layer"]
-        PG[("PostgreSQL<br/>sessions, files meta<br/>+ pgvector + tsvector")]
-        REDIS[("Redis<br/>DB 0: pub/sub ADR-013<br/>DB 1: checkpoint-WAL ADR-010")]
+        PG[("PostgreSQL<br/>sessions, files meta<br/>+ pgvector + tsvector<br/>+ documents_facts (009)")]
+        REDIS[("Redis<br/>DB 0: pub/sub ADR-013<br/>DB 1: checkpoint-WAL ADR-010<br/>DB 2: semantic cache ADR-011")]
         VEC1[("Qdrant<br/>vector store")]
         VEC2[("pgvector<br/>vector alt")]
         VEC3[("Chroma<br/>vector dev")]
@@ -145,8 +154,21 @@ flowchart LR
     UI -->|HTTP/SSE| AGENT
     UI -->|HTTP/SSE| API
     AGENT --> TOOLS
-    AGENT --> OAI
-    AGENT --> ANT
+    AGENT --> ROUTER
+    ROUTER --> OAI
+    ROUTER --> ANT
+    ROUTER -. capability .-> MATRIX
+    ADAPTER -. mode .-> MATRIX
+    AGENT --> ADAPTER
+    ADAPTER --> TOOLS
+    AGENT --> CACHE
+    CACHE --> REDIS
+    FACTS --> PG
+    FACTS -. indexing .-> TOOLS
+    COSTGUARD -. budget .-> ROUTER
+    BREAKER -. error rate .-> ROUTER
+    AGENT --> MCPSRV
+    MCPSRV --> TOOLS
     TOOLS --> TAV
     TOOLS --> MCP
     TOOLS --> VEC1
@@ -160,7 +182,7 @@ flowchart LR
     classDef container fill:#1f3a5f,stroke:#3b82f6,color:#fff,stroke-width:2px
     classDef storage fill:#3a1f5f,stroke:#a855f7,color:#fff
     classDef external fill:#5f3a1f,stroke:#f59e0b,color:#fff
-    class UI,API,AGENT,WORKER,TOOLS container
+    class UI,API,AGENT,WORKER,TOOLS,ROUTER,MATRIX,ADAPTER,CACHE,FACTS,COSTGUARD,BREAKER,MCPSRV container
     class PG,REDIS,VEC1,VEC2,VEC3,FS storage
     class OAI,ANT,TAV,MCP external
 ```
@@ -173,8 +195,8 @@ flowchart LR
 | `agent-service` | Python 3.11, LangGraph, LangChain | Оркестрация графа агента, tool calling loop, streaming | HTTP / SSE (FastAPI или нативно через Streamlit) |
 | `tool-layer` | Python модули | Реализация tools: `web_search`, `rag_query`, `mcp_call`, `file_export` | in-process |
 | `worker` (optional, prod) | Celery / RQ | Асинхронная генерация тяжёлых файлов (pdf/docx/xlsx), фоновый индексинг | AMQP/Redis |
-| `postgres` | PostgreSQL 16 | Sessions, messages, files metadata, pgvector (alt RAG), tsvector (BM25 ADR-020) | SQL |
-| `redis` | Redis 7 | DB 0: cache, rate-limit, pub/sub (ADR-013); DB 1: checkpoint-WAL (ADR-010) | RESP |
+| `postgres` | PostgreSQL 16 | Sessions, messages, files metadata, pgvector (alt RAG), tsvector (BM25 ADR-020), `documents_facts` (Tier-1 facts cache, ADR-011, миграция 009) | SQL |
+| `redis` | Redis 7 | DB 0: cache, rate-limit, pub/sub (ADR-013); DB 1: checkpoint-WAL (ADR-010); DB 2: semantic answer cache `sem_cache:*` (ADR-011, TTL 24h, allkeys-lru) | RESP |
 | `qdrant` | Qdrant 1.10 | Production vector DB | HTTP/gRPC |
 | `chroma` | Chroma 0.5 | Локальная dev-БД векторов | HTTP |
 | `nginx` (prod) | Nginx | TLS termination, reverse proxy, static assets | HTTP |
@@ -445,7 +467,34 @@ class LLMProviderFactory:
 Дополнительно:
 - `token_usage_tracker` — оборачивает LLM, логирует `prompt_tokens` / `completion_tokens` / `cost_estimate` в `LLMCall` таблицу.
 - `retry_decorator` — exponential backoff на 429/500/503, max 3 retry.
-- `fallback_chain` — если OpenAI отдаёт 5 ошибок подряд, переключаемся на Anthropic (config-driven).
+- ~~`fallback_chain` — если OpenAI отдаёт 5 ошибок подряд, переключаемся на Anthropic (config-driven).~~ **Superseded by ADR-015 (Phase 3)** — `LLMRouter` распределяет трафик по политикам; fallback остаётся крайним случаем.
+
+**Phase 3 Update (v1.4.0, 2026-10-28) — ADR-015 Cost-Aware Routing:**
+
+```python
+# src/llm_client/agent/router.py
+class RoutingPolicy(Enum):
+    COST = "cost"          # приоритет дешёвой модели
+    LATENCY = "latency"    # приоритет низкой latency
+    QUALITY = "quality"    # приоритет качества модели
+    PRIVACY = "privacy"    # приоритет zero-retention провайдера
+
+class LLMRouter:
+    """Оборачивает LLMProviderFactory (не заменяет). На каждый запрос
+    учитывает: RoutingPolicy, состояние CostGuard (80% месячного
+    бюджета → cheapest available), CircuitBreaker (Prometheus gauge
+    llm_error_rate_5m), privacy-требования и ModelCapabilityMatrix
+    (ADR-016). Поддерживает shadow mode (SHADOW_MODE) — решение
+    логируется, но не применяется (пилот ADR-015)."""
+    def route(self, request) -> RoutingDecision: ...
+```
+
+- `LLMRouter` хранит политики выбора `cost/latency/quality/privacy` и возвращает `RoutingDecision` (provider, model, reason).
+- `LLMProviderFactory` **обёрнут router, не заменён** — factory по-прежнему создаёт `ChatOpenAI` / `ChatAnthropic`; router решает, кого вызвать.
+- `CostGuard` (`src/llm_client/agent/cost_guard.py`) — `record_spend()` с порогом 80% месячного бюджета автоматически переключает выбор на cheapest available; admin-эндпоинты `/admin/cost-guard/*`.
+- `CircuitBreaker` (`src/llm_client/agent/circuit_breaker.py`) — читает Prometheus gauge `llm_error_rate_5m` (натация Standard 5.1.1: Prometheus как вещество извне); input собирается `ErrorRateCollector` (30s loop).
+- Метрики: `llm_call_total`, `llm_cost_usd_total`, `llm_call_latency_seconds`, `llm_monthly_budget_usage_ratio` (`src/llm_client/observability/llm_metrics.py`, `/metrics`).
+- Ollama остаётся Phase 4 stub; ADR-015/016 открывают путь как cheap-tier (Q-1 preview).
 
 #### 5.2.4 Tool Layer
 
@@ -499,6 +548,31 @@ Tool registry собирает все `BaseTool` инстансы в едины�
 
 > **Phase 2 Update (v1.3.0, 2026-09-30)**: Tool Layer расширен AG-5 (`web_search`) и AG-6 (`rag_query`). `DEFAULT_TOOLS_ENABLED = ("file_export", "web_search", "rag_query")` в `agent/service.py`. `rag_query` возвращает `dict` с `chunks` (не list) — SSE-эмиттер парсит по shape payload. Phase 4 добавит `mcp_call` (AG-7) через `MCPTransport` (ADR-012).
 
+**Phase 3 Update (v1.4.0, 2026-10-28) — ADR-016 Tool Capability Adapter:**
+
+`ToolCallingAdapter.bind_tools(llm, tools, mode)` заменяет прямой вызов `llm.bind_tools(tools)`:
+
+```python
+# src/llm_client/agent/tool_calling_adapter.py
+class ToolCallingAdapter:
+    """Выбирает режим биндинга tools по ModelCapabilityMatrix:
+    native — нативный function calling API (ADR-006);
+    react — ReAct-эмуляция через system prompt (для моделей без
+    function calling, напр. Llama 3.1 base);
+    hybrid — native с fallback на ReAct при ошибке парсинга."""
+    def choose_mode(self, model: str) -> ToolCallingMode: ...
+    def bind_tools(self, llm, tools, mode: ToolCallingMode | None = None): ...
+```
+
+- `ModelCapabilityMatrix` (`src/llm_client/agent/capability_matrix.py`) — YAML-driven registry (`MODEL_CAPABILITIES_CONFIG_PATH`): `supports_native_tools`, `supports_streaming`, `supports_vision`, `context_window`, `cost_per_1m_tokens`, `latency_p50`, `latency_p99`.
+- `ToolCallingMode` enum (`src/llm_client/agent/tool_calling_mode.py`): `NATIVE` / `REACT` / `HYBRID`, `from_string`, `default_for_capabilities`.
+- `ReActBoundModel` — ReAct-парсинг ответа (regex → tool calls в OpenAI-формат); `HybridBoundModel` — native c ReAct-fallback.
+- Prompt-варианты ReAct: `react_prompt_builder.py` (`v1_strict` / `v2_tolerant` / `v3_cot`, env `REACT_PROMPT_VARIANT`).
+- **Расширяет ADR-006**: нативный tool calling остаётся default; ReAct/hybrid — для моделей без function calling (путь к Q-1 Ollama, Phase 4).
+- `LLMRouter` (ADR-015) использует capability matrix при выборе модели.
+
+> ADR-006 (native tool calling) **расширяется** ADR-016: `bind_tools()` теперь идёт через `ToolCallingAdapter`, режим определяется capability matrix.
+
 #### 5.2.5 RAG Layer
 
 Pipeline (Phase 2, ADR-020 + ADR-017):
@@ -550,6 +624,20 @@ class RagPipeline:
 
 > **Phase 2 Update (v1.3.0, 2026-09-30)**: RAG pipeline обновлён на hybrid + reranker + `RagPipeline` class. PostgreSQL расширен extensions: `pgvector` (existing) + `tsvector`/`pg_trgm` (new, `documents.search_vector` GENERATED ALWAYS AS STORED + GIN index). `RagPipeline.from_settings_with_overrides(...)` — singleton в `agent/service.py`, передаётся в `build_agent_graph(rag_pipeline=...)`. Retriever metrics: `RerankerMetrics` (`src/llm_client/rag/metrics.py`) — latency, recall@5, fallback_count.
 
+**Phase 3 Update (v1.4.0, 2026-10-28) — ADR-011 three-tier cache:**
+
+| Tier | Компонент | Storage | Назначение |
+|---|---|---|---|
+| **Tier-3 (NEW)** | `SemanticAnswerCache` (`src/llm_client/rag/semantic_cache.py`) | Redis DB 2, ключи `sem_cache:*`, TTL 24h | Кэш полных LLM-ответов по cosine similarity query-embedding (threshold > 0.92); hit → latency <100 мс |
+| **Tier-1 (NEW)** | `FactsExtractor` (`src/llm_client/rag/indexing/facts_extractor.py`) | PostgreSQL `documents_facts` (Alembic 009) | Факты извлекаются LLM-call **на индекс-тайм**, хранятся с embedding — дополнительный источник контекста в retrieval |
+| **Tier-2 (existing)** | `HybridRetriever` + `RerankerChain` (ADR-017/020, Phase 2) | Qdrant/pgvector/Chroma + `documents.search_vector` | Не изменён |
+
+- `CacheInvalidator` (`src/llm_client/rag/cache_invalidator.py`) — `invalidate_doc()` помечает ответы, ссылающиеся на изменённый/удалённый документ, как stale.
+- `CacheAwareLLMClient` (`src/llm_client/rag/cache_aware_llm.py`) — wrapper над `BaseChatModel`, прозрачно перехватывает `ainvoke`/`astream`: cache hit → ответ из Tier-3; miss → LLM + fire-and-forget store. Подключается в `build_agent_graph` (опционально, env `SEMANTIC_CACHE_ENABLED`).
+- `DocumentFact` ORM model (`src/llm_client/rag/indexing/models.py`) + relationship `Document.facts` (cascade delete).
+- Метрика: `semantic_cache_hits_total{status=hit|miss|stale}` (`observability/llm_metrics.py`), A/B-тест `scripts/ab_test_semantic_cache.py`.
+- Resolution C-6: cost-составляющая long RAG context закрыта (повторные запросы не идут в LLM).
+
 #### 5.2.6 MCP Client Layer
 
 Используется официальный `mcp` Python SDK:
@@ -577,6 +665,26 @@ class MCPClientManager:
 ```
 
 MCP-tools автоматически регистрируются в общем `tool_registry` с префиксом имени сервера (`filesystem.read_file`, `github.create_issue`), что исключает коллизии.
+
+**Phase 3 Update (v1.4.0, 2026-10-28) — ADR-004 ускорение: MCP Server preview**
+
+LLM Client становится MCP server для других клиентов (ТРИЗ Standard 3.2.1 — переход в надсистему; ИКР-0 preview):
+
+```python
+# src/llm_client/mcp/server.py
+class McpServer:
+    """FastAPI router, монтируется на /mcp/* при settings.mcp_server_enabled:
+    GET  /mcp/tools          — список экспонированных tools;
+    POST /mcp/tools/{name}   — вызов tool;
+    GET  /mcp/tools/{name}/stream — SSE-стрим ответа (transport per ADR-007);
+    GET  /mcp/health         — healthcheck."""
+    def mount(self, app) -> None: ...
+```
+
+- `ExposedToolRegistry` (`src/llm_client/mcp/tool_registry.py`) — реестр экспонируемых tools; по умолчанию регистрируются `rag_query`, `file_export`, `web_search` (`mcp/exposed_tools.py`).
+- Transport — **SSE per ADR-007** (переиспользуется существующий `format_sse_event`); probe: `scripts/probe_mcp_server.py`.
+- Gated env `MCP_SERVER_ENABLED` / `MCP_SERVER_TRANSPORT`; UI-toggle G-3 в settings panel.
+- **Phase 6 (full realization)**: WebSocket transport + OAuth 2.0 + signed manifests (ADR-019) + auto-negotiation (ADR-012).
 
 #### 5.2.7 Persistence Layer
 
@@ -667,7 +775,28 @@ CREATE TABLE agent_checkpoints (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (thread_id, checkpoint_id)
 );
+
+-- Phase 3 (ADR-011, Alembic 009_create_documents_facts)
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE documents_facts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    fact_text TEXT NOT NULL,
+    fact_embedding VECTOR(1536),        -- nullable: факт может быть извлечён до embedding
+    fact_metadata JSONB NOT NULL DEFAULT '{}',
+    extracted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    extractor_model VARCHAR(100)        -- "openai/gpt-4o-mini", "ollama/llama3.1"
+);
+CREATE INDEX ix_documents_facts_document_id ON documents_facts(document_id);
+CREATE INDEX ix_documents_facts_extracted_at ON documents_facts(extracted_at);
+CREATE INDEX ix_documents_facts_embedding_hnsw
+  ON documents_facts USING hnsw (fact_embedding vector_cosine_ops);
 ```
+
+**Phase 3 Update (v1.4.0, 2026-10-28) — ADR-011 Persistence:**
+
+- **`documents_facts`** — Alembic миграция `009_create_documents_facts.py`; ORM model `DocumentFact` (`src/llm_client/rag/indexing/models.py`) с relationship `Document.facts` (cascade delete-orphan). HNSW index на `fact_embedding` для cosine sim; dimension 1536 (OpenAI `text-embedding-3-small`; Phase 4 BGE → 768 через миграцию `010_alter_*`).
+- **Redis DB 2** — namespace `sem_cache:*` (answer + embedding keys), TTL=24h (`SEMANTIC_CACHE_TTL_SECONDS=86400`), eviction `allkeys-lru` (глобальный maxmemory 1GB; вытеснение безопасно — DB 1 durable через PostgreSQL composite, ADR-010; cache miss → просто идём в LLM). URL: `REDIS_SEMANTIC_CACHE_URL=redis://redis:6379/2`, изолирован от DB 0 (pub/sub) и DB 1 (checkpoint-WAL).
 
 ---
 
@@ -832,19 +961,21 @@ sequenceDiagram
 
 ### ADR-004: MCP только в Client mode
 
-**Status**: Accepted
+**Status**: Accepted (Phase 3 update: Server preview — Approved 2026-10-28)
 **Context**: Клиент должен уметь подключаться к внешним MCP-серверам (filesystem, GitHub, Slack, custom). Экспорт своих tools как MCP-сервер — полезно, но усложняет MVP.
 **Decision**: Реализовать только MCP Client. MCP Server — отложен до Phase 6 (Scale).
+**Phase 3 Update (ADR-004 ускорение)**: MCP Server **preview** реализован — `McpServer` (`src/llm_client/mcp/server.py`) с роутами `/mcp/tools`, `/mcp/tools/{name}`, `/mcp/health`, `ExposedToolRegistry` (rag_query, file_export, web_search), transport SSE per ADR-007 (§ 5.2.6). Full MCP Server — Phase 6: WebSocket + OAuth 2.0 + signed manifests (ADR-019) + auto-negotiation (ADR-012). ИКР-0 [PREVIEW].
 **Consequences**:
 - (+) Меньше surface area, проще security model.
 - (+) Сфокусированный MVP.
-- (-) Не сможем предоставить наши tools другим агентам — узкое место для interoperability.
+- (-) Не сможем предоставить наши tools другим агентам — узкое место для interoperability. *(Phase 3 preview частично снимает это ограничение.)*
 
 ### ADR-005: PostgreSQL как единая БД для сессий, метаданных и чекпойнтов
 
-**Status**: Accepted
+**Status**: Accepted (Phase 3: `fallback_chain` Superseded by ADR-015 — 2026-10-28)
 **Context**: Нужна транзакционная БД для сессий/сообщений/файлов. LangGraph предлагает PostgresSaver как первый класс. pgvector extension даёт опцию RAG в той же БД.
 **Decision**: PostgreSQL 16 как primary datastore. Redis — кэш и rate-limit. Никаких Mongo/ElasticSearch.
+**Note (Phase 3)**: часть ADR-005 — `fallback_chain` — **Superseded by ADR-015** (`LLMRouter`, § 5.2.3); сам ADR-005 (PostgreSQL как primary datastore) остаётся Accepted. Миграция: `docs/migration_adr_005_to_015.md`.
 **Consequences**:
 - (+) Одна БД для ops, проще бэкапы.
 - (+) pgvector — fallback если Qdrant недоступен.
@@ -852,13 +983,14 @@ sequenceDiagram
 
 ### ADR-006: Tool calling через нативный API LLM, а не через ReAct prompt
 
-**Status**: Accepted
+**Status**: Accepted (Phase 3: расширяется ADR-016 — 2026-10-28)
 **Context**: OpenAI и Anthropic поддерживают нативный tool calling. ReAct prompt — legacy, менее надёжный.
 **Decision**: Использовать `bind_tools()` LangChain и нативный tool calling API. ReAct — fallback для локальных моделей без function calling (Phase 4+).
+**Phase 3 Update**: **расширяется ADR-016** — `bind_tools()` идёт через `ToolCallingAdapter` (native/react/hybrid, § 5.2.4); ReAct-эмуляция теперь first-class режим, а не только Phase 4+ план.
 **Consequences**:
 - (+) Надёжный парсинг tool calls (структурированный JSON от API).
 - (+) Меньше токенов на системный промпт.
-- (-) Локальные модели без function calling (Llama 3.1 base) — не поддерживаются в MVP.
+- (-) Локальные модели без function calling (Llama 3.1 base) — не поддерживаются в MVP. *(ADR-016 в Phase 3 снимает это ограничение.)*
 
 ### ADR-007: Streaming через SSE (Server-Sent Events), а не WebSocket
 
@@ -995,6 +1127,56 @@ sequenceDiagram
 - (-) Дополнительная latency на rag_retriever ноду (reranker + hybrid).
 **References**: ROADMAP.md §6.2.5, BACKLOG.md v1.1.0 §3.4, AG-PROMPTS.md, ALPHA-PROMPTS.md Блок H-2/H-3/H-4.
 
+### ADR-011: Hybrid Semantic Cache for LLM
+
+**Status**: Approved (2026-10-28)
+**Context**: § 12 Q-5 фиксирует риск стоимости LLM при >50k токенов контекста. Митигация Phase 2 (reranker + hybrid, ADR-017/020) снижает context size, но не устраняет повторные LLM-вызовы. ТРИЗ-противоречие C-6 требует кэширования на уровне LLM-ответов, не только embeddings. Реализовано в Phase 3 (Beta).
+**Decision**: Ввести three-tier cache:
+1. **Tier 3 — `SemanticAnswerCache`** (`src/llm_client/rag/semantic_cache.py`): кэш полных LLM-ответов по cosine similarity query-embedding (threshold > 0.92), Redis DB 2, ключи `sem_cache:*`, TTL=24h, eviction `allkeys-lru`.
+2. **Tier 1 — `FactsExtractor`** (`src/llm_client/rag/indexing/facts_extractor.py`): при индексации документа факты извлекаются LLM-call и хранятся в `documents_facts` (Alembic 009, `DocumentFact`, HNSW cosine index) — extraction на индекс-тайм, не на query-тайм (ТРИЗ принцип #17).
+3. **Tier 2 — vector retrieval** остаётся как есть (ADR-017/020, не изменён).
+- Инвалидация: `CacheInvalidator.mark_stale()` при update/delete документа; прозрачный перехват — `CacheAwareLLMClient` wrapper.
+**Consequences**:
+- (+) Повторные запросы возвращаются из cache (latency <100 мс вместо 5–30 сек); cost-составляющая C-6 закрыта, Q-5 [CLOSED].
+- (+) Факты индексируются один раз на индекс-тайм, не per-request.
+- (-) Risk stale answers — аккуратная инвалидация через `CacheInvalidator`.
+- (-) Хранение embeddings в Redis увеличивает memory footprint (TTL 24h + allkeys-lru).
+**References**: `BETA-PROMPTS.md` v1.0.0 Блок B (B-1..B-7), ROADMAP.md §7.3, ARCHITECT.md §5.2.5, §5.2.7 (Tier-1/Tier-3), TRIZ-ANALYSIS.md §11 (draft ADR-011), Standard 1.1.5 / 5.3.1.
+
+### ADR-015: Cost-Aware Routing
+
+**Status**: Approved (2026-10-28)
+**Context**: `fallback_chain` (§ 5.2.3) учитывал только ошибки (5 подряд → переключение), но не стоимость (GPT-4o vs GPT-4o-mini различаются в разы) и не предотвращал превышение месячного бюджета. ТРИЗ-противоречие C-7 (fallback chain vs cost predictability) требует routing вместо fallback. Реализовано в Phase 3 (Beta).
+**Decision**: Внедрить `LLMRouter` (`src/llm_client/agent/router.py`):
+1. Политики выбора: `RoutingPolicy.COST / LATENCY / QUALITY / PRIVACY`.
+2. На каждый запрос router учитывает: состояние `CostGuard` (80% месячного бюджета → cheapest available), `CircuitBreaker` (Prometheus gauge `llm_error_rate_5m`, Standard 5.1.1 — вещество извне), privacy-требования, `ModelCapabilityMatrix` (ADR-016).
+3. `LLMProviderFactory` обёрнут router, не заменён; метрики от `TokenUsageTracker` идут в router real-time.
+4. Shadow mode (`SHADOW_MODE`) — решение логируется, но не применяется (пилот, `docs/adr_015_pilot.md`).
+- **Supersedes: часть ADR-005 — `fallback_chain`** (остаётся крайним случаем; миграция по `docs/migration_adr_005_to_015.md`: shadow → 5% → full → cleanup).
+**Consequences**:
+- (+) Предсказуемость стоимости (cost guard 80%), availability выше (routing вместо fallback), C-7 [RESOLVED].
+- (+) Путь для Ollama как cheap-tier (Q-1 preview).
+- (-) Усложнение LLM Provider Layer; возможен выбор дешёвой модели вместо качественной — логируется `RoutingDecision.reason`.
+- (-) Два режима (shadow/live) требуют аккуратного ramp-up.
+**References**: `BETA-PROMPTS.md` v1.0.0 Блок C (C-1..C-7), ROADMAP.md §7.3, ARCHITECT.md §5.2.3, TRIZ-ANALYSIS.md §11 (draft ADR-015), Standard 2.2.4 / 5.1.1.
+
+### ADR-016: Tool Capability Adapter
+
+**Status**: Approved (2026-10-28)
+**Context**: ADR-006 зафиксировал нативный tool calling через `bind_tools()`, что блокирует модели без function calling (Llama 3.1 base) — противоречит плану Ollama в Phase 4. ТРИЗ-противоречие C-9 (tool calling API vs model portability) требует развязки «описание tool» и «способ вызова». Реализовано в Phase 3 (Beta).
+**Decision**: Ввести `ModelCapabilityMatrix` и `ToolCallingAdapter` (`src/llm_client/agent/`):
+1. `ModelCapabilityMatrix` — YAML-driven registry (`MODEL_CAPABILITIES_CONFIG_PATH`): `supports_native_tools`, `supports_streaming`, `supports_vision`, `context_window`, `cost_per_1m_tokens`, `latency_p50/p99`.
+2. `ToolCallingMode` enum: `native` (function calling API), `react` (system prompt emulation), `hybrid` (native с fallback на ReAct при ошибке парсинга).
+3. `ToolCallingAdapter.bind_tools(llm, tools, mode)` заменяет прямой `llm.bind_tools(tools)`; `ReActBoundModel` + `HybridBoundModel`.
+4. `LLMRouter` (ADR-015) использует capability matrix при выборе модели.
+- **Расширяет ADR-006**: нативный mode остаётся default; ReAct/hybrid — для моделей без function calling.
+**Consequences**:
+- (+) Поддержка локальных моделей (Ollama, Llama, Mistral) без function calling; C-9 [RESOLVED].
+- (+) Явные capabilities вместо неявных предположений; ReAct как fallback для любой модели.
+- (-) ReAct-эмуляция менее надёжна, чем native tool calling (пилот ≥80% success rate, `docs/adr_016_pilot.md`).
+- (-) Два режима = больше кода в adapter.
+**References**: `BETA-PROMPTS.md` v1.0.0 Блок D (D-1..D-6), ROADMAP.md §7.3, ARCHITECT.md §5.2.4, TRIZ-ANALYSIS.md §11 (draft ADR-016), Standard 3.1.4.
+
 ---
 
 ## 8. Trade-offs
@@ -1004,13 +1186,16 @@ sequenceDiagram
 | Streamlit MVP | Быстрый старт, готовый UI | Плохо scale horizontally | Migrate на Chainlit/Next.js в Phase 5 |
 | LangGraph | Циклы, чекпойнты, HITL | Кривая обучения | Документация + примеры |
 | Triple vector store | Гибкость, no lock-in | 3 адаптера | Покрыть contract tests |
-| MCP client-only | Меньше complexity | Не экспонируем свои tools | Phase 6: MCP server mode |
+| MCP client-only | Меньше complexity | Не экспонируем свои tools | Phase 3: MCP Server preview (SSE, ADR-004 ускорение); Phase 6: full (WebSocket + OAuth 2.0, ADR-019) |
 | PostgreSQL-only | Проще ops | Vertical scale limit | Read replicas + pgvector scaling |
 | ~~SSE streaming (C-4)~~ | Простота, proxy-friendly | One-way | ~~HTTP endpoint для cancel~~ **[RESOLVED by ADR-013 in Phase 1]** — control-plane: POST /cancel + Redis pub/sub; data-plane: SSE без изменений |
 | ~~PII masking vs observability (C-11)~~ | Compliance, GDPR/SOC2 | Полный trace недоступен | **[RESOLVED by ADR-014 in Phase 1]** — DualStreamLogger: operational (masked) + forensic (AES-256-GCM encrypted) |
 | ~~File storage abstraction (C-15)~~ | Swappable backends | Двойная имплементация | ~~Test both в CI~~ **[RESOLVED by расш. ADR-008 in Phase 1]** — LocalFileStorage удалён, единственный S3CompatibleStorage (MinIO/S3) |
 | ~~PG checkpoint vs latency (C-2)~~ | Durability, resume-after-restart | Latency 10–50 мс на каждый node transition | **[RESOLVED by ADR-010 in Phase 2]** — RedisPostgresCheckpointer: sync Redis (<1 мс) + async PG batch flush; PostgresSaver deprecated |
-| ~~Long RAG context vs cost (C-6)~~ | Precision/recall RAG | Cost / context size LLM | **[PARTIALLY RESOLVED by ADR-017 + ADR-020 in Phase 2 (precision/recall)]** — reranker + hybrid retrieval снижают context (top-5 вместо top-20); **ADR-011 в Phase 3 — cost component pending** (semantic cache) |
+| ~~Long RAG context vs cost (C-6)~~ | Precision/recall RAG | Cost / context size LLM | **[RESOLVED fully by ADR-017 + ADR-020 in Phase 2 (precision/recall) + ADR-011 in Phase 3 (cost component)]** — reranker + hybrid снижают context (top-5 вместо top-20); semantic cache (Tier-3) отвечает повторные запросы из Redis без LLM-вызова |
+| ~~Fallback chain vs cost predictability (C-7)~~ | Простая схема деградации | Непредсказуемый cost, нет бюджетного контроля | **[RESOLVED by ADR-015 in Phase 3]** — `LLMRouter` с политиками cost/latency/quality/privacy + `CostGuard` (80% месячного бюджета) + `CircuitBreaker` (Prometheus `llm_error_rate_5m`); fallback — крайний случай; Supersedes: часть ADR-005 `fallback_chain` |
+| ~~Tool calling API vs model portability (C-9)~~ | Надёжный нативный парсинг tool calls | Локальные модели без function calling недоступны | **[RESOLVED by ADR-016 in Phase 3]** — `ModelCapabilityMatrix` + `ToolCallingAdapter` (native/react/hybrid); расширяет ADR-006, открывает путь Q-1 (Ollama preview) |
+| ИКР-0 (переход в надсистему / MCP) | Interoperability: другие агенты используют наши tools | Server-side complexity, security model | **[PREVIEW: ADR-004 ускорение в Phase 3]** — MCP Server preview (`/mcp/*`, ExposedToolRegistry, SSE per ADR-007); full realization — Phase 6 (WebSocket + OAuth 2.0 + signed manifests ADR-019 + auto-negotiation ADR-012) |
 
 ---
 
@@ -1252,16 +1437,18 @@ RATE_LIMIT_PER_MIN=60
 
 | ID | Вопрос / Риск | Вероятность | Влияние | Митигация |
 |---|---|---|---|---|
-| Q-1 | Будет ли Ollama поддерживаться в Phase 4? | Medium | High | Spike в Phase 3, fallback на локальные модели через LiteLLM |
+| Q-1 | Будет ли Ollama поддерживаться в Phase 4? | Medium | High | **[PARTIALLY CLOSED — preview: ADR-016 `ToolCallingAdapter` (react/hybrid mode) + ADR-015 `LLMRouter` (cheap-tier политика) открывают путь; полная Ollama-интеграция — Phase 4 per ROADMAP §8.1]** Spike в Phase 3 выполнен (ReAct-пилот, `docs/adr_016_pilot.md`), fallback на локальные модели через LiteLLM |
 | Q-2 | LangSmith pricing для большого объема трейсов | High | Medium | **[CLOSED: ADR-014 DualStreamLogger — собственный observability, не зависит от LangSmith]** |
 | Q-3 | MCP-серверы с stdio в docker-compose — complexity | High | Medium | Использовать SSE transport где возможно, отдельный sidecar контейнер |
 | Q-4 | Streamlit + LangGraph async — совместимость | Medium | High | **[PARTIALLY CLOSED: ADR-013 — cancel через Redis pub/sub, не Streamlit native; полное закрытие в Phase 5 через ADR-018]** |
-| Q-5 | Стоимость LLM при high RAG context (>50k tokens) | High | High | **[PARTIALLY CLOSED: ADR-017 + ADR-020 снижают context size (top-5 reranked chunks вместо raw top-20); ADR-011 в Phase 3 — full closure через semantic cache]** Implement context compression (LangChain `LLMChainExtractor`), map-reduce для длинных документов |
+| Q-5 | Стоимость LLM при high RAG context (>50k tokens) | High | High | **[CLOSED: ADR-017 + ADR-020 (Phase 2) снижают context size — top-5 reranked chunks вместо raw top-20; ADR-011 semantic cache (Tier-3) + ADR-015 cost-aware router (CostGuard 80%) закрывают cost component полностью в Phase 3]** Implement context compression (LangChain `LLMChainExtractor`), map-reduce для длинных документов |
 
 ---
 
 ## 13. References
 
+- Phase 3 (v1.4.0): `analytics/BETA-PROMPTS.md` v1.0.0 — промпты A-1..H-4; этот документ закрыт Блоком F-1.
+- Phase 2 (v1.3.0): `analytics/ALPHA-PROMPTS.md` v1.1.0 — Блок F-1 Phase 2.
 - LangGraph docs: https://langchain-ai.github.io/langgraph/
 - LangChain docs: https://python.langchain.com/docs/
 - MCP specification: https://modelcontextprotocol.io/specification
