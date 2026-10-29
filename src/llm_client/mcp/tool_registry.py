@@ -101,12 +101,13 @@ async def web_search_handler(query: str, max_results: int = 5) -> list:
 
 
 def build_default_tools() -> list[ExposedTool]:
-    """Build the 3 default MCP-exposed tools (rag_query, file_export,
-    web_search). Handler functions live at module level so tests can
+    """Build the 4 default MCP-exposed tools (rag_query, file_export,
+    web_search, agent_run). Handler functions live at module level so tests can
     mock them without touching the registry class."""
     from ..agent.tools.file_export import FileExportArgs
     from ..agent.tools.rag_query import RagQueryArgs
     from ..agent.tools.web_search import WebSearchArgs
+    from .agent_run import AgentRunArgs, agent_run_handler
 
     return [
         ExposedTool(
@@ -127,13 +128,20 @@ def build_default_tools() -> list[ExposedTool]:
             args_schema=WebSearchArgs.model_json_schema(),
             handler=web_search_handler,
         ),
+        ExposedTool(
+            name="agent_run",
+            description="Run a long-running agent task and stream progress events (SSE)",
+            args_schema=AgentRunArgs.model_json_schema(),
+            # Async generator handler — streamed by McpServer (duck-typed).
+            handler=agent_run_handler,  # type: ignore[arg-type]
+        ),
     ]
 
 
 def register_default_tools(registry: ExposedToolRegistry | None = None) -> None:
-    """Register the 3 default MCP-exposed tools (rag_query,
-    file_export, web_search). Called on startup if
+    """Register the 4 default MCP-exposed tools (rag_query,
+    file_export, web_search, agent_run). Called on startup if
     mcp_server_enabled=True. Defaults to the module singleton."""
     target = registry if registry is not None else get_exposed_tool_registry()
     target.register_all(build_default_tools())
-    logger.info("Registered 3 default MCP-exposed tools")
+    logger.info("Registered 4 default MCP-exposed tools")

@@ -21,11 +21,12 @@ async def test_mcp_server_e2e():
             response = await client.get("/mcp/tools")
             assert response.status_code == 200
             data = response.json()
-            assert len(data["tools"]) == 3
+            assert len(data["tools"]) == 4
             tool_names = [t["name"] for t in data["tools"]]
             assert "rag_query" in tool_names
             assert "file_export" in tool_names
             assert "web_search" in tool_names
+            assert "agent_run" in tool_names
 
             # Test rag_query tool — MCP call_tool wraps output in {result, error}
             response = await client.post(
@@ -76,7 +77,7 @@ async def test_mcp_server_e2e():
             assert response.status_code == 200
             data = response.json()
             assert data["status"] == "ok"
-            assert data["tools_count"] == 3
+            assert data["tools_count"] == 4
 
     finally:
         # Restore original setting

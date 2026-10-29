@@ -11,8 +11,8 @@ from src.llm_client.mcp.tool_registry import (
 )
 
 
-def test_mcp_server_with_registry_returns_3_default_tools():
-    """McpServer reads the 3 default tools from ExposedToolRegistry."""
+def test_mcp_server_with_registry_returns_4_default_tools():
+    """McpServer reads the 4 default tools from ExposedToolRegistry."""
     reset_exposed_tool_registry()
     try:
         register_default_tools()
@@ -26,9 +26,9 @@ def test_mcp_server_with_registry_returns_3_default_tools():
             response = client.get("/mcp/tools")
             assert response.status_code == 200
             data = response.json()
-            assert len(data["tools"]) == 3
+            assert len(data["tools"]) == 4
             names = {t["name"] for t in data["tools"]}
-            assert names == {"rag_query", "file_export", "web_search"}
+            assert names == {"rag_query", "file_export", "web_search", "agent_run"}
             for tool in data["tools"]:
                 assert tool["description"]
                 assert tool["args_schema"]
@@ -37,7 +37,7 @@ def test_mcp_server_with_registry_returns_3_default_tools():
             assert response.status_code == 200
             body = response.json()
             assert body["status"] == "ok"
-            assert body["tools_count"] == 3
+            assert body["tools_count"] == 4
             assert set(body["tools"]) == names
     finally:
         reset_exposed_tool_registry()

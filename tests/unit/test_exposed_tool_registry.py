@@ -73,11 +73,16 @@ def test_unregister_unknown_returns_false():
     assert registry.unregister("unknown") is False
 
 
-def test_register_default_tools_registers_3():
+def test_register_default_tools_registers_4():
     register_default_tools()
     registry = get_exposed_tool_registry()
-    assert len(registry.list_tools()) == 3
-    assert set(registry.list_names()) == {"rag_query", "file_export", "web_search"}
+    assert len(registry.list_tools()) == 4
+    assert set(registry.list_names()) == {
+        "rag_query",
+        "file_export",
+        "web_search",
+        "agent_run",
+    }
 
 
 def test_register_overwrite_logs_warning(caplog):

@@ -5933,21 +5933,21 @@ routes (`GET /mcp/tools`, `POST /mcp/tools/{name}`, SSE endpoint
    - `test_streaming_endpoint_emits_sse_events` — `GET
      /mcp/tools/agent_run/stream?args_json=...` → SSE event stream.
    - `test_health_endpoint_returns_status` — `GET /mcp/health` →
-     `{status: ok, tools_count: 3}`.
+     `{status: ok, tools_count: 4}`.
    - Integration (`tests/integration/test_mcp_server_e2e.py`):
      real FastAPI test client, full end-to-end MCP call.
 
 Definition of Done:
 - `src/llm_client/mcp/server.py` существует с `McpServer` (5 routes:
   list_tools, call_tool, call_tool_streaming, health + register_tool).
-- `src/llm_client/mcp/exposed_tools.py` регистрирует 3 MCP tools
-  (rag_query, file_export, web_search).
+- `src/llm_client/mcp/exposed_tools.py` регистрирует 4 MCP tools
+  (rag_query, file_export, web_search, agent_run).
 - `agent/service.py` startup hook монтирует MCP Server если
   `mcp_server_enabled=True`.
 - Settings: `mcp_server_enabled`, `mcp_server_transport`.
 - 7+ unit + 1 integration тестов зелёные.
 - Manual test: `curl http://localhost:8000/mcp/tools` returns list of
-  3 tools; `curl -X POST http://localhost:8000/mcp/tools/web_search
+  4 tools; `curl -X POST http://localhost:8000/mcp/tools/web_search
   -d '{"query":"python asyncio","max_results":3}'` returns search
   results.
 
@@ -5991,7 +5991,7 @@ central registry для MCP-exposed tools, отделяющий registration log
 Контекст:
 - Блок H-1 создал `McpServer.register_tool(name, description,
   args_schema, handler)`.
-- Блок H-1 `exposed_tools.py` регистрирует 3 tools inline. Phase 3
+- Блок H-1 `exposed_tools.py` регистрирует 4 tools inline. Phase 3
   H-2 формализует в registry pattern.
 - ADR-004 ускорение (TRIZ §4.6): LLM Client exposes own capabilities
   как MCP tools.
@@ -6074,8 +6074,8 @@ central registry для MCP-exposed tools, отделяющий registration log
 
 
    def register_default_tools() -> None:
-       """Register the 3 default MCP-exposed tools (rag_query,
-       file_export, web_search). Called on startup if
+       """Register the 4 default MCP-exposed tools (rag_query,
+       file_export, web_search, agent_run). Called on startup if
        mcp_server_enabled=True."""
        from ..agent.tools.rag_query import rag_query, RagQueryArgs
        from ..agent.tools.file_export import file_export, FileExportArgs
@@ -6123,7 +6123,17 @@ central registry для MCP-exposed tools, отделяющий registration log
            handler=web_search_handler,
        ))
 
-       logger.info("Registered 3 default MCP-exposed tools")
+       # agent_run (async generator — streamed via GET /tools/{name}/stream)
+       from .agent_run import AgentRunArgs, agent_run_handler
+
+       registry.register(ExposedTool(
+           name="agent_run",
+           description="Run a long-running agent task and stream progress events (SSE)",
+           args_schema=AgentRunArgs.model_json_schema(),
+           handler=agent_run_handler,
+       ))
+
+       logger.info("Registered 4 default MCP-exposed tools")
    ```
 
 2. Обнови `McpServer` (Блок H-1) — используй registry:
@@ -6166,17 +6176,17 @@ central registry для MCP-exposed tools, отделяющий registration log
      `list_tools` returns 0.
    - `test_unregister_unknown_returns_false` — unregister non-existent
      → False.
-   - `test_register_default_tools_registers_3` — call
-     `register_default_tools()`, verify 3 tools (rag_query,
-     file_export, web_search).
+   - `test_register_default_tools_registers_4` — call
+     `register_default_tools()`, verify 4 tools (rag_query,
+     file_export, web_search, agent_run).
    - Integration (`tests/integration/test_mcp_server_with_registry.py`):
-     McpServer + registry, end-to-end /mcp/tools returns 3 tools.
+     McpServer + registry, end-to-end /mcp/tools returns 4 tools.
 
 Definition of Done:
 - `src/llm_client/mcp/tool_registry.py` существует с `ExposedTool`
   dataclass + `ExposedToolRegistry` (4 methods: register, get,
   list_tools, unregister) + factory.
-- `register_default_tools()` регистрирует 3 default MCP tools.
+- `register_default_tools()` регистрирует 4 default MCP tools (включая `agent_run`).
 - `McpServer` (H-1) читает из registry (не inline dictionary).
 - 7+ unit + 1 integration тестов зелёные.
 
@@ -7536,7 +7546,7 @@ Definition of Done:
 | 23 | ADR-005 `fallback_chain` Superseded | `provider.py` comment updated; ADR-015 migration plan executed | C-6 |
 | 24 | Three-tier cache: Tier-3 Redis DB 2 active | `python scripts/verify_redis_db2.py` OK | A-1, B-1 |
 | 25 | Three-tier cache: Tier-1 `documents_facts` table created | `alembic upgrade head` succeeds | A-3, B-2 |
-| 26 | MCP Server `/mcp/tools` returns 3 tools | `curl http://localhost:8000/mcp/tools` returns 3 entries | H-1, H-2 |
+| 26 | MCP Server `/mcp/tools` returns 4 tools | `curl http://localhost:8000/mcp/tools` returns 4 entries | H-1, H-2 |
 | 27 | ToolCallingAdapter mode selection works | `pytest tests/unit/test_tool_calling_adapter.py` | D-3, D-5 |
 
 **При невыполнении п.1-4 (ADR-011)**: rollback semantic cache (set `SEMANTIC_CACHE_ENABLED=false`); investigate invalidation logic (B-3) or cosine sim threshold (B-1) или embedding model quality.

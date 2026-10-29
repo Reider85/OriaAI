@@ -866,7 +866,7 @@ registry.register(ExposedTool(
 
 ### Критерий приёмки
 
-- [ ] Либо `agent_run` зарегистрирован и покрыт тестом
+- [x] Либо `agent_run` зарегистрирован и покрыт тестом
       `test_mcp_server_agent_run.py`.
 - [ ] Либо `analytics/BETA-PROMPTS.md` H-1 явно отмечает `agent_run` как
       deferred to Phase 4.

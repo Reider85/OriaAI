@@ -78,6 +78,13 @@ class McpServer:
             if entry is None:
                 raise HTTPException(404, f"Tool not found: {name}")
             try:
+                if inspect.isasyncgenfunction(entry.handler):
+                    # Streaming handler (e.g. agent_run): drain the generator
+                    # and return the terminal chunk.
+                    result = None
+                    async for chunk in entry.handler(**args):
+                        result = chunk
+                    return {"result": result, "error": None, "streamed": True}
                 result = await entry.handler(**args)
                 return {"result": result, "error": None}
             except Exception as e:

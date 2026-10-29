@@ -25,4 +25,4 @@ def register_exposed_tools(server: McpServer) -> None:
     from .tool_registry import register_default_tools
 
     register_default_tools(server.registry)
-    logger.info("Registered 3 MCP exposed tools: rag_query, file_export, web_search")
+    logger.info("Registered 4 MCP exposed tools: rag_query, file_export, web_search, agent_run")
