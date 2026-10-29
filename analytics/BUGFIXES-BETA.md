@@ -440,10 +440,10 @@ jobs:
 
 ### Критерий приёмки
 
-- [ ] `.github/workflows/phase2-nightly.yml` не содержит джобов с префиксом
+- [x] `.github/workflows/phase2-nightly.yml` не содержит джобов с префиксом
       `phase3-`.
-- [ ] Создан `.github/workflows/phase3-nightly.yml` со всем Phase 3 scope.
-- [ ] README «Phase 2 CI Pipeline» обновлён (раздел Nightly Pipeline больше
+- [x] Создан `.github/workflows/phase3-nightly.yml` со всем Phase 3 scope.
+- [x] README «Phase 2 CI Pipeline» обновлён (раздел Nightly Pipeline больше
       не упоминает Phase 3).
 
 ---

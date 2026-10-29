@@ -600,6 +600,8 @@ Auth отсутствует (dev-only). Vector-нога включается ч�
 **Artifacts**: 30-day retention for all test reports  
 **Notifications**: Slack webhook on failure
 
+**Phase 3 scope**: ADR-011 semantic cache integration tests run in separate workflow `.github/workflows/phase3-nightly.yml` (not in Phase 2 nightly — E-5 anti-pattern).
+
 ### Local CI Scripts
 
 #### Quick Pipeline (PR simulation)
