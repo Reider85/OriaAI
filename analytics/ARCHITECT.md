@@ -1045,7 +1045,7 @@ sequenceDiagram
 **Status**: Approved (2026-09-30)
 **Context**: ADR-001 использует `PostgresSaver` для LangGraph checkpointer с синхронной записью в `agent_checkpoints` на каждом node transition. Это добавляет 10–50 мс на каждый переход, суммарно 50–200 мс на типовой агентский цикл, что становится bottleneck при росте RPS. ROADMAP.md §6.3 требует latency checkpoint <2 мс в 99% случаев и корректное восстановление при restart. Противоречие C-2 (PG checkpoint vs latency).
 **Decision**: Ввести composite checkpointer `RedisPostgresCheckpointer` (`src/llm_client/orchestration/checkpointers/composite.py`), реализующий `BaseCheckpointSaver` interface LangGraph:
-1. `RedisCheckpointer` — synchronous write в Redis DB 1 (`REDIS_CHECKPOINT_URL`), latency <1 мс, TTL=24h, `maxmemory-policy=noeviction`.
+1. `RedisCheckpointer` — synchronous write в Redis DB 1 (`REDIS_CHECKPOINT_URL`), latency <1 мс, TTL=24h, `maxmemory-policy=noeviction` *(superseded by ADR-011 in Phase 3: глобальный policy теперь `allkeys-lru` — eviction безопасен, т.к. read-through в PostgreSQL; см. §8)*.
 2. `PostgresCheckpointer` — asynchronous batched write: background flusher каждые 5 сек или N=50 checkpoints через `INSERT ... ON CONFLICT DO UPDATE`.
 3. Восстановление при restart: snapshot из PostgreSQL, затем delta-replay из Redis (потеря ≤5 сек — acceptable risk).
 4. `PostgresSaver` — deprecated, оставлен только для backward-compat тестов.
@@ -1196,6 +1196,7 @@ sequenceDiagram
 | ~~Fallback chain vs cost predictability (C-7)~~ | Простая схема деградации | Непредсказуемый cost, нет бюджетного контроля | **[RESOLVED by ADR-015 in Phase 3]** — `LLMRouter` с политиками cost/latency/quality/privacy + `CostGuard` (80% месячного бюджета) + `CircuitBreaker` (Prometheus `llm_error_rate_5m`); fallback — крайний случай; Supersedes: часть ADR-005 `fallback_chain` |
 | ~~Tool calling API vs model portability (C-9)~~ | Надёжный нативный парсинг tool calls | Локальные модели без function calling недоступны | **[RESOLVED by ADR-016 in Phase 3]** — `ModelCapabilityMatrix` + `ToolCallingAdapter` (native/react/hybrid); расширяет ADR-006, открывает путь Q-1 (Ollama preview) |
 | ИКР-0 (переход в надсистему / MCP) | Interoperability: другие агенты используют наши tools | Server-side complexity, security model | **[PREVIEW: ADR-004 ускорение в Phase 3]** — MCP Server preview (`/mcp/*`, ExposedToolRegistry, SSE per ADR-007); full realization — Phase 6 (WebSocket + OAuth 2.0 + signed manifests ADR-019 + auto-negotiation ADR-012) |
+| ~~Redis maxmemory policy (A-1)~~ | `noeviction` защищал checkpoint-ы DB 1 от вытеснения (OOM-защита вместо потери) | `allkeys-lru` глобален на инстанс — нужен для DB 2 semantic cache (ADR-011); per-DB policy в Redis не существует | **[SUPERSEDED by ADR-011 in Phase 3]** — eviction безопасен: DB 1 — read-through в PostgreSQL (composite checkpointer, ADR-010); Phase 2 DoD A-1 «`maxmemory-policy=noeviction`» заменён на «eviction безопасен + `evicted_keys` мониторится»; конфиг: `maxmemory 1gb` + `allkeys-lru` (`redis/redis.conf`) |
 
 ---
 

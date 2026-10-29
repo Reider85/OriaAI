@@ -447,9 +447,9 @@ function Test-CheckpointRedis {
         "GET",
         "maxmemory-policy"
     )
-    $expectedPolicy = "noeviction"
+    $expectedPolicy = "allkeys-lru"
     if ($null -eq $policy -or $policy -notmatch [regex]::Escape($expectedPolicy)) {
-        Write-Host "Warning: Redis maxmemory-policy is '$policy' but ADR-010 requires '$expectedPolicy' for the checkpoint WAL (A-1)." -ForegroundColor Yellow
+        Write-Host "Warning: Redis maxmemory-policy is '$policy' but ADR-011 requires '$expectedPolicy' (Phase 2 DoD A-1 noeviction superseded — eviction safe via composite checkpointer read-through)." -ForegroundColor Yellow
         return
     }
 

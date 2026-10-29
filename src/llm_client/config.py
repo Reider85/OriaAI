@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://127.0.0.1:6379/0"
     redis_checkpoint_url: str = "redis://127.0.0.1:6379/1"
     redis_checkpoint_ttl_seconds: int = 86400
-    redis_checkpoint_maxmemory_policy: str = "noeviction"
+    redis_checkpoint_maxmemory_policy: str = "allkeys-lru"
     checkpoint_backend: str = "redis_postgres"
 
     # Phase 3 — ADR-011 semantic cache (Redis DB 2)
@@ -106,9 +106,9 @@ class Settings(BaseSettings):
     llm_circuit_breaker_error_threshold: float = 0.5
     admin_token: str = ""
     # Phase 3 — ADR-015 migration plan: feature flags
-    llm_router_enabled: bool = False       # LLM_ROUTER_ENABLED
-    llm_router_traffic_percent: int = 0    # LLM_ROUTER_TRAFFIC_PERCENT, 0-100
-    llm_router_shadow_mode: bool = True    # LLM_ROUTER_SHADOW_MODE
+    llm_router_enabled: bool = False  # LLM_ROUTER_ENABLED
+    llm_router_traffic_percent: int = 0  # LLM_ROUTER_TRAFFIC_PERCENT, 0-100
+    llm_router_shadow_mode: bool = True  # LLM_ROUTER_SHADOW_MODE
 
     # RAG Pipeline (ADR-017/020, Phase 2)
     reranker_enabled: bool = True  # Enable/disable reranking in RAG pipeline

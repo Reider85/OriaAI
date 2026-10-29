@@ -396,8 +396,8 @@ maxmemory-policy allkeys-lru
 
 ### Критерий приёмки
 
-- [ ] Решение зафиксировано в `analytics/ARCHITECT.md` §8 Q-2.
-- [ ] README Phase 1+2 «Проверка eviction (alert)» обновлён: либо warns о
+- [x] Решение зафиксировано в `analytics/ARCHITECT.md` §8 Q-2.
+- [x] README Phase 1+2 «Проверка eviction (alert)» обновлён: либо warns о
       новом поведении, либо DoD A-1 выполнен.
 
 ---

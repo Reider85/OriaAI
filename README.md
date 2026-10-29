@@ -164,12 +164,15 @@ docker-compose exec redis redis-cli CONFIG GET appendfsync
 
 ### Проверка eviction (alert)
 
-Если `evicted_keys` > 0 — alert (checkpoint-теряется, OOM imminent):
+С Phase 3 (ADR-011) глобальная политика Redis — `allkeys-lru` (maxmemory 1GB), а не `noeviction` из Phase 2 (DoD A-1 superseded, см. `analytics/ARCHITECT.md` §8). Вытеснение ключей безопасно: checkpoint-ы DB 1 восстанавливаются read-through из PostgreSQL (composite checkpointer).
+
 ```powershell
 docker-compose exec redis redis-cli -n 1 INFO stats | grep evicted_keys
-# Если > 0 — проверяем maxmemory-policy:
+# Небольшие значения допустимы (LRU под memory pressure)...
 docker-compose exec redis redis-cli -n 1 INFO memory | grep maxmemory_policy
-# → noeviction (ожидаемо)
+# → allkeys-lru (ожидаемо)
+# ...но РЕЗКИЙ рост evicted_keys — alert: checkpoint-ы активно вытесняются
+# быстрее, чем PG flusher их закрепляет (>5 сек задержка — потеря данных при restart).
 ```
 
 ---
