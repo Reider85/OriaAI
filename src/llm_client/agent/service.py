@@ -392,6 +392,30 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     else:
         logger.warning("Forensic stream disabled — dev mode")
 
+    # ── S3 access logs → forensic stream (Block E-4, BUG-MVP-03) ─────────────
+    access_log_ingestor = None
+    if forensic_writer is not None and settings.access_log_ingest_enabled:
+        from ..observability.access_log_ingestor import AccessLogIngestor
+        from ..storage.s3 import S3CompatibleStorage
+
+        # E-4: logs land in the forensic bucket under _access_logs/ (prod AWS S3
+        # server access logging target); the ingestor polls that prefix.
+        _ingest_s3 = S3CompatibleStorage(
+            endpoint=settings.s3_endpoint,
+            access_key=settings.s3_access_key,
+            secret_key=settings.s3_secret_key,
+            bucket=settings.s3_forensic_bucket,
+        )
+        _allowlist = [v.strip() for v in settings.s3_access_log_allowlist.split(",") if v.strip()]
+        access_log_ingestor = AccessLogIngestor(
+            forensic_writer=forensic_writer,
+            s3_client=_ingest_s3,
+            bucket=settings.s3_forensic_bucket,
+            poll_interval_seconds=settings.access_log_poll_interval_seconds,
+            allowlist=_allowlist,
+            security_webhook_url=settings.security_alert_webhook_url or None,
+        )
+
     operational_writer = build_operational_writer(settings, pii_detector)
 
     async def _on_cancel_event(event: dict) -> None:
@@ -469,6 +493,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
     app.state.vector_writer = vector_writer
     app.state.operational_writer = operational_writer
     app.state.forensic_writer = forensic_writer
+    app.state.access_log_ingestor = access_log_ingestor
     # Store checkpointer resources for lifecycle management
     app.state.checkpointer_bundle = checkpointer_bundle
 
@@ -1244,6 +1269,8 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
         await operational_writer.start()
         if forensic_writer is not None:
             await forensic_writer.start()
+        if access_log_ingestor is not None:
+            await access_log_ingestor.start()
 
         # Ensure shared pg_pool exists (factory-time creation may have been skipped)
         from ..rag.pool import get_shared_pool
@@ -1304,6 +1331,9 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
             logger.info("PostgreSQL checkpointer flusher stopped")
 
         await subscriber.unsubscribe_all()
+        # Ingestor first — it may still push events into the forensic writer.
+        if access_log_ingestor is not None:
+            await access_log_ingestor.close()
         await operational_writer.close()
         if forensic_writer is not None:
             await forensic_writer.close()

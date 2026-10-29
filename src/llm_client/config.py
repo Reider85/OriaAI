@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     s3_bucket: str = "llm-client-files"
     s3_forensic_bucket: str = "llm-client-forensic"
 
+    # S3 access logs → forensic (Block E-4)
+    access_log_ingest_enabled: bool = False  # ACCESS_LOG_INGEST_ENABLED
+    s3_access_log_allowlist: str = "llm-client-service"  # CSV, parsed at wiring
+    security_alert_webhook_url: str = ""  # SECURITY_ALERT_WEBHOOK_URL
+    access_log_poll_interval_seconds: int = 300  # E-4: no per-second polling
+
     # PostgreSQL (for ADR-010)
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client"
     checkpoint_flush_interval_seconds: int = 5
@@ -307,6 +313,15 @@ class Settings(BaseSettings):
         if self.mcp_server_transport not in {"sse", "websocket"}:
             raise ValueError(
                 f"MCP_SERVER_TRANSPORT must be sse|websocket, got {self.mcp_server_transport!r}"
+            )
+
+        # Validate S3 access log ingestor (Block E-4)
+        if self.access_log_ingest_enabled and not self.forensic_stream_enabled:
+            raise ValueError("ACCESS_LOG_INGEST_ENABLED requires FORENSIC_STREAM_ENABLED=true")
+        if self.access_log_poll_interval_seconds < 60:
+            raise ValueError(
+                "ACCESS_LOG_POLL_INTERVAL_SECONDS must be >= 60 "
+                "(E-4 anti-pattern: no per-second S3 polling)"
             )
 
         return self

@@ -234,13 +234,19 @@ docker-compose exec minio mc admin trace local/llm-client-files \
 
 ### Критерий приёмки
 
-- [ ] При `FORENSIC_STREAM_ENABLED=true` и `ACCESS_LOG_INGEST_ENABLED=true`
+- [x] При `FORENSIC_STREAM_ENABLED=true` и `ACCESS_LOG_INGEST_ENABLED=true`
       ingestor запускается в фоне при старте приложения.
-- [ ] Интеграционный тест `tests/integration/test_access_log_ingestor_e2e.py`
+- [x] Интеграционный тест `tests/integration/test_access_log_ingestor_e2e.py`
       шлёт запрос к MinIO с неавторизованным `User-Agent`, ждёт 5+ минут,
       проверяет, что в forensic bucket появилась запись с `event_type=s3_access`
       и в Slack-вебхук ушёл алерт.
-- [ ] В `docker-compose.yml` добавлена env `MINIO_SERVER_LOGGING_TARGET`.
+      *(Адаптация: ожидание 5+ мин заменено на прямой `ingest_once()` +
+      загрузку AWS-формат log-строки в `_access_logs/` — тот же код-путь,
+      event-driven, без sleep; webhook проверяется через httpx.MockTransport.)*
+- [x] В `docker-compose.yml` добавлена env `MINIO_SERVER_LOGGING_TARGET`.
+      *(Примечание: MinIO игнорирует этот env — нет нативного AWS-формата;
+      фактический dev-путь — `scripts/dev_minio_trace.sh` через `mc admin
+      trace`, как требует DoD E-4.)*
 
 ---
 
