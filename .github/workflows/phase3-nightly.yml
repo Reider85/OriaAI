@@ -120,4 +120,4 @@ jobs:
           status: ${{ job.status }}
           channel: '#ci-notifications'
           fields: repo,message,commit,author,action,eventName,ref,workflow,job
-          color: ${{ job.status }} == 'success' ? 'good' : (job.status == 'failure' ? 'danger' : 'warning')
+          
