@@ -744,10 +744,13 @@ writes >1 sec» был когда-то нарушен — fix-up миграци�
 
 ### Критерий приёмки
 
-- [ ] `docs/migration_adr_005_to_015.md` расширен до полноценного runbook.
-- [ ] Каждый из 4 шагов имеет: goal, env-toggle, validation criteria, rollback
+- [x] `docs/migration_adr_005_to_015.md` расширен до полноценного runbook.
+- [x] Каждый из 4 шагов имеет: goal, env-toggle, validation criteria, rollback
       plan.
-- [ ] Указан owner и schedule.
+- [x] Указан owner и schedule.
+      *(Адаптация: Step 1 = 1 месяц чистого shadow per ROADMAP §14.1 (Variant A);
+      ramp 5%/50%/100% — Steps 2–3 после вердикта пилота. Owner: OriaAI Dev;
+      schedule 2026-11-03 → Phase 4 TBD.)*
 
 ---
 
