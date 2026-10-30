@@ -150,6 +150,13 @@ async def get_pipeline_for_request(
         logger.debug("Override cache hit for key %s", key)
         return _override_cache[key]
 
+    try:
+        # Use shared pool if pg_pool not provided
+        if pg_pool is None:
+            from .pool import resolve_pool
+
+            pg_pool = resolve_pool(app_settings)
+
         # Tier 3: Build new pipeline with overrides
         strategy = (
             config.retrieval_strategy.value
@@ -163,13 +170,6 @@ async def get_pipeline_for_request(
             config.reranker_name,
             config.reranker_top_k,
         )
-
-    try:
-        # Use shared pool if pg_pool not provided
-        if pg_pool is None:
-            from .pool import resolve_pool
-
-            pg_pool = resolve_pool(app_settings)
 
         from .pipeline import RagPipeline
 

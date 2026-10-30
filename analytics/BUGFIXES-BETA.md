@@ -490,8 +490,8 @@ def get_pipeline_for_request(...):
 
 ### Критерий приёмки
 
-- [ ] `ruff check src/llm_client/rag/pipeline_singleton.py` — 0 ошибок.
-- [ ] Тест `test_pipeline_singleton.py` не зависит от удалённого блока.
+- [x] `ruff check src/llm_client/rag/pipeline_singleton.py` — 0 ошибок.
+- [x] Тест `test_pipeline_singleton.py` не зависит от удалённого блока.
 
 ---
 
