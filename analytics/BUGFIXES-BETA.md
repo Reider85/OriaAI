@@ -815,10 +815,18 @@ python scripts/pilot_ollama_react.py \
 
 ### Критерий приёмки
 
-- [ ] В `reports/` лежат JSON-файлы с результатами пилотов.
-- [ ] `docs/adr_015_pilot.md` содержит секцию `## Pilot Results` с вердиктом.
-- [ ] `docs/adr_016_pilot.md` — то же.
-- [ ] Вердикт явно говорит PASS/FAIL/INCONCLUSIVE.
+- [x] В `reports/` лежат JSON-файлы с результатами пилотов.
+- [x] `docs/adr_015_pilot.md` содержит секцию `## Pilot Results` с вердиктом.
+- [x] `docs/adr_016_pilot.md` — то же.
+- [x] Вердикт явно говорит PASS/FAIL/INCONCLUSIVE.
+      *(Адаптация: ADR-016 — реальный прогон на Ollama 2026-10-30, вердикт
+      **PASS** (87.5% ≥ 80%, 21/24, v1_strict). ADR-015 — вердикт
+      **INCONCLUSIVE**: offline smoke PASS (exit 0, pre-flight по migration
+      runbook), но ROADMAP §14.1 требует 1 месяц shadow — полный пилот по
+      расписанию Step 1 2026-11-03 → 2026-12-01; финальный вердикт будет
+      дописан после его завершения. Отчёты в `test-results/` + копия в
+      `reports/` (оба gitignored — в репозиторий попадают только метрики в
+      docs/; JSON сохраняются локально и по ссылкам из docs).)*
 
 ---
 

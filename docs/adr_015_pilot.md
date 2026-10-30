@@ -63,6 +63,34 @@ Script output interpretation:
 - `⚠️ PILOT PARTIAL` — review criteria (e.g. logging gaps or borderline predictability); tune `ModelCostTable` / policies, re-run.
 - `❌ ROLLBACK REQUIRED (cost overrun >20%)` — ADR-015 rollback per `ROADMAP.md` §14.1; investigate routing decisions in operational stream (`router_shadow_comparison` events).
 
+## Pilot Results
+
+**Run date**: 2026-10-30 — offline smoke (pre-flight only, не полный пилот).
+**Configuration**: `--offline --duration-minutes 0 --max-requests 5 --interval-seconds 0` — costs simulated from `ModelCostTable`, 0 API spend.
+**Report**: `test-results/adr015_smoke_20261030.json` (копия: `reports/adr015_smoke_20261030.json`).
+
+### Metrics (offline smoke)
+
+- Total requests: **5**
+- Cost predictability (stdev of ratios): **0.000** (threshold ≤ 0.10) — ✅
+- Cost overrun rate: **0.0%** (threshold ≤ 20%) — ✅
+- Switching decisions logged: **5/5** (`router_shadow_comparison` events) — ✅
+- Exit code: **0 (PILOT PASS)** — pre-flight gate по `docs/migration_adr_005_to_015.md` выполнен.
+
+### Verdict
+
+**INCONCLUSIVE** — offline smoke PASSED, но это только pre-flight: ROADMAP §14.1 требует **1 месяц shadow mode** с реальным трафиком. Полный пилот по расписанию Step 1: **2026-11-03 → 2026-12-01** (см. `docs/migration_adr_005_to_015.md`); финальный вердикт PASS/ROLLBACK будет зафиксирован по его результатам.
+
+### Issues encountered
+
+- Нет (smoke-прогон без API-расхода; системных ошибок не наблюдалось).
+
+### Sign-off
+
+- [x] Engineering: OriaAI Dev — offline smoke 2026-10-30
+- [ ] SRE: <name>
+- [ ] Architecture: <name> — вердикт после полного пилота (2026-12-01)
+
 ## Related documents
 
 - `docs/migration_adr_005_to_015.md` — migration plan (Step 1 = this pilot).

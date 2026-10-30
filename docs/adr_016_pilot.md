@@ -69,6 +69,36 @@ Tuning tips:
 - With `--output <path>` it writes a JSON report: `pilot`, `ollama_url`, `model`, `react_prompt_variant`, `total_tests`, `successes`, `failures`, `success_rate`, `failure_reasons`, `sample_size_warning`, `verdict`.
 - Exit code is `0` for all verdicts — automation must parse the `verdict` field / stdout, not the exit code.
 
+## Pilot Results
+
+**Run date**: 2026-10-30
+**Configuration**: `llama3.1:8b` (Ollama 0.40.11, `http://localhost:11434`), `REACT_PROMPT_VARIANT=v1_strict`, `temperature=0.0`, 24 tool-calling prompts (8 × `web_search`, 8 × `rag_query`, 8 × `file_export`).
+**Report**: `test-results/adr016_pilot_report_20261030.json` (копия: `reports/adr016_pilot_report_20261030.json`).
+
+### Metrics
+
+- Total tests: **24** (sample size ≥ 20 — verdict trustworthy)
+- Successes: **21**, Failures: **3**
+- Success rate: **87.5%** (threshold ≥ 80%) — ✅ PASS
+- Failure reasons:
+  - `wrong_tool: expected rag_query, got web_search` — 2
+  - `no_tool_call_detected` — 1
+- Runtime errors / false `ModelCapabilityMatrix` entries: 0
+
+### Verdict
+
+**PILOT PASS — ADR-016 Approved** (success rate 87.5% ≥ 80% per ROADMAP §14.1; rollback threshold <60% not approached). No ReAct prompt retuning required for `v1_strict`. Proceed with ADR-016 rollout.
+
+### Issues encountered
+
+- Все 3 отказа — инструментальный уровень выбора инструмента (`rag_query` → `web_search` для 2 внутренних retrieval-запросов, 1 случай без tool call), не runtime-ошибки. При необходимости тюнинга — см. Tuning (`v2_tolerant`/`v3_cot`).
+
+### Sign-off
+
+- [x] Engineering: OriaAI Dev — прогон 2026-10-30
+- [ ] SRE: <name>
+- [ ] Architecture: <name>
+
 ## Related documents
 
 - `scripts/pilot_ollama_react.py` — the pilot script (Блок D-6).
