@@ -273,8 +273,10 @@ deliverable не сохранён.
 
 ### Критерий приёмки
 
-- [ ] `analytics/ARCHITECT.md` §12 changelog явно отмечает, что B-2 merged с E-2.
-- [ ] Либо git-тег `mvp-B-2-snapshot` создан.
+- [x] `analytics/ARCHITECT.md` §12 changelog явно отмечает, что B-2 merged с E-2.
+- [x] Либо git-тег `mvp-B-2-snapshot` создан.
+
+*(Адаптация: §12 changelog в ARCHITECT.md — это header-таблица, не отдельная секция. Тег создан на коммите 3a70b5b, где STORAGE_BACKEND существовал.)*
 
 ---
 
