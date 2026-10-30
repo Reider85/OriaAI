@@ -316,9 +316,12 @@ assert event["messages_count"] >= 0
 
 ### Критерий приёмки
 
-- [ ] Все 8 полей из спеки C-6 явно ассертятся.
-- [ ] При прогоне `pytest tests/unit/test_cancel_forensic_logging.py -v` 6 тестов
+- [x] Все 8 полей из спеки C-6 явно ассертятся.
+- [x] При прогоне `pytest tests/unit/test_cancel_forensic_logging.py -v` 6 тестов
       проходят.
+      *(Адаптация: в тест передан `session_context_provider` c `SessionRuntimeContext`,
+      чтобы forensic-поля содержали реальные значения вместо `None`; ассертятся все
+      9 ключей события C-6 (8 полей спеки + `duration_ms`).)*
 
 ---
 

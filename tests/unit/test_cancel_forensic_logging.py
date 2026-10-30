@@ -4,6 +4,7 @@ import pytest
 
 from llm_client.transport.cancel import CancellationTokenRegistry
 from llm_client.transport.publisher import CancelPublisher
+from llm_client.transport.runtime_context import SessionRuntimeContext
 from llm_client.transport.subscriber import CancelSubscriber
 
 
@@ -62,7 +63,17 @@ async def test_cancel_event_handler_receives_full_event():
     async def handler(event):
         captured.update(event)
 
-    sub = CancelSubscriber(fake, registry, cancel_event_handler=handler)
+    runtime_ctx = SessionRuntimeContext(
+        last_node_executed="planner",
+        messages_count=3,
+        partial_answer_size_bytes=128,
+    )
+    sub = CancelSubscriber(
+        fake,
+        registry,
+        cancel_event_handler=handler,
+        session_context_provider=lambda _sid: runtime_ctx,
+    )
     await sub.subscribe("s1")
     await drain_tasks()
 
@@ -72,6 +83,14 @@ async def test_cancel_event_handler_receives_full_event():
     assert captured["user_id"] == "u-42"
     assert captured["duration_ms"] >= 0
     assert "timestamp" in captured
+    assert "partial_answer_size_bytes" in captured
+    assert isinstance(captured["partial_answer_size_bytes"], int)
+    assert captured["partial_answer_size_bytes"] == 128
+    assert "last_node_executed" in captured
+    assert captured["last_node_executed"] == "planner"
+    assert "messages_count" in captured
+    assert isinstance(captured["messages_count"], int)
+    assert captured["messages_count"] == 3
     await sub.unsubscribe("s1")
 
 
