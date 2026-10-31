@@ -16,22 +16,26 @@ logger = logging.getLogger(__name__)
 
 class RagQueryArgs(BaseModel):
     query: str = Field(..., description="Поисковый запрос по корпусу документов")
-    top_k: int = Field(
-        default=5,
+    top_k: int | None = Field(
+        default=None,
         ge=1,
         le=20,
-        description="Number of chunks to return after reranker (1-20)",
+        description=(
+            "Number of chunks to return after reranker (1-20). "
+            "Omit to use the server-side default (env/UI override)."
+        ),
     )
 
 
-async def rag_query(query: str, top_k: int = 5) -> dict[str, Any]:
+async def rag_query(query: str, top_k: int | None = None) -> dict[str, Any]:
     """Ищет по корпоративному корпусу документов. Возвращает dict
     {chunks: [{source_uri, title, page, content_preview, score}],
     chunk_count, top_score, source_uris}.
 
     Pipeline: vector retrieval (top-20) → [BM25 retrieval (top-20) →
     RRF fusion (top-50)] (if strategy=hybrid, ADR-020) → reranker
-    top-5 (ADR-017). PII filtering applied (ADR-014 metadata).
+    (ADR-017; top_k chunks — explicit arg or config/env/UI default).
+    PII filtering applied (ADR-014 metadata).
     """
     from ...config import settings
     from ...rag.pipeline_singleton import get_pipeline_for_request, get_rag_request_overrides
@@ -46,9 +50,9 @@ async def rag_query(query: str, top_k: int = 5) -> dict[str, Any]:
 
         result = await pipeline.retrieve(query, top_k=top_k)
         logger.info(
-            "rag_query query=%r top_k=%d returned=%d chunks",
+            "rag_query query=%r top_k=%s returned=%d chunks",
             query,
-            top_k,
+            top_k if top_k is not None else "config",
             result.get("chunk_count", 0),
         )
         return result

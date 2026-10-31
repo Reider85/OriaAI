@@ -37,7 +37,7 @@ def reset_singleton_state():
 def test_rag_query_args_defaults():
     args = RagQueryArgs(query="test query")
     assert args.query == "test query"
-    assert args.top_k == 5
+    assert args.top_k is None
 
 
 def test_rag_query_args_custom_top_k():
@@ -134,7 +134,7 @@ async def test_rag_query_default_top_k():
 
         await rag_query.ainvoke({"query": "test"})
 
-        mock_pipeline.retrieve.assert_awaited_once_with("test", top_k=5)
+        mock_pipeline.retrieve.assert_awaited_once_with("test", top_k=None)
         mock_get_pipeline.assert_awaited_once_with(None, None)
 
 

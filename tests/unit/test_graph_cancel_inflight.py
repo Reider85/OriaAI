@@ -56,10 +56,11 @@ class MockRAGPipeline:
         self.delay = delay
         self.call_count = 0
 
-    async def retrieve(self, query, top_k=5):
+    async def retrieve(self, query, top_k=None):
         self.call_count += 1
         await asyncio.sleep(self.delay)
-        return {"chunks": [{"id": f"doc_{i}", "content": f"Doc {i}"} for i in range(top_k)]}
+        k = top_k if top_k is not None else 5
+        return {"chunks": [{"id": f"doc_{i}", "content": f"Doc {i}"} for i in range(k)]}
 
 
 @pytest.mark.asyncio

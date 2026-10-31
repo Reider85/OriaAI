@@ -531,10 +531,24 @@ async def retrieve(
 
 ### Критерий приёмки
 
-- [ ] Передача `top_k=10` в `retrieve()` реально меняет кол-во возвращаемых
+- [x] Передача `top_k=10` в `retrieve()` реально меняет кол-во возвращаемых
       результатов (покрыть тестом `test_rag_pipeline.py::test_retrieve_respects_top_k`).
+      *(Адаптация: добавлены 5 тестов — `test_retrieve_respects_top_k`,
+      `test_retrieve_top_k_none_uses_config`, `test_retrieve_default_top_k_uses_config`,
+      `test_retrieve_non_positive_top_k_falls_back_to_config`,
+      `test_retrieve_does_not_mutate_shared_config`. Сигнатура:
+      `top_k: int | None = None` — None означает «конфиг/env/UI побеждает»;
+      явный положительный аргумент переопределяет `config.reranker_top_k`
+      через `dataclasses.replace` без мутации общего конфига; `<= 0` →
+      warning + fallback на конфиг. Дефолты в `rag_query` tool (schema),
+      `rag_query_handler` (MCP) и `_rag_retriever_node` (graph) также
+      переведены на `None`, чтобы UI G-4/env override не перебивался
+      дефолтом 5 после начала учёта аргумента.)*
 - [ ] В дашборде Grafana видно разное число возвращаемых документов при разных
       `top_k` (smoke-тест).
+      *(Неавтоматизируемо в рамках unit-тестов: требует живого Grafana +
+      прогона трафика. Доступность top_k через метрики `rag_rerank`
+      `output_count` — operational event, уже логируется `rerank_after_fusion`.)*
 
 ---
 

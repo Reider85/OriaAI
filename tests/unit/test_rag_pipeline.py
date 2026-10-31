@@ -8,7 +8,7 @@ from llm_client.observability.forensic_writer import ForensicStreamWriter
 from llm_client.observability.operational_writer import OperationalStreamWriter
 from llm_client.rag.config import RetrieverConfig
 from llm_client.rag.metrics import NullRerankerMetrics, RerankerMetrics
-from llm_client.rag.pipeline import _identity_fallback, rerank_after_fusion
+from llm_client.rag.pipeline import RagPipeline, _identity_fallback, rerank_after_fusion
 from llm_client.rag.rerankers.base import RerankResult
 from llm_client.rag.rerankers.identity import IdentityReranker
 
@@ -474,3 +474,103 @@ async def test_integration_with_identity_reranker(sample_documents, reranker_con
             assert result["content"] == original["content"]
             assert result["metadata"] == original["metadata"]
             assert result["score"] == 1.0  # Identity fallback gives neutral score
+
+
+# ---------- RagPipeline.retrieve top_k (BUG-ALPHA-04) ----------
+
+
+class _StubRetriever:
+    """Returns a fixed corpus regardless of query (retrieval is not under test)."""
+
+    def __init__(self, docs: list[dict]):
+        self._docs = docs
+
+    async def aretrieve(self, query: str, user_id: str = "") -> list[dict]:
+        return list(self._docs)
+
+
+def _docs(n: int) -> list[dict]:
+    return [
+        {
+            "id": f"doc{i}",
+            "content": f"content {i}",
+            "metadata": {"source_uri": f"file{i}.txt"},
+            "score": 1.0 - i * 0.01,
+        }
+        for i in range(n)
+    ]
+
+
+def _pipeline_with_docs(n_docs: int = 12, config: RetrieverConfig | None = None) -> RagPipeline:
+    config = config or RetrieverConfig(
+        reranker_name="mock", reranker_top_k=3, reranker_enabled=True
+    )
+    registry = MagicMock()
+    registry.get.return_value = MockReranker("mock")
+    return RagPipeline(
+        retriever=_StubRetriever(_docs(n_docs)),
+        reranker_registry=registry,
+        config=config,
+    )
+
+
+@pytest.mark.asyncio
+async def test_retrieve_respects_top_k():
+    """Explicit top_k changes the number of returned chunks (BUG-ALPHA-04).
+
+    Acceptance: passing top_k=10 to retrieve() really changes the result count
+    vs the config default (reranker_top_k=3).
+    """
+    pipeline = _pipeline_with_docs(12)
+
+    result_10 = await pipeline.retrieve("query", top_k=10)
+    assert result_10["chunk_count"] == 10
+
+    result_2 = await pipeline.retrieve("query", top_k=2)
+    assert result_2["chunk_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_retrieve_top_k_none_uses_config():
+    """top_k=None keeps config.reranker_top_k (env/UI baseline)."""
+    config = RetrieverConfig(reranker_name="mock", reranker_top_k=4, reranker_enabled=True)
+    pipeline = _pipeline_with_docs(12, config=config)
+
+    result = await pipeline.retrieve("query", top_k=None)
+    assert result["chunk_count"] == 4
+
+
+@pytest.mark.asyncio
+async def test_retrieve_default_top_k_uses_config():
+    """Omitting top_k entirely keeps config.reranker_top_k."""
+    config = RetrieverConfig(reranker_name="mock", reranker_top_k=3, reranker_enabled=True)
+    pipeline = _pipeline_with_docs(12, config=config)
+
+    result = await pipeline.retrieve("query")
+    assert result["chunk_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_retrieve_non_positive_top_k_falls_back_to_config(caplog):
+    """Non-positive top_k is ignored with a warning; config wins."""
+    import logging
+
+    config = RetrieverConfig(reranker_name="mock", reranker_top_k=3, reranker_enabled=True)
+    pipeline = _pipeline_with_docs(12, config=config)
+
+    with caplog.at_level(logging.WARNING, logger="llm_client.rag.pipeline"):
+        result = await pipeline.retrieve("query", top_k=0)
+
+    assert result["chunk_count"] == 3
+    assert any("Non-positive top_k" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_retrieve_does_not_mutate_shared_config():
+    """The per-call top_k override must not leak into the pipeline config."""
+    config = RetrieverConfig(reranker_name="mock", reranker_top_k=3, reranker_enabled=True)
+    pipeline = _pipeline_with_docs(12, config=config)
+
+    await pipeline.retrieve("query", top_k=10)
+
+    assert pipeline._config.reranker_top_k == 3

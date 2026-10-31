@@ -79,7 +79,7 @@ def reset_exposed_tool_registry() -> None:
     _registry = None
 
 
-async def rag_query_handler(query: str, top_k: int = 5) -> dict:
+async def rag_query_handler(query: str, top_k: int | None = None) -> dict:
     """MCP-callable wrapper for rag_query tool."""
     from ..agent.tools.rag_query import rag_query
 

@@ -256,7 +256,7 @@ def _get_fallback_registry() -> Any:
 class _MinimalFallbackPipeline:
     """Minimal pipeline interface for graceful degradation."""
 
-    async def retrieve(self, query: str, top_k: int = 5, **kwargs) -> dict[str, Any]:
+    async def retrieve(self, query: str, top_k: int | None = None, **kwargs) -> dict[str, Any]:
         return {"chunks": [], "chunk_count": 0, "top_score": 0.0, "source_uris": []}
 
 

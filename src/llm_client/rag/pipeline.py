@@ -461,14 +461,17 @@ class RagPipeline:
     async def retrieve(
         self,
         query: str,
-        top_k: int = 5,
+        top_k: int | None = None,
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Retrieve and rerank documents for a query.
 
         Args:
             query: Search query.
-            top_k: Number of chunks after reranker.
+            top_k: Number of chunks after reranker. None (default) keeps the
+                config value (env ``RERANKER_TOP_K`` / UI G-4 override). An
+                explicit positive value overrides the config for this call;
+                non-positive values are logged and ignored (config wins).
             user_id: Optional tenant filter. None/empty retrieves across all
                 users (dev-friendly); a real id scopes BM25 SQL.
 
@@ -476,6 +479,22 @@ class RagPipeline:
             dict with keys: chunks, chunk_count, top_score, source_uris.
         """
         from .retrieval import HybridRetriever
+
+        effective_top_k = self._config.reranker_top_k
+        if top_k is not None:
+            if top_k > 0:
+                effective_top_k = top_k
+            else:
+                logger.warning(
+                    "Non-positive top_k=%r — keeping config reranker_top_k=%d",
+                    top_k,
+                    effective_top_k,
+                )
+        rerank_config = (
+            self._config
+            if effective_top_k == self._config.reranker_top_k
+            else replace(self._config, reranker_top_k=effective_top_k)
+        )
 
         effective_user = user_id or ""
 
@@ -508,7 +527,7 @@ class RagPipeline:
         docs = await rerank_after_fusion(
             query,
             docs,
-            self._config,
+            rerank_config,
             reranker_registry=self._reranker_registry,
         )
 

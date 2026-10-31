@@ -1140,7 +1140,7 @@ class _RecordingPipeline:
     def __init__(self) -> None:
         self.retrieve_calls: list[dict] = []
 
-    async def retrieve(self, query: str, top_k: int = 5) -> dict:
+    async def retrieve(self, query: str, top_k: int | None = 5) -> dict:
         self.retrieve_calls.append({"query": query, "top_k": top_k})
         return _RAG_RESULT
 

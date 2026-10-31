@@ -279,13 +279,14 @@ class _MockRagPipeline:
         ]
         self.retrieve_calls: list[dict] = []
 
-    async def retrieve(self, query: str, top_k: int = 5) -> dict:
+    async def retrieve(self, query: str, top_k: int | None = 5) -> dict:
         self.retrieve_calls.append({"query": query, "top_k": top_k})
+        k = top_k if top_k is not None else len(self._chunks)
         return {
-            "chunks": self._chunks[:top_k],
-            "chunk_count": min(len(self._chunks), top_k),
+            "chunks": self._chunks[:k],
+            "chunk_count": min(len(self._chunks), k),
             "top_score": self._chunks[0]["score"] if self._chunks else 0.0,
-            "source_uris": [c["source_uri"] for c in self._chunks[:top_k] if c.get("source_uri")],
+            "source_uris": [c["source_uri"] for c in self._chunks[:k] if c.get("source_uri")],
         }
 
 

@@ -269,7 +269,8 @@ async def _rag_retriever_node(
 
     ``top_k`` is the graph-level override coming from the UI settings panel
     (G-4, see ``build_agent_graph(settings=...)``). It takes precedence over the
-    per-run ``state['rag_top_k']`` value.
+    per-run ``state['rag_top_k']`` value; if neither is set, ``None`` is passed
+    so the pipeline falls back to its own config (env/UI).
 
     Supports in-flight cancellation via CancellationToken in config.
     """
@@ -291,7 +292,7 @@ async def _rag_retriever_node(
         return {"retrieved_docs": []}
 
     query = last_user_msg.content if hasattr(last_user_msg, "content") else str(last_user_msg)
-    effective_top_k = top_k if top_k is not None else state.get("rag_top_k", 5)
+    effective_top_k = top_k if top_k is not None else state.get("rag_top_k")
 
     # Bind variables to avoid late capture
     async def retrieve_pipeline():
