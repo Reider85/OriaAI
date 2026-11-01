@@ -1,689 +1,491 @@
-# LLM Client — Phase 1
+# OriaAI
 
-Быстрый старт dev-окружения: Redis, MinIO, HashiCorp Vault + Python-пакет `llm-client`
-(Quick Wins B-1..B-3).
+> Production-grade LLM client — LangGraph agent orchestration, hybrid RAG, PII-aware dual-stream logging, and S3-compatible forensic storage. Built for enterprise workloads where auditability, cancellation, and retrieval quality are first-class concerns.
 
-## Сервисы
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Build: hatchling](https://img.shields.io/badge/build-hatchling-00BBA4.svg)](https://hatch.pypa.io/)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
+[![Type check: mypy](https://img.shields.io/badge/types-mypy-2.7.0+-blue.svg)](http://mypy-lang.org/)
+[![Tests: 194 passing](https://img.shields.io/badge/tests-194%20passing-brightgreen.svg)](#testing)
+[![Phase: MVP | ALPHA | BETA](https://img.shields.io/badge/phase-MVP%20%7C%20ALPHA%20%7C%20BETA-orange.svg)](#roadmap--phases)
+[![DB: PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-336791.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Infra: Redis | MinIO | Vault](https://img.shields.io/badge/infra-Redis%20%7C%20MinIO%20%7C%20Vault-red.svg)](#services--ports)
 
-| Сервис | URL / порт | Назначение |
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Highlights](#highlights)
+- [Architecture](#architecture)
+- [Roadmap & Phases](#roadmap--phases)
+  - [MVP — Core Infrastructure & Security](#mvp--core-infrastructure--security)
+  - [ALPHA — ML & Search](#alpha--ml--search)
+  - [BETA — Eviction Policy & Semantic Cache Foundation](#beta--eviction-policy--semantic-cache-foundation)
+- [Quick Start](#quick-start)
+- [Services & Ports](#services--ports)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [CI/CD Pipelines](#cicd-pipelines)
+- [Project Structure](#project-structure)
+- [Architecture Decision Records](#architecture-decision-records)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Overview
+
+OriaAI (`llm-client`) is a Python 3.11+ package implementing a LangGraph-based agent service with retrieval-augmented generation, MCP-style orchestration, and multi-provider LLM support. It ships with a FastAPI service, a Streamlit UI, and a complete Docker Compose stack — Redis, MinIO, HashiCorp Vault, PostgreSQL 16, Prometheus, and Grafana — for local development that mirrors staging.
+
+The project is delivered in three completed phases: **MVP** (core infrastructure and security primitives), **ALPHA** (ML reranking, full-text search, hybrid RAG, evaluation framework, multi-provider LLMs), and **BETA** (Redis eviction policy with composite checkpointer recovery and isolated semantic-cache integration tests). See the [Roadmap & Phases](#roadmap--phases) section for the full breakdown.
+
+---
+
+## Highlights
+
+- **Cancellation as a first-class primitive** — Redis pub/sub transport (`CancellationToken`, `CancelPublisher`/`CancelSubscriber`) plus an HTTP endpoint `POST /sessions/{id}/cancel` and Streamlit auto-cancel on tab close.
+- **Dual-stream logging** — Operational stream (PII masked, 30-day retention) and forensic stream (AES-256-GCM encrypted via Vault transit, 90+ day retention in a dedicated S3 bucket).
+- **PII detection** — Microsoft Presidio + custom regex for `EMP-\d{6}`, `PRJ-[A-Z]{3}-\d{4}` and the standard PERSON / EMAIL / PHONE / CREDIT_CARD / IBAN / IP / US_SSN / URL entities.
+- **Single S3 backend** — `LocalFileStorage` has been removed; the only file backend is `S3CompatibleStorage` (MinIO for dev, AWS S3 for prod), with multipart upload, exponential retry, and proper error mapping.
+- **Hybrid RAG** — BM25 + vector fusion, BGE-reranker-base (278M params) and optional Cohere reranker, A/B test framework gated on `recall@5 ≥ 15%` improvement AND `< 100 ms` latency overhead.
+- **PostgreSQL 16 full-text search** — `tsvector GENERATED ALWAYS AS STORED` columns, GIN indexes, `pg_trgm` fuzzy matching, hybrid query `< 50 ms` on 10k documents at staging.
+- **Multi-provider LLMs** — OpenAI, Anthropic, Ollama, `CUSTOM-OPENAI` (any OpenAI-compatible endpoint), and `ZAI` (Zhipu AI `glm-4.5`).
+- **Production-minded CI** — Separate PR pipelines (mocked APIs) and nightly pipelines (real Tavily / Cohere / OpenAI / pgvector), 30-day artifact retention, HuggingFace cache, Slack notifications.
+- **194 tests passing** — 122 unit + 16 integration + 56 staging-load, in 65.38 s on a dev laptop.
+
+---
+
+## Architecture
+
+```
+                ┌─────────────────────────────────────────────────────────┐
+                │                     Streamlit UI (:8501)                 │
+                │   auto_cancel.py  ·  inject_auto_cancel()  ·  Stop btn   │
+                └────────────────────────────────────┬────────────────────┘
+                                                     │  HTTP / SSE
+                                                     ▼
+                ┌─────────────────────────────────────────────────────────┐
+                │              FastAPI Agent Service (:8000)               │
+                │   POST /sessions/{id}/cancel   ·   POST /documents       │
+                │   SSE tool events              ·   DELETE /documents/{id} │
+                └────────────┬───────────────────────────────────┬────────┘
+                             │                                    │
+              ┌──────────────▼──────────────┐     ┌───────────────▼──────────────┐
+              │   LangGraph Agent + cycle    │     │       RAG Pipeline           │
+              │   detection (state-delta)    │     │  retrieve → rerank → answer  │
+              │   orchestration · MCP        │     │   BGE / Cohere / hybrid      │
+              └──────────────┬──────────────┘     └───────────────┬──────────────┘
+                             │                                     │
+        ┌────────────────────┼─────────────────────┬───────────────┼──────────────┐
+        ▼                    ▼                     ▼               ▼              ▼
+  ┌──────────┐      ┌───────────────┐     ┌───────────────┐  ┌──────────┐  ┌───────────┐
+  │  Redis   │      │     MinIO     │     │    Vault      │  │PostgreSQL│  │  LLM      │
+  │ DB0 pub  │      │   S3 buckets  │     │   transit     │  │  16 +    │  │ Providers │
+  │ DB1 WAL  │      │ files/forensic │     │ AES-256-GCM   │  │ pgvector │  │ OpenAI /  │
+  │ allkeys- │      │  lifecycle:   │     │   KMS         │  │ tsvector │  │ Anthropic │
+  │   lru    │      │  30d / 90d    │     │               │  │  + GIN   │  │ ZAI / ... │
+  └──────────┘      └───────────────┘     └───────────────┘  └──────────┘  └───────────┘
+        │                                                                          │
+        └─────────────── composite checkpointer read-through ─────────────────────┘
+                                (Redis evicts → PG recovers)
+```
+
+---
+
+## Roadmap & Phases
+
+The project is delivered in three completed phases. Each phase is fully implemented and covered by automated tests.
+
+### MVP — Core Infrastructure & Security
+
+**Scope (Phase 1, ADR-013 / ADR-014 / extended ADR-008):** Cancel transport, single S3 backend, PII detection, dual-stream logging, KMS integration, and a local-dev mode that does not require Vault.
+
+| Block | Component | Location | Notes |
+|---|---|---|---|
+| **B-1** | Cancel via Redis pub/sub | `src/llm_client/transport/` | `CancellationToken`, `Registry`, `CancelPublisher`, `CancelSubscriber` + HTTP endpoint `POST /sessions/{id}/cancel` |
+| **B-2** | `S3CompatibleStorage` (minimal) | `src/llm_client/storage/` | `FileStorage` interface, MinIO dev / S3 prod |
+| **B-3** | State-Delta Cycle Detection (preview) | `src/llm_client/agent/cycle_detection.py` | `compute_state_delta`, `IterationMonitor`; flags `cycle_detected` on 2 similar iterations |
+| **C-5** | UI auto-cancel for Streamlit | `src/llm_client/ui/auto_cancel.py` | Listens to `visibilitychange` / `pagehide` / `beforeunload`; `navigator.sendBeacon` with `fetch keepalive` fallback; 5-second debounce |
+| **C-6** | Cancel → forensic logging | `src/llm_client/transport/` (handler) | Operational: masked `{event_type, session_id, user_id:"[MASKED]", reason, timestamp}`. Forensic: full trace with `user_id`, partial answer size, last node, message count, `duration_ms` |
+| **D-1** | `PIIDetector` | `src/llm_client/security/pii_detector.py` | Presidio + spaCy `en_core_web_md`; detects `PERSON`, `EMAIL`, `PHONE`, `CREDIT_CARD`, `IBAN`, `IP`, `US_SSN`, `URL` + internal `EMP-\d{6}` and `PRJ-[A-Z]{3}-\d{4}`. `PII_DETECTOR_ENABLED=false` = no-op |
+| **D-2/D-3** | Dual-stream logging | operational sink + `ForensicStreamWriter` | Operational: `OPERATIONAL_LOG_SINK=stdout\|loki\|elk`, PII masked, batch 100 ms / 100 events, 30-day retention. Forensic: AES-256-GCM via Vault transit, batch 500 ms / 50 events, 90+ day retention in `llm-client-forensic` bucket |
+| **D-4** | KMS `KeyProvider` | `src/llm_client/security/` | `KMS_PROVIDER=vault` (default) or `local` (TEST ONLY). Vault-transit interface abstracts future managed KMS migration |
+| **D-5** | PII score in messages | DB layer + `migrations/005_add_pii_score_to_messages.sql` | `attach_pii_metadata()` computes `pii_score FLOAT` and `pii_entities JSONB` (only `{type, start, end}`, never raw PII). Indexed via `idx_messages_pii_score`. Daily metrics in `ops/pii_analytics.sql` |
+| **D-6** | Local dev without Vault | config layer | `ENVIRONMENT=dev` + `FORENSIC_STREAM_ENABLED=false` → app starts with only Redis + MinIO. PIIDetector and operational logging always active. `env=prod` rejects `FORENSIC_STREAM_ENABLED=false` at startup (fail-fast) |
+| **E-1** | Production-quality `S3CompatibleStorage` | `src/llm_client/storage/s3.py` | Built on `aiobotocore`. Multipart upload > 5 MB (8 MB parts), abort on error. Full `save` / `get` / `get_stream` / `delete` / `exists` / `list` contract. Error mapping: `404 → FileNotFoundError`, `403 → PermissionError`, transient → exponential retry (1 ms → 2 ms → 4 ms) then `StorageError` |
+| **E-2** | `LocalFileStorage` removed | — | Single backend; `STORAGE_BACKEND` flag retired. `rg "LocalFileStorage\|STORAGE_BACKEND" src/` returns 0 matches |
+| **E-3** | `InMemoryFileStorage` test-double | `tests/conftest.py` | Thread-safe dict-backed `FileStorage`; `file_storage` fixture available everywhere |
+| **E-4** | S3 access logs → forensic stream | `src/llm_client/observability/access_log_ingestor.py` | `AccessLogIngestor` background task polls `_access_logs/` prefix every 5 min, parses `{bucket, key, operation, requester, request_id, timestamp, bytes_transferred}`, writes to `ForensicStreamWriter`. Requester not in `S3_ACCESS_LOG_ALLOWLIST` → Slack alert to `SECURITY_ALERT_WEBHOOK_URL` |
+
+### ALPHA — ML & Search
+
+**Scope (Phase 2):** Reranker integration, PostgreSQL 16 full-text search, hybrid RAG with BM25 + vector fusion, multi-provider LLM support, RAG evaluation framework, and dedicated PR / nightly CI pipelines.
+
+| Area | Component | Highlights |
 |---|---|---|
-| Redis | `localhost:6380` (host) / `redis:6379` (compose network) | pub/sub cancel-канал, healthcheck |
-| MinIO | `http://localhost:9000` (API) / `http://localhost:9001` (Console) | S3-совместимое хранилище файлов и forensic |
-| Vault | `http://localhost:8200` | KMS, transit engine для AES-256-GCM |
+| **ML reranker** | BGE-reranker-base (`BAAI/bge-reranker-base`) | 278 M parameters, ~600 MB RAM after load, ~1.2 GB peak at inference. Latency ~150 ms CPU / ~30 ms GPU on 20 chunks (`batch_size=8/32`). Cached in `models/bge-reranker-base/` via `scripts/download_bge_reranker.py` |
+| **Reranker integration** | ADR-017 | Drop-in reranker in RAG pipeline; alternative Cohere reranker via `pip install -e ".[rerank]"` |
+| **PostgreSQL 16 FTS** | DB layer + `migrations/` | `tsvector GENERATED ALWAYS AS STORED`, GIN index `idx_documents_search_vector`, trigram fuzzy via `pg_trgm` (`idx_documents_content_trgm`), unique `content_hash` for idempotent upsert in `BM25IndexBuilder` |
+| **Hybrid query benchmark** | — | Vector + tsvector fusion `< 50 ms` on staging with 10 k documents, ordered by `ts_rank` |
+| **Vector store** | `VECTOR_STORE_KIND=none\|chroma\|pgvector` | Default `none`. `chroma` via `pip install -e ".[vector]"`; `pgvector` ships with `pgvector>=0.3.4`. Embeddings: `EMBEDDING_PROVIDER=openai\|none`, `EMBEDDING_MODEL=text-embedding-3-small` |
+| **Document ingestion API** | ADR-020, `POST /documents`, `DELETE /documents/{id}` | Response: `{document_id, status:"indexed\|partial", bm25_indexed, vector_indexed}`. Auth disabled in dev only |
+| **Multi-provider LLMs** | `langchain-openai`, `langchain-anthropic`, `langchain-ollama` (optional) | `CUSTOM-OPENAI`: any OpenAI-compatible endpoint with custom `base_url` + `api_key`. `ZAI`: Zhipu AI (`z.ai`) endpoint `https://api.z.ai/api/paas/v4`, model `glm-4.5` |
+| **RAG evaluation framework** | `datasets/rag_eval/` + A/B test runner | PASS criterion: `recall@5` improvement `≥ 15 %` AND latency overhead `< 100 ms`. Test marker: `eval` |
+| **Observability** | Prometheus `:9090`, Grafana `:3000`, Idealidad metrics exporter `:9101` | `idealidad-metric` job updates Phase 2 metrics nightly |
+| **Local CI scripts** | `scripts/ci-local-quick.ps1`, `scripts/ci-local-staging.ps1` | Mirror PR and nightly pipelines locally with `-Target` filters and `-TimeoutSeconds` |
 
-> Если порт 6379 занят другим проектом — Redis смонтирован на `6380`. Внутри compose-сети
-> сервис остаётся доступен как `redis:6379` (см. `REDIS_URL` в `.env`).
+### BETA — Eviction Policy & Semantic Cache Foundation
 
-## Быстрый старт
+**Scope (Phase 3, currently implemented):** Global Redis eviction policy with safe checkpoint recovery via the composite checkpointer, isolated semantic-cache integration tests, and AOF persistence tuning.
+
+| Area | Implementation | Notes |
+|---|---|---|
+| **Redis global eviction policy** | ADR-011 — `allkeys-lru` (maxmemory 1 GB) | Supersedes Phase 2 `noeviction` (DoD A-1 superseded, see `analytics/ARCHITECT.md` §8). Eviction is safe: checkpoints in Redis DB 1 are recovered read-through from PostgreSQL via the composite checkpointer |
+| **Eviction alerting** | Monitoring on `evicted_keys` | Small LRU churn under memory pressure is acceptable. A sharp increase triggers an alert: checkpoints are being evicted faster than the PG flusher can pin them (> 5 s lag = data loss on restart) |
+| **Redis DB separation** | DB 0 = pub/sub cancel channel (ADR-013), DB 1 = checkpoint-WAL (ADR-010) | Pub/sub does not cross DB boundaries in a single connection; do not switch DBs without need |
+| **AOF persistence** | `appendfsync=everysec`, `aof_enabled=1` | `appendonly.aof` grows in the `redis-data` volume as graphs execute. Verified via `INFO persistence` |
+| **Semantic cache integration tests** | `.github/workflows/phase3-nightly.yml` | Isolated from `phase2-nightly.yml` per E-5 anti-pattern avoidance (no Phase 3 jobs in Phase 2 nightly) |
+| **Pilot ADRs** | `docs/adr_015_pilot.md`, `docs/adr_016_pilot.md`, `docs/migration_adr_005_to_015.md` | Architecture pilots and the ADR-005 → ADR-015 migration plan |
+
+---
+
+## Quick Start
 
 ```bash
-# 1. Скопировать переменные
-copy .env.example .env
+# 1. Copy environment variables
+cp .env.example .env
 
-# 2. Поднять всю инфраструктуру
+# 2. Bring up the full infrastructure stack
 docker-compose up -d
 
-# 3. Установить Python-пакет с dev-зависимостями
+# 3. Install the Python package with dev dependencies
 pip install -e ".[dev]"
 
-# 4. Прогнать тесты (unit + integration против реальных Redis/MinIO)
-# pytest установлен в .venv — сначала активировать окружение:
-.\.venv\Scripts\Activate.ps1
+# 4. (Optional) Download the BGE reranker model (~600 MB, 2-5 minutes)
+python scripts/download_bge_reranker.py
+
+# 5. (Optional) Install spaCy model for PII detection
+python -m spacy download en_core_web_md
+
+# 6. Apply database migrations
+alembic upgrade head
+
+# 7. Run the test suite
 pytest tests -v
 ```
 
-> Если `pytest` не распознаётся (`CommandNotFoundException`) — окружение не активировано.
-> Без активации: `.\.venv\Scripts\pytest.exe tests -v` или `.\.venv\Scripts\python.exe -m pytest tests -v`.
-> Если `Activate.ps1` блокируется политикой выполнения: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+PowerShell users: activate the venv first with `.\.venv\Scripts\Activate.ps1` (or run `.\.venv\Scripts\python.exe -m pytest tests -v` directly). If `Activate.ps1` is blocked by execution policy: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
----
+> **MinIO is mandatory for local development.** There is no `LocalFileStorage` fallback since Block E. `docker-compose up -d` brings it up alongside Redis, Vault, and PostgreSQL.
 
-## Redis — проверка pub/sub
-
-### healthcheck
-
-```powershell
-docker-compose exec redis redis-cli ping
-# → PONG
-```
-
-### Pub/Sub тест (round-trip < 5 мс)
-
-Терминал 1 — подписаться:
-
-```powershell
-docker-compose exec redis redis-cli SUBSCRIBE test
-```
-
-Терминал 2 — опубликовать:
-
-```powershell
-docker-compose exec redis redis-cli PUBLISH test hello
-```
-
-Ожидаемый результат: сообщение `hello` получено в терминале 1, latency < 5 мс.
-
----
-
-## Phase 2 ML models
-
-### BGE-reranker-base setup
+### Smoke checks
 
 ```bash
-# 1. Скачать BGE-reranker-base модель (требуется ~600MB)
-python scripts/download_bge_reranker.py
-# → Download completed in ~2-5 minutes
-# → Smoke test passed
-# → Model cached in models/bge-reranker-base/
-```
+# Redis pub/sub round-trip (< 5 ms)
+docker-compose exec redis redis-cli ping                            # → PONG
+docker-compose exec redis redis-cli -n 1 INFO persistence | grep aof_enabled   # → 1
 
-**Модель**: `BAAI/bge-reranker-base` (278M параметров, ~600MB в памяти)  
-**Назначение**: Reranker в RAG pipeline (ADR-017)  
-**Latency**: ~150 мс CPU / ~30 мс GPU на 20 чанков (batch_size=8/32)  
-**RAM-профиль**: ~600MB после загрузки, ~1.2GB пиковая при inference  
+# MinIO buckets
+docker-compose exec minio mc ls local/                              # → llm-client-files/  llm-client-forensic/
 
-```bash
-# 2. Проверить работу модели (опционально)
-docker-compose up agent-service
-# → Agent service запускается с примонтированной моделью
-# → Reranker доступен через RERANKER_MODEL_NAME env var
-```
+# Vault transit encrypt/decrypt
+docker-compose exec vault vault status                              # → Initialized: true, Sealed: false
 
-**Настройки** (в `.env`):
-- `RERANKER_MODEL_NAME=BAAI/bge-reranker-base`
-- `RERANKER_MODEL_DIR=./models/bge-reranker-base`
-- `RERANKER_DEVICE=cpu` (или `cuda` если GPU доступен)
-- `RERANKER_MAX_LENGTH=512`
-- `RERANKER_BATCH_SIZE=8`
-
----
-
-## Phase 2 ML models
-
-### BGE-reranker-base setup
-
-```bash
-# 1. Скачать BGE-reranker-base модель (требуется ~600MB)
-python scripts/download_bge_reranker.py
-# → Download completed in ~2-5 minutes
-# → Smoke test passed
-# → Model cached in models/bge-reranker-base/
-```
-
-**Модель**: `BAAI/bge-reranker-base` (278M параметров, ~600MB в памяти)  
-**Назначение**: Reranker в RAG pipeline (ADR-017)  
-**Latency**: ~150 мс CPU / ~30 мс GPU на 20 чанков (batch_size=8/32)  
-**RAM-профиль**: ~600MB после загрузки, ~1.2GB пиковая при inference  
-
-```bash
-# 2. Проверить работу модели (опционально)
-docker-compose up agent-service
-# → Agent service запускается с примонтированной моделью
-# → Reranker доступен через RERANKER_MODEL_NAME env var
-```
-
-**Настройки** (в `.env`):
-- `RERANKER_MODEL_NAME=BAAI/bge-reranker-base`
-- `RERANKER_MODEL_DIR=./models/bge-reranker-base`
-- `RERANKER_DEVICE=cpu` (или `cuda` если GPU доступен)
-- `RERANKER_MAX_LENGTH=512`
-- `RERANKER_BATCH_SIZE=8`
-
----
-
-## Phase 1+2 — инфраструктура Redis
-
-Redis DB 0 — ADR-013 pub/sub; Redis DB 1 — ADR-010 checkpoint-WAL. Не переключай DB без необходимости — pub/sub не работает кросс-DB в одном connection.
-
-### Проверка Redis DB 1 (checkpoint-WAL)
-
-```powershell
-# Проверка доступности DB 1
-docker-compose exec redis redis-cli -n 1 ping
-# → PONG
-
-# Проверка памяти (должно быть 0 после старта)
-docker-compose exec redis redis-cli -n 1 INFO memory | grep used_memory_human
-# → 0K
-
-# Проверка eviction policy (должно быть 0)
-docker-compose exec redis redis-cli -n 1 INFO stats | grep evicted_keys
-# → 0
-
-# Проверка AOF-персистентности
-docker-compose exec redis redis-cli -n 1 INFO persistence | grep aof_enabled
-# → 1
-
-# Проверка appendfsync
-docker-compose exec redis redis-cli CONFIG GET appendfsync
-# → 1) "appendfsync"
-# → 2) "everysec"
-```
-
-При интеграции с Блоком B-1 AOF-файл `appendonly.aof` будет расти в volume `redis-data` по мере выполнения графов.
-
-### Проверка eviction (alert)
-
-С Phase 3 (ADR-011) глобальная политика Redis — `allkeys-lru` (maxmemory 1GB), а не `noeviction` из Phase 2 (DoD A-1 superseded, см. `analytics/ARCHITECT.md` §8). Вытеснение ключей безопасно: checkpoint-ы DB 1 восстанавливаются read-through из PostgreSQL (composite checkpointer).
-
-```powershell
-docker-compose exec redis redis-cli -n 1 INFO stats | grep evicted_keys
-# Небольшие значения допустимы (LRU под memory pressure)...
-docker-compose exec redis redis-cli -n 1 INFO memory | grep maxmemory_policy
-# → allkeys-lru (ожидаемо)
-# ...но РЕЗКИЙ рост evicted_keys — alert: checkpoint-ы активно вытесняются
-# быстрее, чем PG flusher их закрепляет (>5 сек задержка — потеря данных при restart).
+# PostgreSQL full-text search
+docker-compose exec postgres pg_isready -U postgres -d llm_client   # → accepting connections
+docker-compose exec postgres psql -U postgres -d llm_client -c \
+  "EXPLAIN ANALYZE SELECT * FROM documents
+   WHERE search_vector @@ websearch_to_tsquery('english', 'hello world')
+   ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', 'hello world')) DESC
+   LIMIT 10;"                                                       # → Bitmap Index Scan on idx_documents_search_vector
 ```
 
 ---
 
-## MinIO — проверка bucket'ов
+## Services & Ports
 
-После `docker-compose up minio minio-init`:
-
-```powershell
-# Убедиться что bucket'ы созданы
-docker-compose exec minio mc ls local/
-# → local/llm-client-files/
-# → local/llm-client-forensic/
-```
-
-### S3 lifecycle (retention)
-
-`minio-init` настраивает ILM-правила (ADR-014): forensic bucket — экспирация
-объектов через 90 дней, operational files bucket — через 30 дней.
-
-```powershell
-# alias `local` настраивается один раз — см. Round-trip upload/download ниже
-docker-compose exec minio mc ilm rule ls local/llm-client-forensic
-# → Expiration: Days: 90
-
-docker-compose exec minio mc ilm rule ls local/llm-client-files
-# → Expiration: Days: 30
-```
-
-Console доступна: [http://localhost:9001](http://localhost:9001)
-Логин / пароль: из `.env` → `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`.
-
-### Round-trip upload/download
-
-> `docker-compose exec minio mc cp C:\...` **не работает**: `mc` выполняется внутри
-> контейнера, где нет Windows-путей. Сначала файл копируется в контейнер через
-> `docker cp`, а alias `local` внутри контейнера MinIO нужно настроить с root-кредами
-> (иначе `AccessDenied`).
-
-```powershell
-# 1. Скопировать файл с хоста в контейнер
-$cid = docker-compose ps -q minio
-docker cp "C:\temp\test.txt" "$cid`:/tmp/test.txt"
-
-# 2. Настроить alias local с root-кредами (разово)
-docker-compose exec minio mc alias set local http://localhost:9000 minioadmin minioadmin
-
-# 3. Upload файла
-docker-compose exec minio mc cp /tmp/test.txt local/llm-client-files/test.txt
-
-# 4. Download файла (внутри контейнера → копируем наружу)
-docker-compose exec minio mc cp local/llm-client-files/test.txt /tmp/downloaded.txt
-docker cp "$cid`:/tmp/downloaded.txt" "C:\temp\downloaded.txt"
-
-# 5. Удаление
-docker-compose exec minio mc rm local/llm-client-files/test.txt
-```
-
-> Креды для шага 2 — `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` из `.env`, например `minioadmin`/`minioadmin`.
+| Service | Host port | Compose network | Purpose |
+|---|---|---|---|
+| Redis | `localhost:6380` | `redis:6379` | DB 0 — pub/sub cancel channel (ADR-013); DB 1 — checkpoint-WAL (ADR-010). Mounted on `6380` to avoid conflicts with host Redis on `6379` |
+| MinIO API | `http://localhost:9000` | `minio:9000` | S3-compatible storage. `llm-client-files` (30-day ILM) and `llm-client-forensic` (90-day ILM) buckets |
+| MinIO Console | `http://localhost:9001` | — | Web UI. Login from `.env`: `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
+| HashiCorp Vault | `http://localhost:8200` | `vault:8200` | Dev mode, root token = `root`. Transit engine, key `forensic-aes256-gcm` (`type=aes256-gcm96`) |
+| PostgreSQL 16 | `localhost:5434` | `postgres:5432` | Database `llm_client`. tsvector + GIN + pg_trgm + pgvector |
+| Prometheus | `http://localhost:9090` | `prometheus:9090` | Metrics scraper |
+| Grafana | `http://localhost:3000` | `grafana:3000` | Dashboards. Default `admin` / `admin` |
+| Idealidad exporter | `http://localhost:9101` | — | Phase ideality metrics |
+| Agent Service (FastAPI) | `http://localhost:8000` | `agent-service:8000` | Entry point `python -m llm_client.agent` |
+| Streamlit UI | `http://localhost:8501` | — | `src/llm_client/ui/app.py` |
 
 ---
 
-## Vault — проверка шифрования
+## Configuration
 
-### healthcheck
+All configuration is environment-driven via `.env` (see `.env.example`). The config layer fails fast at startup if a production value is missing or inconsistent (e.g. `ENVIRONMENT=prod` + `FORENSIC_STREAM_ENABLED=false` is rejected).
 
-```powershell
-docker-compose exec vault vault status
-# → Initialized: true, Sealed: false
-```
+### Core
 
-### Encrypt/Decrypt round-trip
-
-```powershell
-# Шифрование
-docker-compose exec vault vault write transit/encrypt/forensic-aes256-gcm plaintext=$(echo -n "test" | base64)
-
-# Результат содержит `ciphertext` — сохраните его.
-# Расшифрование (подставьте ciphertext):
-# docker-compose exec vault vault write transit/decrypt/forensic-aes256-gcm ciphertext="vault:v1:..."
-```
-
-Policy `forensic-encryptor` содержит только `transit/encrypt/forensic-aes256-gcm` и `transit/decrypt/forensic-aes256-gcm` — без путей `auth/`, `sys/`, `secret/`. Ключ создаётся с типом `aes256-gcm96` (именование нового Vault для AES-256-GCM).
-
-### S3 lifecycle (retention forensic)
-
-Retention forensic-записей (90 дней, ADR-014) настраивается ILM-правилом на
-forensic bucket (подробности — в разделе «MinIO — проверка bucket'ов»):
-
-```powershell
-docker-compose exec minio mc ilm rule ls local/llm-client-forensic
-# → Expiration: Days: 90
-```
-
----
-
-## Quick Wins Phase 1 (ROADMAP §12)
-
-### B-1 — Cancel через Redis pub/sub (мин. ADR-013)
-
-Компоненты: `src/llm_client/transport/` (CancellationToken, Registry, CancelPublisher,
-CancelSubscriber) + HTTP endpoint `POST /sessions/{id}/cancel` (FastAPI).
-
-Проверка полного цикла:
-
-```powershell
-# Терминал 1: подписчик
-docker-compose exec redis redis-cli SUBSCRIBE session:demo:cancel
-# Терминал 2: публикация (--raw: без форматирования)
-docker-compose exec redis redis-cli PUBLISH session:demo:cancel "{\"reason\":\"user_cancelled\"}"
-```
-
-Unit/интеграция: `pytest tests/unit/test_cancel_token.py tests/unit/test_cancel_transport.py
-tests/unit/test_cancel_endpoint.py tests/integration/test_redis_cancel.py`.
-
-### B-2 — S3CompatibleStorage (мин. расш. ADR-008)
-
-Компоненты: `src/llm_client/storage/` (FileStorage interface, S3CompatibleStorage) +
-переключатель `STORAGE_BACKEND=local|s3` (default `local`) — на момент Quick Win.
-
-> После Блока E (расш. ADR-008): `LocalFileStorage` **удалён**, `STORAGE_BACKEND` упразднён.
-> Единственный backend — `S3CompatibleStorage` (MinIO в dev, AWS S3 в prod); MinIO **обязателен**
-> для локальной разработки (`docker-compose up -d`, см. «Сервисы»).
-
-Проверка round-trip в MinIO:
-
-```powershell
-docker-compose exec minio mc ls local/llm-client-files/
-# после save() через FileStorage — файл появляется здесь
-```
-
-Тесты: `pytest tests/integration/test_minio_storage.py`.
-MinIO Console: http://localhost:9001 (логин/пароль из `.env`).
-
-### B-3 — State-Delta Cycle Detection (preview)
-
-Компоненты: `src/llm_client/agent/cycle_detection.py` (`compute_state_delta`,
-`IterationMonitor`). Флаги: `CYCLE_DETECTION_ENABLED`, `CYCLE_DETECTION_THRESHOLD`.
-При 2 итерациях подряд с similarity > threshold — граф флагает `cycle_detected`
-(log `[cycle_detection]`) и выходит на следующем conditional edge.
-
-Тесты: `pytest tests/unit/test_cycle_detection.py`.
-
----
-
-## Phase 1 — ADR-013 полный (Block C) + ADR-014 (Block D)
-
-### C-5 — UI auto-cancel
-
-JS-фрагмент (`src/llm_client/ui/auto_cancel.py`) для Streamlit: слушает
-`visibilitychange` / `pagehide` / `beforeunload`, шлёт `POST /sessions/{id}/cancel`
-через `navigator.sendBeacon` (fallback `fetch keepalive`) при закрытии вкладки.
-Debounce 5 сек — переключение вкладок на короткое время не шлёт cancel. Ручная
-кнопка "Stop" вызывает `window.stop_llm_session("user_cancelled")`.
-
-```python
-from llm_client.ui import inject_auto_cancel
-inject_auto_cancel()  # в начале Streamlit-скрипта
-```
-
-### C-6 — Cancel → forensic logging
-
-`CancelSubscriber` (Block C) вызывает handler, который пишет:
-- **operational** (маскированный): `{event_type, session_id, user_id: "[MASKED]", reason, timestamp}`;
-- **forensic** (полный trace, зашифрованный): user_id полный + partial answer size,
-  last node, message count, duration_ms.
-
-### D-1 — PIIDetector (Presidio + custom regex)
-
-```bash
-pip install "presidio-analyzer>=2.2.0" "spacy>=3.7.0"
-python -m spacy download en_core_web_md
-```
-
-`src/llm_client/security/pii_detector.py`: детектит PERSON, EMAIL, PHONE, CREDIT_CARD,
-IBAN, IP, US_SSN, URL + внутренние форматы `EMP-\d{6}` и `PRJ-[A-Z]{3}-\d{4}`.
-`PII_DETECTOR_ENABLED=false` — no-op для dev/test.
-
-### D-2/D-3 — Dual-Stream Logging
-
-- **Operational** (`OPERATIONAL_LOG_SINK=stdout|loki|elk`): PII маскируется, batch flush 100 ms / 100 events, retention 30 дней задаётся в sink-е (Loki/ELK).
-- **Forensic** (`FORENSIC_STREAM_ENABLED=true`): full trace шифруется AES-256-GCM через
-  Vault transit и пишется в S3 bucket `llm-client-forensic`, путь
-  `forensic/YYYY/MM/DD/{session_id}/...`, batch flush 500 ms / 50 events. Privilege:
-  Security officer + аудит-комитет, retention 90+ дней (lifecycle policy на bucket).
-
-### D-4 — KMS KeyProvider
-
-`KMS_PROVIDER=vault` (default) или `local` (TEST ONLY). Vault-transit интерфейс
-абстрагирует миграцию на managed KMS в Phase 5.
-
-### D-5 — PII score в messages
-
-Реализовано: при записи сообщений `attach_pii_metadata()` считает `pii_score` и
-`pii_entities` (только {type, start, end}, никогда текст PII). Сохраняется в таблицу
-`messages` колонками `pii_score FLOAT` и `pii_entities JSONB`.
-
-- **User сообщения**: PII метадата сохраняется при записи в БД
-- **Assistant/tool сообщения**: `pii_score` и `pii_entities` = NULL (метрика только для user)
-- **Миграция**: `migrations/005_add_pii_score_to_messages.sql` (с индексом `idx_messages_pii_score`)
-- **Аналитика**: `ops/pii_analytics.sql` — ежедневные метрики PII по user-сообщениям
-
-**PII_METADATA_ENABLED=false** → колонки `pii_score` и `pii_entities` = NULL.
-
-### D-6 — Local dev without Vault
-
-По умолчанию `ENVIRONMENT=dev` + `FORENSIC_STREAM_ENABLED=false`: forensic выключен,
-Vault не запрашивается, приложение стартует только с Redis и MinIO
-(`docker-compose up redis minio`). PIIDetector и operational logging активны всегда.
-
-Для staging/prod: `FORENSIC_STREAM_ENABLED=true` (обязателен Vault, иначе startup
-fails fast; в `env=prod` значение `false` отклоняется валидацией config).
-
----
-
-## Phase 1 — Block E: Single S3 Storage (расш. ADR-008)
-
-### E-1 — S3CompatibleStorage (production-quality)
-
-`src/llm_client/storage/s3.py`: полная реализация `FileStorage` через aiobotocore:
-
-- `save(file, key, metadata=None)` — multipart upload автоматически для файлов > 5 МБ
-  (8 МБ на часть, abort multipart при ошибке), `Metadata` → S3 object metadata;
-- `get` / `get_stream` / `delete` / `exists` / `list` — полный контракт;
-- Error mapping: `404 → FileNotFoundError`, `403/AccessDenied → PermissionError`,
-  остальные transient-ошибки → экспоненциальный retry (1ms→2ms→4ms), затем `StorageError`;
-- Единый backend для dev (MinIO) / staging / prod (S3) — один `FileStorage` контракт.
-
-### E-2 — LocalFileStorage удалён
-
-`LocalFileStorage` и флаг `STORAGE_BACKEND` **удалены** из кодовой базы. Единственный
-backend — `S3CompatibleStorage` (`create_file_storage()` без аргументов). **MinIO
-обязателен для локальной разработки** (`docker-compose up -d`).
-
-Проверка удаления:
-
-```powershell
-rg "LocalFileStorage|STORAGE_BACKEND" src/
-# → 0 совпадений
-```
-
-### E-3 — InMemoryFileStorage (test-double)
-
-`tests/conftest.py`: thread-safe dict-реализация `FileStorage` для unit-тестов.
-Fixture `file_storage` доступна во всех тестовых модулях.
-
-### E-4 — S3 access logs → forensic stream
-
-`src/llm_client/observability/access_log_ingestor.py`: `AccessLogIngestor` — фоновый
-таск, каждые 5 минут читает Server Access Log из `_access_logs/` prefix, парсит каждую
-строку в событие `s3_access` ({bucket, key, operation, requester, request_id, timestamp,
-bytes_transferred}) и передаёт в `ForensicStreamWriter` (шифруется + пишется в forensic
-bucket). Если requester не в allow-list (`S3_ACCESS_LOG_ALLOWLIST`, default
-`llm-client-service`) — пишется alert в `SECURITY_ALERT_WEBHOOK_URL` (Slack #security).
-
-Тесты: `pytest tests/unit/test_access_log_ingestor.py tests/unit/test_s3_storage.py
-tests/integration/test_minio_storage.py`.
-
----
-
-## Phase 2 — PostgreSQL full-text search
-
-### Phase 2 инфраструктура
-
-PostgreSQL 16 добавлен для полнотекстового поиска с tsvector + GIN индексами:
-
-| Сервис | URL / порт | Назначение |
+| Variable | Default | Purpose |
 |---|---|---|
-| PostgreSQL | `localhost:5434` (host) / `postgres:5432` (compose network) | База данных для документов, full-text search |
+| `ENVIRONMENT` | `dev` | `dev` / `staging` / `prod`. Affects fail-fast validation |
+| `LLM_PROVIDER` | `openai` | `openai` / `anthropic` / `ollama` / `custom-openai` / `zai` |
+| `OPENAI_API_KEY` | — | Required at import time when `LLM_PROVIDER=openai` |
+| `FORENSIC_STREAM_ENABLED` | `false` | `true` requires Vault; rejected if `false` in `env=prod` |
+| `KMS_PROVIDER` | `vault` | `vault` (default) or `local` (TEST ONLY) |
+| `PII_DETECTOR_ENABLED` | `true` | `false` = no-op detector for dev/test |
+| `PII_METADATA_ENABLED` | `true` | `false` → `pii_score` and `pii_entities` columns stay `NULL` |
 
-### healthcheck
+### Transport & storage
 
-```powershell
-docker-compose exec postgres pg_isready -U postgres -d llm_client
-# → llm_client is accepting connections
-```
+| Variable | Example | Purpose |
+|---|---|---|
+| `REDIS_URL` | `redis://localhost:6380/0` | Pub/sub cancel channel (DB 0) |
+| `REDIS_CHECKPOINT_URL` | `redis://localhost:6380/1` | Checkpoint-WAL (DB 1) |
+| `S3_ENDPOINT` | `http://localhost:9000` | MinIO or AWS S3 endpoint |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | `minioadmin` / `minioadmin` | S3 credentials |
+| `S3_BUCKET` | `llm-client-files` | Operational files bucket |
+| `S3_FORENSIC_BUCKET` | `llm-client-forensic` | Forensic bucket (90-day ILM) |
+| `S3_ACCESS_LOG_ALLOWLIST` | `llm-client-service` | Requester allow-list for `AccessLogIngestor` |
+| `SECURITY_ALERT_WEBHOOK_URL` | Slack webhook | Alert target for non-allow-listed S3 access |
 
-### Проверка tsvector
+### Search & ML
 
-```powershell
-docker-compose exec postgres psql -U postgres -d llm_client -c "
-SELECT id, search_vector FROM documents LIMIT 5;"
-# → Должен вернуть tsvector с лемматизированными терминами
-```
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client` | PostgreSQL 16 |
+| `PG_TEXT_SEARCH_CONFIG` | `english` | FTS configuration |
+| `PG_FUZZY_MATCHING_ENABLED` | `false` | Enable `pg_trgm` fuzzy matching |
+| `VECTOR_STORE_KIND` | `none` | `none` / `chroma` / `pgvector` |
+| `EMBEDDING_PROVIDER` | `openai` | `openai` / `none` |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `CHROMA_PERSIST_DIR` | `./chroma_db` | Chroma persistence dir when `VECTOR_STORE_KIND=chroma` |
+| `RERANKER_MODEL_NAME` | `BAAI/bge-reranker-base` | HuggingFace model id |
+| `RERANKER_MODEL_DIR` | `./models/bge-reranker-base` | Local cache dir |
+| `RERANKER_DEVICE` | `cpu` | `cpu` or `cuda` |
+| `RERANKER_MAX_LENGTH` | `512` | Max sequence length |
+| `RERANKER_BATCH_SIZE` | `8` | Inference batch size |
 
-### Проверка GIN индекса
+### Cycle detection
 
-```powershell
-docker-compose exec postgres psql -U postgres -d llm_client -c "
-EXPLAIN ANALYZE SELECT * FROM documents 
-WHERE search_vector @@ websearch_to_tsquery('english', 'error code 1234');"
-# → Должен использовать "Bitmap Index Scan on idx_documents_search_vector"
-```
-
-### Проверка trigram fuzzy matching
-
-```powershell
-docker-compose exec postgres psql -U postgres -d llm_client -c "
-EXPLAIN ANALYZE SELECT * FROM documents WHERE content % 'приер';"
-# → Должен использовать "Bitmap Index Scan on idx_documents_content_trgm"
-```
-
-### Hybrid query benchmark
-
-На staging с 10k документов hybrid query (vector + tsvector) должен выполняться <50 мс:
-
-```powershell
-docker-compose exec postgres psql -U postgres -d llm_client -c "
-EXPLAIN ANALYZE SELECT * FROM documents 
-WHERE search_vector @@ websearch_to_tsquery('english', 'hello world')
-ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', 'hello world')) DESC
-LIMIT 10;"
-```
-
-### Migration
-
-Таблица `documents` и tsvector индекс создаются миграциями:
-
-```bash
-# Применить миграции
-alembic upgrade head
-
-# Проверить статус
-alembic current
-# → 008 (fix_documents_search_schema)
-```
-
-Схема: `search_vector tsvector GENERATED ALWAYS AS STORED` (пересчитывается при UPDATE content/metadata), unique index на `content_hash` (idempotent upsert в `BM25IndexBuilder`).
-
-### Ingestion API (ADR-020 / D-2)
-
-```bash
-# Индексировать документ (BM25 + опционально vector)
-curl -X POST http://localhost:8000/documents \
-  -H "Content-Type: application/json" \
-  -d '{"user_id":"u1","content":"Error code 1234: ...","source_type":"api"}'
-
-# Удалить
-curl -X DELETE http://localhost:8000/documents/{document_id}
-```
-
-Ответ: `{"document_id","status":"indexed|partial","bm25_indexed","vector_indexed"}`.  
-Auth отсутствует (dev-only). Vector-нога включается через `VECTOR_STORE_KIND=chroma` + `pip install -e ".[vector]"`.
-
-### Конфигурация
-
-Переменные окружения для full-text search:
-
-- `PG_TEXT_SEARCH_CONFIG=english` — конфигурация полнотекстового поиска
-- `PG_FUZZY_MATCHING_ENABLED=false` — включить fuzzy matching через pg_trgm
-- `VECTOR_STORE_KIND=none|chroma|pgvector` — vector write-path (default: none)
-- `EMBEDDING_PROVIDER=openai|none`, `EMBEDDING_MODEL=text-embedding-3-small`
-- `CHROMA_PERSIST_DIR=./chroma_db` — каталог Chroma (при `VECTOR_STORE_KIND=chroma`)
+| Variable | Default | Purpose |
+|---|---|---|
+| `CYCLE_DETECTION_ENABLED` | `true` | Toggle state-delta cycle detection |
+| `CYCLE_DETECTION_THRESHOLD` | `0.85` | Similarity threshold for two consecutive iterations |
 
 ---
 
-## Справка
+## Testing
 
-- **AOF-персистентность Redis**: файл `appendonly.aof` создаётся в volume `redis-data` после первого `PUBLISH`.
-- **Isolation**: files и forensic bucket'ы — разные (`llm-client-files` / `llm-client-forensic`), как требует ADR-014.
-- **Без TLS**: внутренний трафик docker-compose; TLS добавляется в Phase 5.
-- **Без паролей в коде**: все креды через `.env` только.
-- **Docker Compose override**: для dev используется `docker-compose.override.yml` (если есть).
+**194 tests passing in 65.38 s** — 122 unit + 16 integration + 56 staging-load.
+
+```bash
+# Full suite
+pytest tests -v
+
+# By marker
+pytest tests -m unit -v
+pytest tests -m integration -v          # requires Redis/MinIO/Vault running
+pytest tests -m staging_load -v
+pytest tests -m eval -v                  # RAG A/B test framework
+
+# Specific Phase 1 components
+pytest tests/unit/test_cancel_token.py \
+       tests/unit/test_cancel_transport.py \
+       tests/unit/test_cancel_endpoint.py \
+       tests/unit/test_cycle_detection.py \
+       tests/unit/test_access_log_ingestor.py \
+       tests/unit/test_s3_storage.py \
+       tests/integration/test_redis_cancel.py \
+       tests/integration/test_minio_storage.py -v
+```
+
+Test markers: `unit`, `integration`, `staging_load`, `eval`. `pytest-asyncio` runs in auto mode. `moto[s3]` is available for S3 mocking in unit tests; `InMemoryFileStorage` is the canonical test-double for `FileStorage`.
+
+---
+
+## CI/CD Pipelines
+
+### Phase 2 PR pipeline (`.github/workflows/phase2-ci.yml`)
+
+Triggered on `push` to `main` and on every `pull_request`. External APIs (Tavily, OpenAI, Cohere) are mocked.
+
+| Job | Description | Timeout |
+|---|---|---|
+| `lint` | ruff | — |
+| `typecheck` | mypy | — |
+| `unit-tests` | unit tests with coverage | — |
+| `integration-dev` | integration tests against Redis + PG + MinIO + Vault | 120 s |
+| `checkpoint-quick` | checkpoint latency, 100 samples | 120 s |
+| `bm25-indexing-regression` | BM25 indexer unit test | 30 s |
+| `reranker-quick` | reranker quick test, 10 queries | 180 s |
+| `hybrid-rag-quick` | hybrid RAG quick test, 15 queries | 300 s |
+| `web-search-quick` | web search quick test, mocked Tavily | 60 s |
+| `rag-query-quick` | RAG query quick test, mocked pipeline | 120 s |
+| `ui-render-phase2-quick` | UI tests (G-1..G-4) | 60 s |
+
+### Phase 2 nightly pipeline (`.github/workflows/phase2-nightly.yml`)
+
+Triggered at 2 AM UTC daily and via `workflow_dispatch`. Sequential, staggered to avoid staging overload. Uses real APIs.
+
+| Job | Description | Timeout | Requirements |
+|---|---|---|---|
+| `checkpoint-latency-staging` | 1000 samples, p99 < 2 ms | 600 s | Redis + PG |
+| `checkpoint-recovery-staging` | 4 recovery scenarios (B-5) | 1200 s | Redis + PG + app |
+| `reranker-ab-test-staging` | 50+ queries, A/B test | 600 s | bge model |
+| `hybrid-rag-ab-test-staging` | 30 queries, A/B test | 600 s | PG tsvector + bge |
+| `web-search-integration-staging` | 5 queries, real Tavily | 180 s | `STAGING_TAVILY_API_KEY` |
+| `rag-query-integration-staging` | 10 queries, real pgvector | 300 s | staging PG |
+| `sse-tool-events-staging` | full SSE flow test | 120 s | agent service |
+| `idealidad-metric` | Phase 2 metrics update | 300 s | Prometheus |
+
+### Phase 3 nightly pipeline (`.github/workflows/phase3-nightly.yml`)
+
+Isolated from Phase 2 nightly per E-5 anti-pattern. Runs ADR-011 semantic cache integration tests against the full docker-compose stack.
+
+### Other workflows
+
+- **`phase1-ci.yml`** — Phase 1 baseline: lint → typecheck → unit tests + coverage → integration-dev → integration-staging (forensic + Vault) → cancel latency (dev sample).
+- **`phase1-nightly.yml`** — Full staging load (1000 samples), PII audit, S3 parity matrix, ideality metric.
+- **`checkpoint-nightly.yml`** — Checkpoint backend nightly tests.
+
+### Required GitHub secrets
+
+| Secret | Purpose | Required for |
+|---|---|---|
+| `STAGING_TAVILY_API_KEY` | Real Tavily API calls | `web-search-integration-staging` |
+| `COHERE_API_KEY` | Cohere reranker API | `reranker-ab-test-staging`, `hybrid-rag-ab-test-staging` |
+| `OPENAI_API_KEY` | OpenAI API for RAG | `rag-query-integration-staging` |
+| `SLACK_WEBHOOK_URL` | Failure notifications | all nightly jobs |
+
+### Local CI mirroring
+
+```powershell
+# PR simulation
+powershell -ExecutionPolicy Bypass -File scripts\ci-local-quick.ps1 -Target "lint,typecheck,unit,checkpoint,reranker"
+
+# Nightly simulation
+powershell -ExecutionPolicy Bypass -File scripts\ci-local-staging.ps1 -Target "checkpoint-latency,reranker-ab-test,web-search-integration"
+```
+
+Reports are written to `test-results/{checkpoint-latency,reranker-ab-test,web-search-integration,idealidad}/` with 30-day artifact retention.
+
+---
+
+## Project Structure
+
+```
+OriaAI/
+├── .github/workflows/          # CI: phase1-ci, phase1-nightly, phase2-ci, phase2-nightly, phase3-nightly, checkpoint-nightly
+├── .opencode/plans/            # Planning documents
+├── analytics/                  # ARCHITECT.md (§8 covers eviction policy & ADR-011)
+├── config/                     # Runtime configuration templates
+├── datasets/rag_eval/          # RAG evaluation datasets (recall@5 A/B tests)
+├── docs/                       # ADRs: adr_015_pilot.md, adr_016_pilot.md, migration_adr_005_to_015.md
+├── migrations/                 # SQL migrations (005_add_pii_score_to_messages.sql, 008_fix_documents_search_schema, ...)
+├── ops/                        # pii_analytics.sql and other operational SQL
+├── redis/                      # Redis config and AOF volume mount
+├── reports/                    # Generated test and benchmark reports
+├── scripts/                    # download_bge_reranker.py, ci-local-quick.ps1, ci-local-staging.ps1
+├── src/llm_client/
+│   ├── agent/                  # LangGraph logic + cycle_detection.py (B-3)
+│   ├── api.py                  # FastAPI: POST /sessions/{id}/cancel, POST /documents, SSE
+│   ├── config.py               # Pydantic settings, fail-fast validation
+│   ├── mcp/                    # MCP-style orchestration primitives
+│   ├── observability/          # access_log_ingestor.py (E-4), metrics
+│   ├── orchestration/          # Orchestration layer
+│   ├── rag/                    # Hybrid RAG pipeline, BM25IndexBuilder, rerankers
+│   ├── security/               # pii_detector.py (D-1), KMS KeyProvider (D-4)
+│   ├── storage/                # s3.py (E-1), FileStorage interface
+│   ├── transport/              # CancellationToken, CancelPublisher/Subscriber (B-1, C-6)
+│   ├── types.py                # Shared types
+│   └── ui/                     # app.py (Streamlit), auto_cancel.py (C-5)
+├── tests/                      # unit/ integration/ staging_load/ conftest.py (E-3 InMemoryFileStorage)
+├── .env.example                # Template for environment variables
+├── AGENTS.md                   # Agent-oriented project overview
+├── CONTRIBUTING.md             # Contribution guidelines
+├── Dockerfile.agent            # Agent service image
+├── LICENSE                     # Apache License 2.0
+├── Makefile                    # Common tasks
+├── ORYA_PROXY_CONFIG.md        # Proxy configuration reference
+├── README.md                   # This file
+├── SETUP_COMPLETE.md           # Dev environment setup notes
+├── alembic.ini                 # Alembic config
+├── docker-compose.yml          # Full stack: Redis, MinIO, Vault, PG, Prometheus, Grafana
+├── docker-compose.bake.yml     # Bake pipeline
+└── pyproject.toml              # hatchling build, Python 3.11+
+```
+
+---
+
+## Architecture Decision Records
+
+| ADR | Phase | Topic |
+|---|---|---|
+| ADR-008 | MVP | S3-compatible storage (extended in Block E) |
+| ADR-010 | BETA | Redis DB 1 checkpoint-WAL |
+| ADR-011 | BETA | Global Redis eviction policy `allkeys-lru`, composite checkpointer read-through |
+| ADR-013 | MVP | Cancel transport via Redis pub/sub |
+| ADR-014 | MVP | Forensic bucket retention (90-day ILM) and dual-stream logging |
+| ADR-015 | BETA | Pilot ADR — see `docs/adr_015_pilot.md` |
+| ADR-016 | BETA | Pilot ADR — see `docs/adr_016_pilot.md` |
+| ADR-017 | ALPHA | BGE reranker in RAG pipeline |
+| ADR-020 | ALPHA | Document ingestion API |
+
+The `docs/migration_adr_005_to_015.md` document covers the migration plan from ADR-005 to ADR-015.
 
 ---
 
 ## Troubleshooting
 
-| Проблема | Решение |
+| Problem | Fix |
 |---|---|
-| `minio-init` падает с `Connection refused` | Подождать пока MinIO перейдёт в `healthy` (`docker-compose ps`) |
-| `vault-init` "path is already in use" | Idempotent скрипт — повторный запуск безопасен (`2>/dev/null || echo`) |
-| Vault "unknown key type aes256-gcm" | Использовать `type=aes256-gcm96` (новое имя AES-256-GCM) |
-| `minio/minio` / `minio/mc` pull denied | Репозитории удалены из Docker Hub (2026-09). Используются `quay.io/minio/...` |
-| Redis не отвечает `PONG` | `docker-compose logs redis` — проверить нет ли warnings о maxmemory |
-| Порт 6379 занят | Наш Redis смонтирован на `6380:6379`, `REDIS_URL` в `.env` обновлён |
-| MinIO Console 403 | Проверить `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` в `.env` |
-| `pytest` не распознаётся в PowerShell | Активировать окружение: `.\.venv\Scripts\Activate.ps1`, либо запускать `.\.venv\Scripts\python.exe -m pytest tests -v` |
+| `minio-init` fails with `Connection refused` | Wait for MinIO to become `healthy` (`docker-compose ps`) before running `minio-init` |
+| `vault-init` reports "path is already in use" | Idempotent script — re-running is safe (`2>/dev/null \|\| echo`) |
+| Vault "unknown key type aes256-gcm" | Use `type=aes256-gcm96` (current Vault naming for AES-256-GCM) |
+| `minio/minio` or `minio/mc` pull denied | Docker Hub repos removed (2026-09). Use `quay.io/minio/...` images (already in compose) |
+| Redis does not answer `PONG` | `docker-compose logs redis` — check for `maxmemory` warnings |
+| Port `6379` is already in use | This repo mounts Redis on `6380:6379`. Update `REDIS_URL` in `.env` if you change it |
+| MinIO Console returns 403 | Verify `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` in `.env` |
+| `pytest` is not recognised in PowerShell | Activate venv: `.\.venv\Scripts\Activate.ps1`; or run `.\.venv\Scripts\python.exe -m pytest tests -v` directly |
+| `mc cp C:\...` fails inside MinIO container | `mc` runs in the container where Windows paths do not exist. `docker cp` the file into the container first, then `mc cp` from `/tmp/` |
 
 ---
 
-## Phase 2 CI Pipeline
+## Roadmap
 
-### GitHub Actions Workflows
+Future phases (not yet implemented):
 
-#### PR Pipeline (`.github/workflows/phase2-ci.yml`)
+- **Phase 4** — Multi-tenant isolation, RBAC on ingestion API, semantic cache production rollout.
+- **Phase 5** — TLS for all internal docker-compose traffic, managed KMS migration (AWS KMS / GCP KMS / Azure Key Vault) via the existing `KMS_PROVIDER` abstraction, full production hardening.
 
-**Trigger**: `push` (main), `pull_request`  
-**Jobs** (parallel execution):
+---
 
-| Job | Description | Timeout | Dependencies |
-|-----|-------------|---------|--------------|
-| `lint` | Code linting with ruff | - | - |
-| `typecheck` | Type checking with mypy | - | - |
-| `unit-tests` | Unit tests with coverage | - | - |
-| `integration-dev` | Integration tests (Redis+PG+MinIO+Vault) | 120s | Services |
-| `checkpoint-quick` | Checkpoint latency quick test (100 samples) | 120s | Services |
-| `bm25-indexing-regression` | BM25 indexer unit test | 30s | - |
-| `reranker-quick` | Reranker quick test (10 queries) | 180s | - |
-| `hybrid-rag-quick` | Hybrid RAG quick test (15 queries) | 300s | - |
-| `web-search-quick` | Web search quick test (mock Tavily) | 60s | - |
-| `rag-query-quick` | RAG query quick test (mock pipeline) | 120s | - |
-| `ui-render-phase2-quick` | UI tests (G-1..G-4) | 60s | - |
+## Contributing
 
-**Quick tests**: All external APIs (Tavily, OpenAI, Cohere) are mocked in PR pipeline.
+Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or pull request. The short version: trunk-based branching, Conventional Commits, ruff + mypy must pass, all tests in the affected phase must be green, and new features must ship with tests.
 
-#### Nightly Pipeline (`.github/workflows/phase2-nightly.yml`)
+---
 
-**Trigger**: `schedule` (2 AM UTC daily), `workflow_dispatch`  
-**Services**: Full docker-compose stack  
-**Jobs** (sequential execution, staggered):
+## License
 
-| Job | Description | Timeout | Requirements |
-|-----|-------------|---------|--------------|
-| `checkpoint-latency-staging` | 1000 samples, p99 <2ms | 600s | Redis+PG |
-| `checkpoint-recovery-staging` | 4 recovery scenarios (B-5) | 1200s | Redis+PG+app |
-| `reranker-ab-test-staging` | 50+ queries, A/B test | 600s | bge model |
-| `hybrid-rag-ab-test-staging` | 30 queries, A/B test | 600s | PG tsvector + bge |
-| `web-search-integration-staging` | 5 queries, real Tavily | 180s | `STAGING_TAVILY_API_KEY` |
-| `rag-query-integration-staging` | 10 queries, real PGVector | 300s | Staging PG |
-| `sse-tool-events-staging` | Full SSE flow test | 120s | Agent service |
-| `idealidad-metric` | Phase 2 metrics update | 300s | Prometheus |
+Licensed under the **Apache License, Version 2.0**. See [LICENSE](./LICENSE) for the full text.
 
-**Caching**: HuggingFace models (`~/.cache/huggingface`) cached between runs  
-**Artifacts**: 30-day retention for all test reports  
-**Notifications**: Slack webhook on failure
-
-**Phase 3 scope**: ADR-011 semantic cache integration tests run in separate workflow `.github/workflows/phase3-nightly.yml` (not in Phase 2 nightly — E-5 anti-pattern).
-
-### Local CI Scripts
-
-#### Quick Pipeline (PR simulation)
-
-```powershell
-# Run all PR pipeline jobs locally
-powershell -ExecutionPolicy Bypass -File scripts\ci-local-quick.ps1
-
-# Run specific test categories
-powershell -ExecutionPolicy Bypass -File scripts\ci-local-quick.ps1 -Target "lint,typecheck,unit,checkpoint,reranker"
 ```
+Copyright 2026 Reider85
 
-**Options**:
-- `-Target`: Specific test categories (`lint`, `typecheck`, `unit`, `integration`, `checkpoint`, `bm25`, `reranker`, `hybrid-rag`, `web-search`, `rag-query`, `ui`, `all`)
-- `-TimeoutSeconds`: Default 300 seconds per test
-- `-Port`: Streamlit port (default 8501)
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-#### Staging Pipeline (Nightly simulation)
+    http://www.apache.org/licenses/LICENSE-2.0
 
-```powershell
-# Run all nightly tests locally
-powershell -ExecutionPolicy Bypass -File scripts\ci-local-staging.ps1
-
-# Run specific staging tests
-powershell -ExecutionPolicy Bypass -File scripts\ci-local-staging.ps1 -Target "checkpoint-latency,reranker-ab-test,web-search-integration"
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 ```
-
-**Options**:
-- `-Target`: Specific test categories (`checkpoint-latency`, `checkpoint-recovery`, `reranker-ab-test`, `hybrid-rag-ab-test`, `web-search-integration`, `rag-query-integration`, `sse-tool-events`, `idealidad`, `all`)
-- `-TimeoutSeconds`: Default 1800 seconds per test
-- `-Port`: Streamlit port (default 8501)
-
-### Test Results
-
-All test results are saved to `test-results/` directory:
-- `test-results/checkpoint-latency/` - Checkpoint latency reports
-- `test-results/reranker-ab-test/` - Reranker A/B test results
-- `test-results/web-search-integration/` - Web search integration reports
-- `test-results/idealidad/` - Ideality metrics
-
-### Required Secrets for Nightly Pipeline
-
-Configure these GitHub repository secrets for nightly pipeline:
-
-| Secret | Purpose | Required for |
-|-------|---------|--------------|
-| `STAGING_TAVILY_API_KEY` | Real Tavily API calls | `web-search-integration-staging` |
-| `COHERE_API_KEY` | Cohere reranker API | `reranker-ab-test-staging`, `hybrid-rag-ab-test-staging` |
-| `OPENAI_API_KEY` | OpenAI API for RAG | `rag-query-integration-staging` |
-| `SLACK_WEBHOOK_URL` | Failure notifications | All jobs |
-
-### Local Development Setup
-
-For local CI testing, ensure environment variables are set in `.env`:
-
-```bash
-# Required for integration tests
-REDIS_URL=redis://localhost:6379/0
-REDIS_CHECKPOINT_URL=redis://localhost:6379/1
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5434/llm_client
-S3_ENDPOINT=http://localhost:9000
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=minioadmin
-S3_BUCKET=llm-client-files
-
-# Optional for nightly tests
-STAGING_TAVILY_API_KEY=your_tavily_key_here
-COHERE_API_KEY=your_cohere_key_here
-OPENAI_API_KEY=your_openai_key_here
-```
-
-### Pipeline Architecture
-
-**Phase 2 CI extends Phase 1 baseline** with:
-- **PR pipeline**: Quick tests only, no real API calls
-- **Nightly pipeline**: Full staging tests with real APIs
-- **Local scripts**: Mirror CI behavior for local development
-- **Artifact management**: JUnit XML + JSON reports with 30-day retention
-- **Caching**: Pip packages and HuggingFace models for faster builds
-
-**Anti-patterns avoided**:
-- No real API calls in PR pipeline (mocked only)
-- No Phase 2 jobs in Phase 1 CI (separate files)
-- Nightly jobs sequential (not parallel) to avoid staging overload
-- Secrets never hardcoded in workflow files
