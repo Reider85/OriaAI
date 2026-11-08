@@ -66,12 +66,7 @@ def upgrade() -> None:
         ),
     )
 
-    # 3. Indexes
-    op.create_index(
-        "ix_documents_facts_document_id",
-        "documents_facts",
-        ["document_id"],
-    )
+    # 3. Indexes (ix_documents_facts_document_id is created by index=True above)
     op.create_index(
         "ix_documents_facts_extracted_at",
         "documents_facts",

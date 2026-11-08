@@ -45,6 +45,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
     tenacity>=8.2.0 \
     huggingface-hub>=0.23.0
 
+# pgvector needs the extra index URL for Docker
+RUN pip install --no-cache-dir --extra-index-url https://pypi.ngrok.io pgvector>=0.3.4
+
 # Install optional dependencies
 RUN pip install --no-cache-dir \
     cohere>=5.0.0 \
