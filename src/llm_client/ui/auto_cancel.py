@@ -100,7 +100,7 @@ def inject_auto_cancel(backend_origin: str | None = None, session_id: str | None
     origin = backend_origin or "window.location.origin"
     js = AUTO_CANCEL_JS.replace("{{BACKEND_ORIGIN}}", _quote(origin))
     js = js.replace("{{SESSION_ID}}", _quote(session_id or ""))
-    st.iframe(js, height=0, width=1)
+    st.iframe(js, height=1, width=1)
 
 
 def _quote(value: str) -> str:
