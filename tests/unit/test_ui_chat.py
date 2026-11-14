@@ -518,7 +518,7 @@ def test_stream_tokens_tool_callback_still_buffers_events(monkeypatch):
     """The live callback must not replace the pending buffer."""
     lines = [
         "event: tool_call",
-        'data: {"tool_call_id": "tc1", "tool_name": "web_search", "args": {}}',
+        'data: {"tool_call_id": "tc1", "tool_name": "web_search", "args": {"query": "test query"}}',
         "",
         "event: done",
         "data: {}",

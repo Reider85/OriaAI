@@ -27,6 +27,11 @@ class WebSearchArgs(BaseModel):
 
 async def _web_search_impl(query: str, max_results: int = 5) -> list[dict]:
     """Implementation function for web_search tool."""
+    # Validate required query parameter
+    if not query:
+        logger.warning("web_search called with empty query parameter")
+        return []
+    
     api_key = settings.tavily_api_key
     if not api_key:
         logger.error("TAVILY_API_KEY not set — web_search unavailable")

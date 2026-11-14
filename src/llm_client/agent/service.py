@@ -771,7 +771,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     message_id=message_uuid,
                     session_id=session_uuid,
                     role="user",
-                    content={"text": body.message},
+                    content=body.message,
                     pii_score=score,
                     pii_entities=entities,
                 )
@@ -906,7 +906,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                     message_id=message_uuid,
                     session_id=session_uuid,
                     role="assistant",
-                    content={"text": content},
+                    content=content,
                     pii_score=None,
                     pii_entities=None,
                 )
@@ -934,11 +934,7 @@ def create_agent_app(_settings: Settings | None = None) -> FastAPI:
                         message_id=message_uuid,
                         session_id=session_uuid,
                         role="tool",
-                        content={
-                            "tool_call_id": tool_msg["tool_call_id"],
-                            "tool_name": tool_msg["tool_name"],
-                            "text": tool_msg["text"],
-                        },
+                        content=tool_msg["text"],
                         pii_score=None,
                         pii_entities=None,
                     )
@@ -1731,6 +1727,15 @@ async def _stream_generator(session_id: str) -> Any:
                         continue
                     tool_name = tool_call.get("name") or "unknown"
                     args = tool_call.get("args") or {}
+                    
+                    # Validate required parameters for web_search tool
+                    if tool_name == "web_search" and not args.get("query"):
+                        logger.warning(
+                            "web_search tool call missing required 'query' parameter for call_id %s",
+                            call_id
+                        )
+                        args = {"query": "", "max_results": 5}  # Provide default empty query
+                    
                     tool_names[str(call_id)] = tool_name
                     if tool_name == RAG_QUERY_TOOL:
                         rag_queries[str(call_id)] = str(args.get("query") or "")

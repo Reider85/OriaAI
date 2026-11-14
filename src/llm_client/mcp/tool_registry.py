@@ -95,9 +95,19 @@ async def file_export_handler(content: str, format: str, filename: str | None = 
 
 async def web_search_handler(query: str, max_results: int = 5) -> list:
     """MCP-callable wrapper for web_search tool."""
-    from ..agent.tools.web_search import web_search
-
-    return await web_search.ainvoke({"query": query, "max_results": max_results})
+    from ..agent.tools.web_search import WebSearchArgs, web_search
+    
+    # Validate required query parameter
+    if not query:
+        raise ValueError("web_search requires a 'query' parameter")
+    
+    # Validate max_results parameter
+    try:
+        validated_args = WebSearchArgs(query=query, max_results=max_results)
+        return await web_search.ainvoke(validated_args)
+    except Exception as e:
+        logger.error(f"web_search validation error: {e}")
+        raise
 
 
 def build_default_tools() -> list[ExposedTool]:
